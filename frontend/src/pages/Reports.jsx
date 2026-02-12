@@ -12,7 +12,7 @@ export default function Reports(){
 
   function downloadCSV(){
     // trigger backend CSV export
-    const token = localStorage.getItem('token')
+    const token = sessionStorage.getItem('token')
     const url = (import.meta.env.VITE_API_URL || 'http://localhost:4000') + '/api/reports/usages/csv'
     const a = document.createElement('a')
     a.href = url

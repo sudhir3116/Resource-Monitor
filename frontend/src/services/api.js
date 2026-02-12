@@ -1,7 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 
 async function request(path, options = {}) {
-  const token = localStorage.getItem('token')
+  const token = sessionStorage.getItem('token')
   const headers = options.headers || {}
   if (!headers['Content-Type']) headers['Content-Type'] = 'application/json'
   if (token) headers['Authorization'] = `Bearer ${token}`
@@ -16,7 +16,7 @@ async function request(path, options = {}) {
 
   // Global 401 handling
   if (res.status === 401) {
-    localStorage.removeItem('token')
+    sessionStorage.removeItem('token')
     if (typeof window !== 'undefined') window.location.href = '/login'
     throw new Error('Unauthorized')
   }

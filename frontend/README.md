@@ -16,5 +16,5 @@ Endpoints used:
 - GET /api/protected — example protected route (expects Authorization: Bearer <token>)
 
 Notes
-- Tokens are stored in localStorage under key `token`.
+- Tokens are stored in sessionStorage under key `token` (cleared when browser/tab is closed).
 - The Dashboard route is protected and will redirect to /login when unauthorized.

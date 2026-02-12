@@ -11,13 +11,13 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     async function init() {
-      const token = localStorage.getItem('token')
+      const token = sessionStorage.getItem('token')
       if (token) {
         try {
           const data = await api.get('/api/profile')
           setUser(data.user)
         } catch (e) {
-          localStorage.removeItem('token')
+          sessionStorage.removeItem('token')
           setUser(null)
         }
       }
@@ -29,7 +29,7 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     const data = await api.post('/api/auth/login', { email, password })
     if (data.token) {
-      localStorage.setItem('token', data.token)
+      sessionStorage.setItem('token', data.token)
       const profile = await api.get('/api/profile')
       setUser(profile.user)
     }
@@ -38,7 +38,7 @@ export function AuthProvider({ children }) {
   const googleLogin = async (id_token) => {
     const data = await api.post('/api/auth/google', { id_token })
     if (data.token) {
-      localStorage.setItem('token', data.token)
+      sessionStorage.setItem('token', data.token)
       const profile = await api.get('/api/profile')
       setUser(profile.user)
     }
@@ -47,14 +47,14 @@ export function AuthProvider({ children }) {
   const register = async (name, email, password) => {
     const data = await api.post('/api/auth/register', { name, email, password })
     if (data.token) {
-      localStorage.setItem('token', data.token)
+      sessionStorage.setItem('token', data.token)
       const profile = await api.get('/api/profile')
       setUser(profile.user)
     }
   }
 
   const logout = () => {
-    localStorage.removeItem('token')
+    sessionStorage.removeItem('token')
     setUser(null)
     navigate('/login')
   }
