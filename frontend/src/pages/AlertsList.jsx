@@ -1,81 +1,164 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useContext } from 'react'
 import api from '../services/api'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import Loading from '../components/Loading'
+import EmptyState from '../components/EmptyState'
+import { useToast } from '../context/ToastContext'
+import { AuthContext } from '../context/AuthContext'
 
-export default function AlertsList(){
+export default function AlertsList() {
   const [rules, setRules] = useState([])
-  const [logs, setLogs] = useState([])
+  const [systemAlerts, setSystemAlerts] = useState([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [activeTab, setActiveTab] = useState('system') // 'system' | 'rules'
 
-  useEffect(()=>{ load() }, [])
-  async function load(){
+  const { addToast } = useToast()
+  const { user } = useContext(AuthContext)
+  const navigate = useNavigate()
+
+  useEffect(() => { load() }, [])
+
+  async function load() {
     setLoading(true)
-    try{
-      const res = await api.get('/api/alerts')
-      // API returns { rules, logs } (logs may also be available via /logs/all)
-      const fetchedRules = res.rules || []
-      let fetchedLogs = res.logs || []
-      if (!fetchedLogs || !fetchedLogs.length) {
-        try {
-          const fallback = await api.get('/api/alerts/logs/all')
-          fetchedLogs = fallback.logs || fetchedLogs
-        } catch (e) {
-          // ignore fallback errors
-        }
-      }
-      setRules(fetchedRules)
-      setLogs(fetchedLogs)
-    }catch(err){ setError(err.message) }
-    finally{ setLoading(false) }
+    try {
+      // 1. Fetch Rules (Configured by Admins)
+      const resRules = await api.get('/api/alerts')
+      setRules((resRules && resRules.rules) || [])
+
+      // 2. Fetch Recent System Alerts (from Dashboard Stats endpoint for now as a proxy for 'All Alerts')
+      // Ideally we'd have a dedicated /api/alerts/history endpoint, but this works for the requirement.
+      const stats = await api.get('/api/usage/stats')
+      setSystemAlerts((stats && stats.recentAlerts) || [])
+
+    } catch (err) {
+      addToast('Failed to load alerts', 'error')
+    } finally { setLoading(false) }
   }
 
-  async function remove(id){ if(!confirm('Delete?')) return; await api.del(`/api/alerts/${id}`); setRules(rs=>rs.filter(x=>x._id!==id)) }
+  async function deleteRule(id) {
+    if (!confirm('Are you sure you want to delete this alert rule?')) return
+    try {
+      await api.del(`/api/alerts/${id}`)
+      setRules(prev => prev.filter(r => r._id !== id))
+      addToast('Rule deleted successfully')
+    } catch (e) {
+      addToast(e.message || 'Failed to delete rule', 'error')
+    }
+  }
 
   return (
     <div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-        <h2>Alert Rules</h2>
-        <Link to="/alerts/new" className="btn">New Rule</Link>
+      <div className="dashboard-header">
+        <div>
+          <h1>Alerts & Configurations</h1>
+          <p className="subtitle">Monitor system anomalies and configure updated thresholds</p>
+        </div>
+        <div>
+          {/* Only Admins can create new rules */}
+          {user && user.role === 'admin' && (
+            <button onClick={() => navigate('/alerts/new')} className="primary-btn">+ New Rule</button>
+          )}
+        </div>
       </div>
 
-      {loading ? <Loading /> : error ? <div className="error">{error}</div> : (
-        <>
-          <div className="card">
-            <table className="usage-table">
-              <thead><tr><th>Resource</th><th>Threshold</th><th>Comparison</th><th>Active</th><th></th></tr></thead>
-              <tbody>{rules.map(r=> (
-                <tr key={r._id}>
-                  <td>{r.resource_type}</td>
-                  <td>{r.threshold_value}</td>
-                  <td>{r.comparison}</td>
-                  <td>{String(r.active)}</td>
-                  <td>
-                    <Link to={`/alerts/${r._id}/edit`} className="btn-ghost">Edit</Link>
-                    <button onClick={()=>remove(r._id)} className="btn-ghost">Delete</button>
-                  </td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
+      {/* Tabs */}
+      <div className="tabs" style={{ display: 'flex', gap: 20, marginBottom: 20, borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+        <button
+          className={`btn-ghost ${activeTab === 'system' ? 'active' : ''}`}
+          style={{
+            padding: '10px 4px',
+            borderBottom: activeTab === 'system' ? '2px solid var(--primary)' : '2px solid transparent',
+            color: activeTab === 'system' ? 'var(--primary)' : 'var(--muted)',
+            fontWeight: activeTab === 'system' ? 700 : 500,
+            borderRadius: 0
+          }}
+          onClick={() => setActiveTab('system')}>
+          System Notifications
+        </button>
+        <button
+          className={`btn-ghost ${activeTab === 'rules' ? 'active' : ''}`}
+          style={{
+            padding: '10px 4px',
+            borderBottom: activeTab === 'rules' ? '2px solid var(--primary)' : '2px solid transparent',
+            color: activeTab === 'rules' ? 'var(--primary)' : 'var(--muted)',
+            fontWeight: activeTab === 'rules' ? 700 : 500,
+            borderRadius: 0
+          }}
+          onClick={() => setActiveTab('rules')}>
+          My Alert Rules
+        </button>
+      </div>
 
-          <h2 style={{marginTop:20}}>Alert History</h2>
-          {(!logs || logs.length === 0) ? (
-            <div className="empty-state">No alerts triggered yet.</div>
-          ) : (
-            <div className="card" style={{marginTop:12}}>
-              <table className="usage-table">
-                <thead><tr><th>When</th><th>Resource</th><th>Value</th><th>Message</th></tr></thead>
-                <tbody>{logs.map(l=> (
-                  <tr key={l._id}>
-                    <td>{new Date(l.createdAt).toLocaleString()}</td>
-                    <td>{l.resource_type}</td>
-                    <td>{l.usage_value}</td>
-                    <td>{l.message}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
+      {loading ? <Loading /> : (
+        <>
+          {/* System Notifications Tab */}
+          {activeTab === 'system' && (
+            <div className="card">
+              <h3>Recent System Alerts</h3>
+              {systemAlerts.length === 0 ? <EmptyState icon="✅" title="No Recent Alerts" description="Your system is running smoothly." /> : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {systemAlerts.map(alert => (
+                    <div key={alert._id} className={`alert-item ${alert.status === 'danger' ? 'danger' : 'warning'}`}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <strong style={{ fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {alert.resourceType === 'Electricity' ? '⚡' : alert.resourceType === 'Water' ? '💧' : '📢'}
+                          {alert.resourceType || 'System'} Alert
+                        </strong>
+                        <span className="alert-date" style={{ fontSize: 12, opacity: 0.7 }}>{new Date(alert.createdAt).toLocaleString()}</span>
+                      </div>
+                      <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+                        {alert.message}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Custom Rules Tab */}
+          {activeTab === 'rules' && (
+            <div className="card">
+              <h3>Configuration Rules</h3>
+              <div className="table-wrap">
+                {rules.length === 0 ? <EmptyState icon="⚙️" title="No Rules Configured" description="Create a rule to get notified about usage anomalies." action={
+                  user && user.role === 'admin' ? <button onClick={() => navigate('/alerts/new')} className="btn small primary">Create Rule</button> : null
+                } /> : (
+                  <table className="usage-table">
+                    <thead>
+                      <tr>
+                        <th>Resource</th>
+                        <th>Condition</th>
+                        <th>Threshold</th>
+                        <th>Status</th>
+                        <th style={{ textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rules.map(r => (
+                        <tr key={r._id}>
+                          <td style={{ fontWeight: 600 }}>{r.resource_type}</td>
+                          <td>{r.comparison === 'gt' ? 'Above (>)' : r.comparison === 'lt' ? 'Below (<)' : 'Equals (=)'}</td>
+                          <td style={{ fontWeight: 600 }}>{r.threshold_value}</td>
+                          <td>
+                            <span className={`badge ${r.active ? 'badge-success' : 'badge-warning'}`}>
+                              {r.active ? 'Active' : 'Paused'}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            {user && user.role === 'admin' && (
+                              <>
+                                <button onClick={() => navigate(`/alerts/${r._id}/edit`)} className="btn small secondary" style={{ marginRight: 8 }}>Edit</button>
+                                <button onClick={() => deleteRule(r._id)} className="btn small" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>Delete</button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </div>
           )}
         </>
@@ -83,3 +166,4 @@ export default function AlertsList(){
     </div>
   )
 }
+
