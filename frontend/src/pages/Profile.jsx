@@ -19,7 +19,7 @@ export default function Profile(){
       <h2>Profile</h2>
       {loading ? <Loading /> : error ? <div className="error">{error}</div> : (
         <div className="card">
-          <p><strong>Name:</strong> {user.name}</p>
+          <p><strong>Name:</strong> {user.name} {user.provider === 'google' && <span className="badge">Google Account</span>}</p>
           <p><strong>Email:</strong> {user.email}</p>
         </div>
       )}

@@ -1,15 +1,24 @@
-import React, { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import api from '../services/api'
+import React, { useEffect, useState, useContext } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
+import Card from '../components/Card'
+import Input from '../components/Input'
+import Button from '../components/Button'
+import LoadingSpinner from '../components/LoadingSpinner'
+import { AuthContext } from '../context/AuthContext'
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [showPw, setShowPw] = useState(false)
   const navigate = useNavigate()
+  const { login, googleLogin } = useContext(AuthContext)
 
-  useEffect(() => {
-    // Load Google Identity Services script
+  // Page title
+  React.useEffect(() => { document.title = 'Sign in — Sustainable Resource Monitor' }, [])
+
+  useEffect(()=>{
     const id = 'google-identity-script'
     if (!document.getElementById(id)) {
       const s = document.createElement('script')
@@ -22,81 +31,59 @@ export default function Login() {
 
     function onToken(e){ const id_token = e.detail; handleGoogle(id_token) }
     window.addEventListener('google-id-token', onToken)
-    // When script loads, initialize the Google button
     const initInterval = setInterval(() => {
       if (window.google && window.google.accounts && window.google.accounts.id) {
         clearInterval(initInterval)
         window.google.accounts.id.initialize({ client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID, callback: (res)=>{ const id_token = res.credential; const evt = new CustomEvent('google-id-token', { detail: id_token }); window.dispatchEvent(evt) } })
-        window.google.accounts.id.renderButton(document.querySelector('.g_id_signin'), { theme: 'outline', size: 'large' })
+        window.google.accounts.id.renderButton(document.querySelector('.g_id_signin'), { theme: 'filled_blue', size: 'large' })
       }
     }, 200)
 
-    return () => {
-      window.removeEventListener('google-id-token', onToken)
-      clearInterval(initInterval)
-    }
+    return ()=>{ window.removeEventListener('google-id-token', onToken); clearInterval(initInterval) }
   }, [])
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e){
     e.preventDefault()
     setError(null)
-    try {
-      const res = await fetch('http://localhost:4000/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message || 'Login failed')
-      localStorage.setItem('token', data.token)
+    setLoading(true)
+    try{
+      await login(email, password)
       navigate('/dashboard')
-    } catch (err) {
-      setError(err.message)
-    }
+    }catch(err){ setError(err.message); setLoading(false) }
   }
 
-  async function handleGoogle(id_token) {
+  async function handleGoogle(id_token){
     setError(null)
-    try {
-      const res = await fetch('http://localhost:4000/api/auth/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id_token })
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message || 'Google login failed')
-      localStorage.setItem('token', data.token)
+    setLoading(true)
+    try{
+      await googleLogin(id_token)
       navigate('/dashboard')
-    } catch (err) {
-      setError(err.message)
-    }
+    }catch(err){ setError(err.message); setLoading(false) }
   }
 
   return (
-    <div className="card">
-      <h2>Login</h2>
-      <form onSubmit={handleSubmit}>
-        <label>
-          Email
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
-        </label>
-        <label>
-          Password
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
-        </label>
-        {error && <div className="error">{error}</div>}
-        <button className="btn">Login</button>
-      </form>
+    <div className="auth-page">
+      <Card>
+        <h2 className="auth-title">Sign in to Sustainable Resource Monitor</h2>
+        <p className="auth-sub">Sign in to continue to your dashboard</p>
+        <form onSubmit={handleSubmit} className="auth-form">
+          <Input label="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com" required />
+          <Input label="Password" type={showPw? 'text':'password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Enter your password" required>
+            <button type="button" className="pw-toggle" onClick={()=>setShowPw(s=>!s)}>{showPw? 'Hide':'Show'}</button>
+          </Input>
+          <div className="auth-row">
+            <Link to="/forgot" className="forgot-link">Forgot Password?</Link>
+          </div>
+          {error && <div className="form-error center">{error}</div>}
+          <Button loading={loading}>Sign in</Button>
+        </form>
 
-      <div style={{marginTop:16}}>
-        <div id="g_id_onload" data-client_id={import.meta.env.VITE_GOOGLE_CLIENT_ID} data-callback="handleGoogleCallback"></div>
-        <div className="g_id_signin" data-type="standard" data-shape="rectangular" data-theme="outline" data-text="signin_with" data-size="large" data-logo_alignment="left"></div>
-      </div>
-
-      <script>{`function handleGoogleCallback(response){ window.__handleGoogle && window.__handleGoogle(response) }`}</script>
-      <script>{`window.__handleGoogle = function(resp){ const id_token = resp.credential; window.handleGoogleClient && window.handleGoogleClient(id_token); }`}</script>
-      <script>{`(function poll(){ if(window.handleGoogleClient) return; window.handleGoogleClient = (id)=>{ const evt = new CustomEvent('google-id-token', {detail: id}); window.dispatchEvent(evt) }; window.setTimeout(poll,200) })()`}</script>
-
+        <div className="divider"><span>Or continue with</span></div>
+        <div className="g_id_signin" />
+        <div className="auth-footer">
+          <span>Don't have an account? <Link to="/register">Register</Link></span>
+        </div>
+      </Card>
     </div>
   )
 }

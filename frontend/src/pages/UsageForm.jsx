@@ -34,7 +34,7 @@ export default function UsageForm(){
       const payload = { ...form, usage_date: new Date(form.usage_date) }
       if (id) await api.put(`/api/usage/${id}`, payload)
       else await api.post('/api/usage', payload)
-      navigate('/usage')
+      navigate('/dashboard')
     }catch(err){ setError(err.message) }
     finally{ setLoading(false) }
   }

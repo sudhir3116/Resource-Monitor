@@ -71,6 +71,10 @@ app.use('/api/alerts', alertsRoutes)
 const reportsRoutes = require('./routes/reportsRoutes')
 app.use('/api/reports', reportsRoutes)
 
+/* ================= Mailer Test Route (dev) ================= */
+const mailerRoutes = require('./routes/mailerRoutes')
+app.use('/api/mailer', mailerRoutes)
+
 /* ================= Server ================= */
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {

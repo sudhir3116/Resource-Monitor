@@ -14,7 +14,8 @@ exports.createRule = async (req, res) => {
 exports.listRules = async (req, res) => {
   try {
     const rules = await AlertRule.find({ userId: req.userId })
-    res.json({ rules })
+    const logs = await AlertLog.find({ userId: req.userId }).sort({ createdAt: -1 })
+    res.json({ rules, logs })
   } catch (err) {
     res.status(500).json({ message: err.message })
   }
