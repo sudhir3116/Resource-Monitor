@@ -1,7 +1,7 @@
 const express = require('express')
 const router = express.Router()
 const usageController = require('../controllers/usageController')
-const protect = require('../middleware/auth')
+const protect = require('../middleware/authMiddleware')
 
 router.use(protect) // All routes protected
 

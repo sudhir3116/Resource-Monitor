@@ -28,11 +28,25 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['user', 'admin'],
-      default: 'admin'
+      enum: Object.values(require('../config/roles').ROLES),
+      default: 'student',
+      index: true
+    },
+    block: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Block',
+      index: true
+    },
+    room: {
+      type: String // Room number
+    },
+    floor: {
+      type: Number
     }
   },
   { timestamps: true }
 );
+
+
 
 module.exports = mongoose.model("User", userSchema);

@@ -1,6 +1,6 @@
 const express = require('express')
 const router = express.Router()
-const auth = require('../middleware/auth')
+const auth = require('../middleware/authMiddleware')
 const User = require('../models/User')
 const bcrypt = require('bcryptjs')
 
@@ -10,6 +10,27 @@ router.get('/', auth, async (req, res) => {
     const user = await User.findById(req.userId).select('-password')
     if (!user) return res.status(404).json({ message: 'User not found' })
     res.json({ user })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// PUT /api/profile - update profile details
+router.put('/', auth, async (req, res) => {
+  try {
+    const { name, avatar } = req.body
+
+    const user = await User.findById(req.userId)
+    if (!user) return res.status(404).json({ message: 'User not found' })
+
+    if (name) user.name = name
+    if (avatar) user.avatar = avatar // Stores URL
+
+    await user.save()
+
+    // Return updated user without password
+    const updatedUser = await User.findById(req.userId).select('-password')
+    res.json({ user: updatedUser, message: 'Profile updated successfully' })
   } catch (err) {
     res.status(500).json({ message: err.message })
   }

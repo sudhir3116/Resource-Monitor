@@ -25,10 +25,9 @@ export default function AlertsList() {
       const resRules = await api.get('/api/alerts')
       setRules((resRules && resRules.rules) || [])
 
-      // 2. Fetch Recent System Alerts (from Dashboard Stats endpoint for now as a proxy for 'All Alerts')
-      // Ideally we'd have a dedicated /api/alerts/history endpoint, but this works for the requirement.
-      const stats = await api.get('/api/usage/stats')
-      setSystemAlerts((stats && stats.recentAlerts) || [])
+      // 2. Fetch System Alerts (Real Data)
+      const resAlerts = await api.get('/api/alerts/system')
+      setSystemAlerts((resAlerts && resAlerts.alerts) || [])
 
     } catch (err) {
       addToast('Failed to load alerts', 'error')
@@ -106,6 +105,14 @@ export default function AlertsList() {
                         </strong>
                         <span className="alert-date" style={{ fontSize: 12, opacity: 0.7 }}>{new Date(alert.createdAt).toLocaleString()}</span>
                       </div>
+
+                      {/* Admin View: Show User Triggering Alert */}
+                      {user && user.role === 'admin' && alert.user && (
+                        <div style={{ fontSize: 12, color: '#666', marginBottom: 4, paddingBottom: 4, borderBottom: '1px dashed rgba(0,0,0,0.1)' }}>
+                          User: <b>{alert.user.name}</b> ({alert.user.email})
+                        </div>
+                      )}
+
                       <div style={{ fontSize: 14, lineHeight: 1.5 }}>
                         {alert.message}
                       </div>

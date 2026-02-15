@@ -1,51 +1,60 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+import axios from 'axios';
 
-async function request(path, options = {}) {
-  const token = sessionStorage.getItem('token')
-  const headers = options.headers || {}
-  if (!headers['Content-Type']) headers['Content-Type'] = 'application/json'
-  if (token) headers['Authorization'] = `Bearer ${token}`
-  let res
-  try {
-    res = await fetch(`${API_BASE}${path}`, { ...options, headers })
-  } catch (err) {
-    // network error (backend down or CORS), surface a friendly message
-    console.error('Network error when calling API', err)
-    throw new Error('Network error')
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:4000',
+  withCredentials: true,
+  timeout: 10000, // 10s timeout to prevent hanging
+  headers: {
+    'Content-Type': 'application/json'
   }
+});
 
-  // Global 401 handling
-  if (res.status === 401) {
-    sessionStorage.removeItem('token')
-    if (typeof window !== 'undefined') window.location.href = '/login'
-    throw new Error('Unauthorized')
-  }
+api.interceptors.response.use(
+  (response) => {
+    return response;
+  },
+  async (error) => {
+    const originalRequest = error.config;
 
-  const contentType = res.headers.get('content-type') || ''
-  if (contentType.includes('application/json')) {
-    let data
-    try {
-      data = await res.json()
-    } catch (err) {
-      console.error('Error parsing JSON response', err)
-      throw new Error('Invalid JSON response')
+    // 1. Check for missing response (Network Error or Timeout)
+    if (!error.response) {
+      // console.error('Network/Timeout Error:', error);
+      return Promise.reject(error);
     }
-    if (!res.ok) throw new Error(data.message || 'Error')
-    return data
-  }
 
-  // For non-json responses (CSV export etc.) return raw response
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || 'Error')
-  }
-  return res
-}
+    // 2. Prevent infinite loops:
+    // Only attempt retry if:
+    // - Status is 401 (Unauthorized)
+    // - Not already a retry attempt
+    // - The failed request was NOT to the refresh endpoint itself
+    if (
+      error.response.status === 401 &&
+      !originalRequest._retry &&
+      !originalRequest.url.includes('/auth/refresh')
+    ) {
+      originalRequest._retry = true;
 
-export default {
-  get: (path) => request(path, { method: 'GET' }),
-  post: (path, body) => request(path, { method: 'POST', body: JSON.stringify(body) }),
-  put: (path, body) => request(path, { method: 'PUT', body: JSON.stringify(body) }),
-  del: (path) => request(path, { method: 'DELETE' }),
-  raw: (path, options) => request(path, options)
-}
+      try {
+        // Attempt to refresh token
+        await api.post('/api/auth/refresh');
+
+        // If successful, retry original request
+        return api(originalRequest);
+      } catch (refreshError) {
+        // If refresh fails, session is invalid. Trigger logout.
+        window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+        return Promise.reject(refreshError);
+      }
+    }
+
+    // 3. Handle session invalidation (e.g. server restart -> 403 Forbidden)
+    if (error.response.status === 403) {
+      // If a request is forbidden due to invalid session/token instance
+      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+export default api;

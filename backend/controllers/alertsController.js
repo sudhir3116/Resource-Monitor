@@ -1,5 +1,27 @@
+const Alert = require('../models/Alert')
 const AlertRule = require('../models/AlertRule')
 const AlertLog = require('../models/AlertLog')
+
+exports.getSystemAlerts = async (req, res) => {
+  try {
+    const filter = {};
+    // Role based visibility
+    if (req.user.role === 'student') {
+      filter.user = req.userId;
+    }
+    // Block manager logic can be added here if needed (e.g. filter.block = user.block)
+
+    // Sort by newest first
+    const alerts = await Alert.find(filter)
+      .sort({ createdAt: -1 })
+      .populate('user', 'name email')
+      .populate('block', 'name');
+
+    res.json({ alerts });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+}
 
 exports.createRule = async (req, res) => {
   try {

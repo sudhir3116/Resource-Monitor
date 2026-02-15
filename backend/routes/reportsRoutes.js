@@ -1,9 +1,13 @@
 const express = require('express')
 const router = express.Router()
-const auth = require('../middleware/auth')
+const auth = require('../middleware/authMiddleware')
 const reports = require('../controllers/reportsController')
 
-router.use(auth)
+const { authorizeRoles } = require('../middleware/roleMiddleware');
+
+router.use(auth);
+// Restrict report endpoints to officials
+router.use(authorizeRoles('admin', 'warden', 'dean', 'principal'));
 
 router.get('/usages/csv', reports.exportUsagesCSV)
 

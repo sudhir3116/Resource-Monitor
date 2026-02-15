@@ -1,40 +1,82 @@
-const { OAuth2Client } = require('google-auth-library')
+const passport = require('passport')
+const GoogleStrategy = require('passport-google-oauth20').Strategy
 const User = require('../models/User')
 const jwt = require('jsonwebtoken')
 const bcrypt = require('bcryptjs')
 require('dotenv').config()
 
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
+const configurePassport = () => {
+  passport.serializeUser((user, done) => {
+    done(null, user.id)
+  })
 
-const googleLogin = async (req, res) => {
-  try {
-    const { id_token } = req.body
-    if (!id_token) return res.status(400).json({ message: 'id_token required' })
-
-    const ticket = await client.verifyIdToken({ idToken: id_token, audience: process.env.GOOGLE_CLIENT_ID })
-    const payload = ticket.getPayload()
-    const { sub: googleId, email, name, picture } = payload
-
-    // find or create user by email (prevents duplicate accounts)
-    let user = await User.findOne({ email })
-    if (!user) {
-      const randomPassword = Math.random().toString(36).slice(-12)
-      const hashed = await bcrypt.hash(randomPassword, 10)
-      user = await User.create({ name: name || email.split('@')[0], email, password: hashed, googleId, provider: 'google', avatar: picture })
-    } else {
-      // ensure provider/googleId are set
-      let changed = false
-      if (!user.googleId && googleId) { user.googleId = googleId; changed = true }
-      if (user.provider !== 'google') { user.provider = 'google'; changed = true }
-      if (picture && user.avatar !== picture) { user.avatar = picture; changed = true }
-      if (changed) await user.save()
+  passport.deserializeUser(async (id, done) => {
+    try {
+      const user = await User.findById(id)
+      done(null, user)
+    } catch (err) {
+      done(err, null)
     }
+  })
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' })
-    return res.json({ token, user: { id: user._id, name: user.name, email: user.email } })
-  } catch (err) {
-    return res.status(500).json({ message: err.message })
-  }
+  passport.use(
+    new GoogleStrategy(
+      {
+        clientID: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        callbackURL: 'http://localhost:4000/api/auth/google/callback'
+      },
+      async (accessToken, refreshToken, profile, done) => {
+        try {
+          // Check if user exists
+          let user = await User.findOne({ email: profile.emails[0].value })
+
+          if (user) {
+            // Update existing user with googleId if missing
+            if (!user.googleId) {
+              user.googleId = profile.id
+              if (!user.avatar) user.avatar = profile.photos[0].value
+              if (user.provider !== 'google') user.provider = 'google'
+              await user.save()
+            }
+            return done(null, user)
+          } else {
+            // Create new user
+            const randomPassword = Math.random().toString(36).slice(-12)
+            const hashed = await bcrypt.hash(randomPassword, 10)
+
+            const newUser = await User.create({
+              name: profile.displayName,
+              email: profile.emails[0].value,
+              password: hashed,
+              googleId: profile.id,
+              provider: 'google',
+              avatar: profile.photos[0].value
+            })
+            return done(null, newUser)
+          }
+        } catch (err) {
+          console.error('Google Strategy Error:', err)
+          return done(err, null)
+        }
+      }
+    )
+  )
 }
 
-module.exports = { googleLogin }
+// Callback Controller to handle redirection after successful auth
+const googleCallback = (req, res) => {
+  // If we reach here, passport has already authenticated the user and added req.user
+  if (!req.user) {
+    return res.redirect('http://localhost:5173/login?error=GoogleAuthFailed')
+  }
+
+  // Generate JWT as before
+  const token = jwt.sign({ id: req.user._id, role: req.user.role }, process.env.JWT_SECRET, { expiresIn: '1d' })
+
+  // Redirect to frontend with token
+  // Ideally, use a secure cookie or pass via URL fragment/query param
+  res.redirect(`http://localhost:5173/login?token=${token}`)
+}
+
+module.exports = { configurePassport, googleCallback }
