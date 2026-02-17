@@ -104,8 +104,8 @@ const checkDailyThresholds = async (userId, resourceType, date, config) => {
                     amount: totalUsage,
                     threshold: limit,
                     message,
-                    severity,
-                    status: 'active'
+                    severity: severity.charAt(0).toUpperCase() + severity.slice(1),
+                    status: 'Pending'
                 });
 
                 // Send Email Notification
@@ -187,8 +187,8 @@ const checkMonthlyThresholds = async (userId, resourceType, date, config) => {
                     amount: totalUsage,
                     threshold: monthlyLimit,
                     message,
-                    severity,
-                    status: 'active'
+                    severity: severity.charAt(0).toUpperCase() + severity.slice(1),
+                    status: 'Pending'
                 });
 
                 // Send Email Notification
@@ -265,8 +265,8 @@ const checkSpikeDetection = async (userId, resourceType, date, config) => {
                     amount: totalToday,
                     threshold: avgRecent,
                     message,
-                    severity: 'high',
-                    status: 'active'
+                    severity: 'High',
+                    status: 'Pending'
                 });
 
                 // Send Email Notification

@@ -1,166 +1,223 @@
-import React, { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
-import api from '../services/api'
-import Loading from '../components/Loading'
-import { useToast } from '../context/ToastContext'
+import React, { useEffect, useState, useContext } from 'react';
+import { useNavigate, useParams, Link } from 'react-router-dom';
+import api from '../services/api';
+import { useToast } from '../context/ToastContext';
+import {
+  Save,
+  ArrowLeft,
+  Zap,
+  Droplets,
+  Utensils,
+  Flame,
+  Wind,
+  Trash2,
+  Calendar,
+  MapPin,
+  AlignLeft,
+  Info
+} from 'lucide-react';
+import Card from '../components/common/Card';
+import Button from '../components/common/Button';
+import { ThemeContext } from '../context/ThemeContext';
 
 export default function UsageForm() {
-  const { id } = useParams()
-  const navigate = useNavigate()
-  const { addToast } = useToast()
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { addToast } = useToast();
 
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState({
     resource_type: 'Electricity',
     category: 'Hostel Block A',
     usage_value: '',
     usage_date: new Date().toISOString().slice(0, 16),
     notes: ''
-  })
-  const [errors, setErrors] = useState({})
+  });
+  const [errors, setErrors] = useState({});
 
-  useEffect(() => { if (id) load() }, [id])
+  useEffect(() => {
+    if (id) load();
+  }, [id]);
 
   async function load() {
-    setLoading(true)
+    setLoading(true);
     try {
-      const data = await api.get(`/api/usage/${id}`)
+      const res = await api.get(`/api/usage/${id}`);
+      const usage = res.data.usage;
       setForm({
-        resource_type: data.usage.resource_type,
-        category: data.usage.category || 'Hostel Block A',
-        usage_value: data.usage.usage_value,
-        usage_date: new Date(data.usage.usage_date).toISOString().slice(0, 16),
-        notes: data.usage.notes || ''
-      })
+        resource_type: usage.resource_type,
+        category: usage.category || 'Hostel Block A',
+        usage_value: usage.usage_value,
+        usage_date: new Date(usage.usage_date).toISOString().slice(0, 16),
+        notes: usage.notes || ''
+      });
     } catch (err) {
-      addToast(err.message || 'Failed to load record', 'error')
-    } finally { setLoading(false) }
-  }
-
-  const validate = () => {
-    const newErrors = {}
-    if (!form.usage_value || form.usage_value <= 0) newErrors.usage_value = 'Please enter a valid positive number.'
-    if (!form.usage_date) newErrors.usage_date = 'Date is required.'
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }
-
-  async function submit(e) {
-    e.preventDefault()
-    if (!validate()) return
-
-    setLoading(true)
-    try {
-      const payload = { ...form, usage_date: new Date(form.usage_date) }
-      if (id) await api.put(`/api/usage/${id}`, payload)
-      else await api.post('/api/usage', payload)
-
-      addToast(id ? 'Usage updated successfully' : 'Usage recorded successfully')
-      navigate('/dashboard')
-    } catch (err) {
-      addToast(err.message || 'Failed to save record', 'error')
-    } finally { setLoading(false) }
-  }
-
-  // Helper to get unit label
-  const getUnit = () => {
-    switch (form.resource_type) {
-      case 'Electricity': return 'kWh'
-      case 'Water': return 'Liters'
-      case 'Diesel': return 'Liters'
-      case 'LPG': return 'kg'
-      case 'Food': return 'kg'
-      case 'Waste': return 'kg'
-      default: return 'units'
+      addToast(err.message || 'Failed to load record', 'error');
+      navigate('/usage/all');
+    } finally {
+      setLoading(false);
     }
   }
 
+  const validate = () => {
+    const newErrors = {};
+    if (!form.usage_value || form.usage_value <= 0) newErrors.usage_value = 'Value must be positive.';
+    if (!form.usage_date) newErrors.usage_date = 'Date is required.';
+    else if (new Date(form.usage_date) > new Date()) newErrors.usage_date = 'Date cannot be in the future.';
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  async function handleSubmit(e) {
+    if (e) e.preventDefault();
+    if (!validate()) return;
+
+    setIsSubmitting(true);
+    try {
+      const payload = { ...form, usage_date: new Date(form.usage_date) };
+      if (id) await api.put(`/api/usage/${id}`, payload);
+      else await api.post('/api/usage', payload);
+
+      addToast(id ? 'Record updated successfully' : 'Usage logged successfully');
+      navigate('/usage/all');
+    } catch (err) {
+      addToast(err.response?.data?.message || err.message || 'Failed to save record', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const resources = [
+    { id: 'Electricity', icon: <Zap size={20} className="text-amber-500" /> },
+    { id: 'Water', icon: <Droplets size={20} className="text-blue-500" /> },
+    { id: 'Food', icon: <Utensils size={20} className="text-emerald-500" /> },
+    { id: 'LPG', icon: <Flame size={20} className="text-orange-500" /> },
+    { id: 'Diesel', icon: <Wind size={20} className="text-slate-500" /> },
+    { id: 'Waste', icon: <Trash2 size={20} className="text-rose-500" /> }
+  ];
+
+  if (loading) return <div className="p-8 text-center text-slate-500">Loading form...</div>;
+
   return (
-    <div className="card" style={{ maxWidth: '600px', margin: '40px auto' }}>
-      <h2>{id ? 'Edit' : 'Add'} Resource Usage</h2>
-      {loading ? <Loading /> : (
-        <form onSubmit={submit} className="auth-form">
-          <div className="input-wrap">
-            <label className="form-label-text">Resource Type</label>
-            <select
-              className="input"
-              value={form.resource_type}
-              onChange={e => setForm({ ...form, resource_type: e.target.value })}
-            >
-              <option value="Electricity">⚡ Electricity</option>
-              <option value="Water">💧 Water</option>
-              <option value="Food">🍽 Food</option>
-              <option value="LPG">🔥 LPG</option>
-              <option value="Diesel">🛢 Diesel</option>
-              <option value="Waste">♻ Waste</option>
-            </select>
-          </div>
+    <div className="max-w-3xl mx-auto pb-20 pt-6">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <Link to="/usage/all" className="flex items-center text-sm text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 mb-2">
+            <ArrowLeft size={16} className="mr-1" /> Back to List
+          </Link>
+          <h1 style={{ color: 'var(--text-primary)' }}>
+            {id ? 'Edit Usage Record' : 'Log New Usage'}
+          </h1>
+        </div>
+      </div>
 
-          <div className="input-wrap">
-            <label className="form-label-text">Category / Location</label>
-            <select
-              className="input"
-              value={form.category}
-              onChange={e => setForm({ ...form, category: e.target.value })}
-            >
-              <option value="Hostel Block A">Hostel Block A</option>
-              <option value="Hostel Block B">Hostel Block B</option>
-              <option value="Hostel Block C">Hostel Block C</option>
-              <option value="Mess Hall">Mess Hall</option>
-              <option value="Kitchen">Kitchen</option>
-              <option value="Generator Room">Generator Room</option>
-              <option value="Common Area">Common Area</option>
-            </select>
-          </div>
+      <Card>
+        <form onSubmit={handleSubmit} className="space-y-6">
 
-          <div className="input-wrap">
-            <label className="form-label-text">Amount <span className="text-muted" style={{ fontSize: 11 }}>({getUnit()})</span></label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="number"
-                className={`input ${errors.usage_value ? 'input-error' : ''}`}
-                value={form.usage_value}
-                onChange={e => setForm({ ...form, usage_value: e.target.value })}
-                placeholder={`e.g., 120`}
-                min="0"
-                step="0.01"
-              />
-              <span style={{ position: 'absolute', right: 12, top: 12, color: 'var(--muted)', fontSize: 12, pointerEvents: 'none' }}>{getUnit()}</span>
+          {/* Resource Type Selection */}
+          <div>
+            <label className="label mb-3 block">Resource Type</label>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {resources.map(res => (
+                <button
+                  key={res.id}
+                  type="button"
+                  onClick={() => setForm({ ...form, resource_type: res.id })}
+                  className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${form.resource_type === res.id
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 ring-1 ring-blue-500'
+                    : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                    }`}
+                >
+                  {res.icon}
+                  <span className={`font-medium ${form.resource_type === res.id ? 'text-blue-600 dark:text-blue-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                    {res.id}
+                  </span>
+                </button>
+              ))}
             </div>
-            {errors.usage_value && <div style={{ color: 'var(--danger)', fontSize: 12, marginTop: 4 }}>{errors.usage_value}</div>}
           </div>
 
-          <div className="input-wrap">
-            <label className="form-label-text">Date & Time</label>
-            <input
-              type="datetime-local"
-              className={`input ${errors.usage_date ? 'input-error' : ''}`}
-              value={form.usage_date}
-              onChange={e => setForm({ ...form, usage_date: e.target.value })}
-            />
-            {errors.usage_date && <div style={{ color: 'var(--danger)', fontSize: 12, marginTop: 4 }}>{errors.usage_date}</div>}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Value */}
+            <div>
+              <label className="label">Consumption Value</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  className={`input ${errors.usage_value ? 'border-red-500' : ''}`}
+                  value={form.usage_value}
+                  onChange={e => setForm({ ...form, usage_value: e.target.value })}
+                />
+                {errors.usage_value && <p className="text-red-500 text-xs mt-1">{errors.usage_value}</p>}
+              </div>
+            </div>
+
+            {/* Date */}
+            <div>
+              <label className="label">Date & Time</label>
+              <div className="relative">
+                <Calendar size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="datetime-local"
+                  className={`input pl-10 ${errors.usage_date ? 'border-red-500' : ''}`}
+                  value={form.usage_date}
+                  onChange={e => setForm({ ...form, usage_date: e.target.value })}
+                />
+                {errors.usage_date && <p className="text-red-500 text-xs mt-1">{errors.usage_date}</p>}
+              </div>
+            </div>
           </div>
 
-          <div className="input-wrap">
-            <label className="form-label-text">Notes (Optional)</label>
-            <textarea
-              className="input"
-              value={form.notes}
-              onChange={e => setForm({ ...form, notes: e.target.value })}
-              rows={3}
-              placeholder="Any specific observations? e.g. 'Leaky faucet repair'"
-            />
+          {/* Location */}
+          <div>
+            <label className="label">Location / Category</label>
+            <div className="relative">
+              <MapPin size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <select
+                className="input pl-10"
+                value={form.category}
+                onChange={e => setForm({ ...form, category: e.target.value })}
+              >
+                <option>Hostel Block A</option>
+                <option>Hostel Block B</option>
+                <option>Hostel Block C</option>
+                <option>Mess Hall</option>
+                <option>Common Area</option>
+                <option>Kitchen Facility</option>
+                <option>Generator Complex</option>
+              </select>
+            </div>
           </div>
 
-          <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
-            <button type="button" className="btn secondary" style={{ flex: 1 }} onClick={() => navigate('/dashboard')}>Cancel</button>
-            <button type="submit" className="primary-btn" style={{ flex: 2 }} disabled={loading}>
-              {loading ? 'Saving...' : 'Save Record'}
-            </button>
+          {/* Notes */}
+          <div>
+            <label className="label">Notes (Optional)</label>
+            <div className="relative">
+              <AlignLeft size={18} className="absolute left-3 top-3 text-slate-400" />
+              <textarea
+                rows="3"
+                className="input pl-10"
+                placeholder="Additional details..."
+                value={form.notes}
+                onChange={e => setForm({ ...form, notes: e.target.value })}
+              />
+            </div>
           </div>
+
+          <div className="pt-4 flex justify-end gap-3">
+            <Button type="button" variant="secondary" onClick={() => navigate('/usage/all')}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : 'Save Record'}
+            </Button>
+          </div>
+
         </form>
-      )}
+      </Card>
     </div>
-  )
+  );
 }
-

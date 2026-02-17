@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const {
     register,
     login,
+    googleLogin,
     logout,
     refresh,
     forgotPassword,
@@ -14,7 +15,6 @@ const {
     SET_COOKIES
 } = require('../controllers/authController');
 const authMiddleware = require('../middleware/authMiddleware');
-
 const authLimiter = require('../middleware/rateLimiter');
 
 // Standard Auth
@@ -26,7 +26,12 @@ router.post('/refresh', refresh);
 router.post('/forgot', authLimiter, forgotPassword);
 router.post('/reset/:token', authLimiter, resetPassword);
 
-// Google Auth Routes
+// Google OAuth - Modern approach (Google Identity Services)
+// Route: POST /api/auth/google
+// Frontend sends ID token, backend verifies it
+router.post('/google', authLimiter, googleLogin);
+
+// Google OAuth - Legacy redirect flow (kept for backward compatibility)
 // Route: GET /api/auth/google
 router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 
@@ -35,13 +40,11 @@ router.get(
     '/google/callback',
     passport.authenticate('google', { session: false, failureRedirect: 'http://localhost:5173/login?error=failed' }),
     (req, res) => {
-        // Generate Tokens using shared logic (includes SERVER_INSTANCE_ID)
+        // Generate Tokens using shared logic
         const { accessToken, refreshToken } = GENERATE_TOKENS(req.user);
-
-        // Set Cookies (includes sameSite: 'lax')
         SET_COOKIES(res, accessToken, refreshToken);
 
-        // Redirect to frontend dashboard directly (using env)
+        // Redirect to frontend dashboard
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
         res.redirect(`${frontendUrl}/dashboard`);
     }

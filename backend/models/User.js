@@ -42,7 +42,24 @@ const userSchema = new mongoose.Schema(
     },
     floor: {
       type: Number
-    }
+    },
+    // Institutional Fields
+    status: {
+      type: String,
+      enum: ['active', 'pending', 'suspended', 'graduated'],
+      default: 'active' // Default active for now to prevent lockout, modify logic in controller
+    },
+    department: {
+      type: String, // e.g., 'Computer Science', 'Mechanical Engineering'
+    },
+    phoneNumber: {
+      type: String,
+      trim: true
+    },
+    lastLogin: {
+      type: Date
+    },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
   },
   { timestamps: true }
 );

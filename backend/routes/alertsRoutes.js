@@ -1,16 +1,46 @@
-const express = require('express')
-const router = express.Router()
-const auth = require('../middleware/authMiddleware')
-const alerts = require('../controllers/alertsController')
+const express = require('express');
+const router = express.Router();
+const authMiddleware = require('../middleware/authMiddleware');
+const {
+    getAlerts,
+    reviewAlert,
+    resolveAlert,
+    dismissAlert,
+    createAlert,
+    getAlertRules,
+    getSystemAlerts,
+    updateAlertRule,
+    deleteAlertRule
+} = require('../controllers/alertsController');
 
-router.use(auth)
+// All routes require authentication
+router.use(authMiddleware);
 
-router.get('/system', alerts.getSystemAlerts)
-router.post('/', alerts.createRule)
-router.get('/', alerts.listRules)
-router.put('/:id', alerts.updateRule)
-router.delete('/:id', alerts.deleteRule)
+// GET /api/alerts - List alerts with filters
+router.get('/', getAlerts);
 
-router.get('/logs/all', alerts.listLogs)
+// GET /api/alerts/rules - Get configured alert rules
+router.get('/rules', getAlertRules);
 
-module.exports = router
+// GET /api/alerts/system - Get system alerts/logs
+router.get('/system', getSystemAlerts);
+
+// POST /api/alerts - Create manual alert (Admin, Warden)
+router.post('/', createAlert);
+
+// PATCH /api/alerts/:id - Update alert rule (Active/Inactive)
+router.patch('/:id', updateAlertRule);
+
+// DELETE /api/alerts/:id - Delete alert rule
+router.delete('/:id', deleteAlertRule);
+
+// PUT /api/alerts/:id/review - Mark as reviewed
+router.put('/:id/review', reviewAlert);
+
+// PUT /api/alerts/:id/resolve - Resolve with comment
+router.put('/:id/resolve', resolveAlert);
+
+// PUT /api/alerts/:id/dismiss - Dismiss alert
+router.put('/:id/dismiss', dismissAlert);
+
+module.exports = router;

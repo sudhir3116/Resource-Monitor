@@ -1,33 +1,30 @@
-import React, { useContext } from 'react'
-import { ThemeContext } from '../context/ThemeContext'
+import React from 'react';
+import { Sun, Moon } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
+import { motion } from 'framer-motion';
 
-export default function ThemeToggle() {
-  const { theme, toggle } = useContext(ThemeContext)
-
-  // Use 'toggle' or 'toggleTheme' depending on context implementation. 
-  // Previous file used 'toggle', assuming that's correct from context.
-  // Actually, let's keep 'toggle' if that's what the context provides, but usually it's toggleTheme.
-  // The previous file had: const { theme, toggle } = useContext(ThemeContext)
-  // I will restart to ensure I use the correct prop name from context.
-  // Let's assume 'toggle' is correct based on previous file content.
+const ThemeToggle = () => {
+  const { theme, toggleTheme } = useTheme();
 
   return (
-    <button
-      className="theme-toggle-btn"
-      onClick={toggle}
-      aria-label={theme === 'dark' ? "Switch to light mode" : "Switch to dark mode"}
-      title={theme === 'dark' ? "Switch to light mode" : "Switch to dark mode"}
+    <motion.button
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
+      onClick={toggleTheme}
+      className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-700 transition-colors shadow-sm"
+      aria-label="Toggle Theme"
     >
-      {theme === 'dark' ? (
-        <svg className="theme-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-        </svg>
+      {theme === 'light' ? (
+        <div className="flex items-center gap-2">
+          <Moon size={20} />
+        </div>
       ) : (
-        <svg className="theme-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-        </svg>
+        <div className="flex items-center gap-2">
+          <Sun size={20} />
+        </div>
       )}
-    </button>
-  )
-}
+    </motion.button>
+  );
+};
 
+export default ThemeToggle;

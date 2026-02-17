@@ -7,60 +7,101 @@ const mailer = require('../utils/mailer')
 const { checkThresholds } = require('../services/thresholdService')
 const mongoose = require('mongoose')
 
-// Helper: Calculate Sustainability Score (Safe & Robust)
-const calculateSustainabilityScore = async (userId) => {
+// Helper: Calculate Sustainability Score (Context-Aware)
+const calculateSustainabilityScore = async (userId, userRole, blockId) => {
   try {
-    if (!userId) return 0;
-
-    let score = 100
+    let score = 100;
     const now = new Date();
-    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // Define match stage based on role
+    let matchStage = { usage_date: { $gte: currentMonthStart } };
+
+    if (userRole === 'student' || !userRole) {
+      if (!userId) return 0;
+      matchStage.userId = new mongoose.Types.ObjectId(userId);
+    } else if (userRole === 'warden' && blockId) {
+      matchStage.blockId = blockId;
+    } else if (userRole === 'warden' && !blockId) {
+      // Fallback for warden without block
+      matchStage.userId = new mongoose.Types.ObjectId(userId);
+    }
+    // Admin/Dean/Principal: Calculate based on system average or keep it 100 as baseline?
+    // Requirement says "Dean/Principal: read-only analytics". Usually they want to see the CAMPUS score.
+    // For now, if Admin/Dean, we calculate based on ALL usage (Campus Score).
 
     // 1. Fetch Aggregated Usage
     const usageStats = await Usage.aggregate([
-      { $match: { userId: new mongoose.Types.ObjectId(userId), usage_date: { $gte: currentMonthStart } } },
-      { $group: { _id: '$resource_type', total: { $sum: '$usage_value' } } }
-    ]) || []
+      { $match: matchStage },
+      { $group: { _id: '$resource_type', total: { $sum: '$usage_value' }, count: { $sum: 1 } } }
+    ]) || [];
 
-    // 2. Weighted Penalties
+    // Scale factors: If calculating for a block/campus, thresholds should be higher or per-capita.
+    // Since we don't have user count easily here, we'll use a simplified heuristic or per-usage average.
+    // However, to be safe and "refactor safely", let's stick to the existing logic but applied to the *aggregate*.
+    // If it's a block, the total usage will be huge, so the score might drop to 0 if we use the same thresholds.
+    // We should normalize by user count or verify if thresholds are per-person.
+    // The previous code had hardcoded thresholds (e.g. Electricity > 1000).
+    // Let's assume these are per-student thresholds.
+    // If checking for a Block, we should ideally divide by number of students.
+    // For now, to prevent score crashing for Wardens, we will return a "System Health" score or similar.
+    // But easiest: If Warden, calculate score based on *their own* behavior? No, that's useless.
+    // Let's normalize by count if count > 0.
+
+    let totalPenalty = 0;
+
     if (Array.isArray(usageStats)) {
       usageStats.forEach(stat => {
         if (!stat || !stat._id) return;
-        const type = stat._id
-        const total = Number(stat.total) || 0
+        const type = stat._id;
+        const total = Number(stat.total) || 0;
+        // Normalize if it's a group view (Warden/Admin)
+        // detailed logic: if role != student, divide by roughly estimated users or just use the count of records as proxy?
+        // Using count of records as proxy for "days * users".
+        // Let's stick to the original logic for Students.
+        // For Wardens/Admins, we'll average the score of recent usages? No too complex.
 
-        if (type === 'Waste' && total > 100) score -= 30
-        if (type === 'Diesel' && total > 50) score -= 30
-        if (type === 'Electricity' && total > 1000) score -= 20
-        if (type === 'LPG' && total > 100) score -= 20
-        if (type === 'Water' && total > 5000) score -= 10
-        if (type === 'Food' && total > 200) score -= 10
-      })
+        // SIMPLE FIX: If not student, lenient thresholds (x100)
+        let thresholdMultiplier = (userRole === 'student') ? 1 : 50;
+
+        if (type === 'Waste' && total > (100 * thresholdMultiplier)) totalPenalty += 30;
+        if (type === 'Diesel' && total > (50 * thresholdMultiplier)) totalPenalty += 30;
+        if (type === 'Electricity' && total > (1000 * thresholdMultiplier)) totalPenalty += 20;
+        if (type === 'LPG' && total > (100 * thresholdMultiplier)) totalPenalty += 20;
+        if (type === 'Water' && total > (5000 * thresholdMultiplier)) totalPenalty += 10;
+        if (type === 'Food' && total > (200 * thresholdMultiplier)) totalPenalty += 10;
+      });
     }
+
+    score -= totalPenalty;
 
     // 3. Week-over-Week Improvement
-    const today = new Date()
-    const sevenDaysAgo = new Date(today); sevenDaysAgo.setDate(today.getDate() - 7)
-    const fourteenDaysAgo = new Date(today); fourteenDaysAgo.setDate(today.getDate() - 14)
+    const today = new Date();
+    const sevenDaysAgo = new Date(today); sevenDaysAgo.setDate(today.getDate() - 7);
+    const fourteenDaysAgo = new Date(today); fourteenDaysAgo.setDate(today.getDate() - 14);
+
+    // Apply same matching scope for trends
+    let thisWeekMatch = { ...matchStage, usage_date: { $gte: sevenDaysAgo } };
+    let lastWeekMatch = { ...matchStage, usage_date: { $gte: fourteenDaysAgo, $lt: sevenDaysAgo } };
 
     const thisWeek = await Usage.aggregate([
-      { $match: { userId: new mongoose.Types.ObjectId(userId), usage_date: { $gte: sevenDaysAgo } } },
+      { $match: thisWeekMatch },
       { $group: { _id: null, total: { $sum: '$usage_value' } } }
-    ]) || []
+    ]) || [];
 
     const lastWeek = await Usage.aggregate([
-      { $match: { userId: new mongoose.Types.ObjectId(userId), usage_date: { $gte: fourteenDaysAgo, $lt: sevenDaysAgo } } },
+      { $match: lastWeekMatch },
       { $group: { _id: null, total: { $sum: '$usage_value' } } }
-    ]) || []
+    ]) || [];
 
-    const thisWeekTotal = (thisWeek[0] && thisWeek[0].total) || 0
-    const lastWeekTotal = (lastWeek[0] && lastWeek[0].total) || 0
+    const thisWeekTotal = (thisWeek[0] && thisWeek[0].total) || 0;
+    const lastWeekTotal = (lastWeek[0] && lastWeek[0].total) || 0;
 
     if (lastWeekTotal > 0 && thisWeekTotal < lastWeekTotal) {
-      score += 10
+      score += 10;
     }
 
-    return Math.max(0, Math.min(100, Math.round(score)))
+    return Math.max(0, Math.min(100, Math.round(score)));
   } catch (err) {
     console.error('Error calculating score:', err.message);
     return 50;
@@ -88,12 +129,17 @@ exports.createUsage = async (req, res) => {
     const usage_date = req.body.date || req.body.usage_date || new Date()
     const notes = req.body.notes || ''
 
-    if (!resource_type) return res.status(400).json({ message: 'resourceType is required' })
-    if (!usage_value && usage_value !== 0) return res.status(400).json({ message: 'amount is required' })
-    if (!usage_date) return res.status(400).json({ message: 'date is required' })
+    if (!resource_type) return res.status(400).json({ success: false, message: 'Resource type is required' })
+    if (usage_value <= 0) return res.status(400).json({ success: false, message: 'Usage value must be greater than zero' })
+    if (!usage_date) return res.status(400).json({ success: false, message: 'Date is required' })
+
+    // Prevent future dates
+    if (new Date(usage_date) > new Date()) {
+      return res.status(400).json({ success: false, message: 'Usage date cannot be in the future' });
+    }
 
     const userId = req.userId || req.user || null
-    if (!userId) return res.status(401).json({ message: 'Unauthorized' })
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' })
 
     const user = await User.findById(userId);
 
@@ -104,7 +150,8 @@ exports.createUsage = async (req, res) => {
       category,
       usage_value,
       usage_date,
-      notes
+      notes,
+      createdBy: userId
     })
 
     await checkThresholds(userId, resource_type, usage_date);
@@ -128,8 +175,8 @@ exports.createUsage = async (req, res) => {
             resourceType: resource_type,
             amount: usage_value,
             message,
-            severity: 'medium',
-            status: 'active'
+            severity: 'Medium',
+            status: 'Pending'
           });
           await sendAlertEmail(userId, `Custom Alert Rule: ${resource_type}`, message);
         }
@@ -138,31 +185,32 @@ exports.createUsage = async (req, res) => {
       console.error('AlertRule error', e)
     }
 
-    res.status(201).json({ usage })
+    res.status(201).json({ success: true, message: 'Usage logged successfully', usage })
   } catch (err) {
     console.error('createUsage error', err)
-    res.status(500).json({ message: err.message })
+    res.status(500).json({ success: false, message: err.message })
   }
 }
 
 exports.getUsages = async (req, res) => {
   try {
-    const { start, end, resource, category, sort } = req.query
+    const { start, end, resource, category, sort, page = 1, limit = 100 } = req.query
     const filter = {}
 
+    // Role-based Access Control
     if (req.user.role === 'student' || !req.user.role || req.user.role === 'user') {
       filter.userId = req.userId
     } else if (req.user.role === 'warden') {
-      // Warden sees all usage for their block
       const user = await User.findById(req.userId);
       if (user && user.block) {
         filter.blockId = user.block;
       } else {
-        // Fallback if no block assigned
         filter.userId = req.userId;
       }
     }
-    if (resource) filter.resource_type = resource
+    // Admin/Dean/Principal see all
+
+    if (resource && resource !== 'All') filter.resource_type = resource
     if (category) filter.category = category
 
     if (start || end) {
@@ -177,60 +225,152 @@ exports.getUsages = async (req, res) => {
       sortOption = { [field]: order === 'desc' ? -1 : 1 }
     }
 
+    const skip = (page - 1) * limit;
     const usages = await Usage.find(filter)
       .sort(sortOption)
+      .skip(skip)
+      .limit(Number(limit))
       .populate('userId', 'name email role block');
-    res.json({ usages })
+
+    const total = await Usage.countDocuments(filter);
+
+    res.json({ success: true, usages, total, page: Number(page), pages: Math.ceil(total / limit) })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    res.status(500).json({ success: false, message: err.message })
   }
 }
 
 exports.getUsage = async (req, res) => {
   try {
     const filter = { _id: req.params.id }
-    if (req.user.role === 'student' || !req.user.role || req.user.role === 'user') {
-      filter.userId = req.userId
+
+    // Strict IDOR Check
+    const usage = await Usage.findOne(filter);
+
+    if (!usage) return res.status(404).json({ success: false, message: 'Record not found' })
+
+    // Check ownership
+    const isOwner = String(usage.userId) === String(req.userId);
+    const isAdmin = ['admin', 'warden', 'dean', 'principal'].includes(req.user.role);
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
-    const usage = await Usage.findOne(filter)
-    if (!usage) return res.status(404).json({ message: 'Not found' })
-    res.json({ usage })
+    res.json({ success: true, usage })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    res.status(500).json({ success: false, message: err.message })
   }
 }
 
 exports.updateUsage = async (req, res) => {
   try {
-    const filter = { _id: req.params.id }
-    if (req.user.role !== 'admin') {
-      filter.userId = req.userId
+    const { id } = req.params;
+
+    // 1. Fetch existing record
+    const existingUsage = await Usage.findById(id);
+    if (!existingUsage) return res.status(404).json({ success: false, message: 'Record not found' });
+
+    // 2. IDOR / Permission Check
+    const isOwner = String(existingUsage.userId) === String(req.userId);
+    const user = req.userObj || await User.findById(req.userId);
+
+    // Admin can edit anything (full management)
+    if (user.role === 'admin') {
+      // Allowed
+    }
+    // Warden: Can add/edit usage for block only
+    else if (user.role === 'warden') {
+      if (!user.block) {
+        // Warden without block can only edit their own
+        if (!isOwner) return res.status(403).json({ success: false, message: 'Access denied: Warden has no assigned block.' });
+      } else {
+        // Check if the usage belongs to the warden's block
+        // We check existingUsage.blockId. If it's missing, we fall back to owner check
+        if (existingUsage.blockId && existingUsage.blockId !== user.block) {
+          return res.status(403).json({ success: false, message: 'Access denied: Usage record belongs to a different block.' });
+        }
+        // If usage has no blockId, check if usage owner is in the same block?
+        // For safety, if blockId is missing on usage, Warden can only edit if they are owner.
+        if (!existingUsage.blockId && !isOwner) {
+          return res.status(403).json({ success: false, message: 'Access denied: Usage record not linked to your block.' });
+        }
+      }
+    }
+    // Student: Can only edit their own? 
+    // Requirement says: "Student: can only view own usage". It doesn't explicitly say "edit".
+    // But usually students can edit if they made a mistake, unless finalized.
+    // However, user Requirement 3 "CRUD Testing" implies full CRUD.
+    // Let's assume Student can edit own.
+    else if (user.role === 'student') {
+      if (!isOwner) return res.status(403).json({ success: false, message: 'Access denied.' });
+    }
+    // Dean/Principal: Read only
+    else if (['dean', 'principal'].includes(user.role)) {
+      return res.status(403).json({ success: false, message: 'Read-only access.' });
     }
 
-    const usage = await Usage.findOneAndUpdate(filter, req.body, { new: true })
-    if (!usage) return res.status(404).json({ message: 'Not found or unauthorized' })
-    res.json({ usage })
+    // 3. Perform Update
+    req.body.lastUpdatedBy = req.userId; // Audit trail
+    const usage = await Usage.findByIdAndUpdate(id, req.body, { new: true });
+
+    res.json({ success: true, message: 'Record updated successfully', usage })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    res.status(500).json({ success: false, message: err.message })
   }
 }
 
 exports.deleteUsage = async (req, res) => {
   try {
-    const user = await User.findById(req.userId)
-    if (!user) return res.status(404).json({ message: 'User not found' })
+    const { id } = req.params;
 
-    const filter = { _id: req.params.id }
-    if (user.role !== 'admin') {
-      filter.userId = req.userId
+    // 1. Fetch existing record
+    const existingUsage = await Usage.findById(id);
+    if (!existingUsage) return res.status(404).json({ success: false, message: 'Record not found' });
+
+    // 2. Permission Check
+    // Rules:
+    // - Students CANNOT delete (archival only or contact admin) - per requirements "Student: No edit/delete buttons"
+    // - But if the user request said "Student: No edit/delete", we should block it here too.
+
+    const user = req.userObj || await User.findById(req.userId);
+
+    // Permission Logic
+    if (user.role === 'student') {
+      return res.status(403).json({ success: false, message: 'Students cannot delete records. Please contact warden.' });
     }
 
-    const usage = await Usage.findOneAndDelete(filter)
-    if (!usage) return res.status(404).json({ message: 'Not found' })
-    res.json({ message: 'Deleted' })
+    if (user.role === 'warden') {
+      if (!user.block) {
+        if (String(existingUsage.userId) !== String(req.userId)) {
+          return res.status(403).json({ success: false, message: 'Access denied: Warden has no assigned block.' });
+        }
+      } else {
+        if (existingUsage.blockId && existingUsage.blockId !== user.block) {
+          return res.status(403).json({ success: false, message: 'Access denied: Record belongs to another block.' });
+        }
+        if (!existingUsage.blockId && String(existingUsage.userId) !== String(req.userId)) {
+          return res.status(403).json({ success: false, message: 'Access denied.' });
+        }
+      }
+    }
+
+    if (['dean', 'principal'].includes(user.role)) {
+      return res.status(403).json({ success: false, message: 'Read-only access.' });
+    }
+
+    // Admin allowed by default if we reach here
+    const canDelete = ['admin', 'warden'].includes(user.role);
+    if (!canDelete) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    // 3. Perform Delete
+    await Usage.findByIdAndDelete(id);
+
+    res.json({ success: true, message: 'Record deleted successfully' })
   } catch (err) {
-    res.status(500).json({ message: err.message })
+    res.status(500).json({ success: false, message: err.message })
   }
 }
 
@@ -306,7 +446,18 @@ exports.getDashboardStats = async (req, res) => {
       });
     }
 
-    const score = await calculateSustainabilityScore(userId);
+
+
+    // Calculate Sustainability Score with Role Context
+    let blockId = null;
+    if (req.userObj && req.userObj.block) blockId = req.userObj.block;
+    // Fallback if not attached
+    if (!blockId && userRole === 'warden') {
+      const u = await User.findById(userId);
+      if (u) blockId = u.block;
+    }
+
+    const score = await calculateSustainabilityScore(userId, userRole, blockId);
 
     let alertFilter = {};
     if (userRole === 'student') {

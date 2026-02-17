@@ -1,38 +1,30 @@
 const express = require('express');
 const router = express.Router();
-const SystemConfig = require('../models/SystemConfig');
 const authMiddleware = require('../middleware/authMiddleware');
+const {
+    getThresholds,
+    getResourceThreshold,
+    updateThreshold,
+    createThreshold,
+    deleteThreshold
+} = require('../controllers/configController');
 
-// Apply auth middleware to all routes
+// All routes require authentication
 router.use(authMiddleware);
 
-/**
- * GET /api/config/thresholds
- * Get all resource threshold configurations (read-only for all authenticated users)
- */
-router.get('/thresholds', async (req, res) => {
-    try {
-        const configs = await SystemConfig.find().sort({ resource: 1 });
-        res.json({ configs });
-    } catch (err) {
-        res.status(500).json({ message: err.message });
-    }
-});
+// GET /api/config/thresholds - Get all threshold configurations
+router.get('/thresholds', getThresholds);
 
-/**
- * GET /api/config/thresholds/:resource
- * Get threshold config for a specific resource (read-only)
- */
-router.get('/thresholds/:resource', async (req, res) => {
-    try {
-        const config = await SystemConfig.findOne({ resource: req.params.resource });
-        if (!config) {
-            return res.status(404).json({ message: 'Configuration not found' });
-        }
-        res.json({ config });
-    } catch (err) {
-        res.status(500).json({ message: err.message });
-    }
-});
+// GET /api/config/thresholds/:resource - Get specific resource threshold
+router.get('/thresholds/:resource', getResourceThreshold);
+
+// POST /api/config/thresholds - Create new threshold (Admin only)
+router.post('/thresholds', createThreshold);
+
+// PUT /api/config/thresholds/:resource - Update threshold (Admin only)
+router.put('/thresholds/:resource', updateThreshold);
+
+// DELETE /api/config/thresholds/:resource - Delete threshold (Admin only)
+router.delete('/thresholds/:resource', deleteThreshold);
 
 module.exports = router;

@@ -1,176 +1,241 @@
-import React, { useEffect, useState, useContext } from 'react'
-import api from '../services/api'
-import { Link, useNavigate } from 'react-router-dom'
-import Loading from '../components/Loading'
-import EmptyState from '../components/EmptyState'
-import { useToast } from '../context/ToastContext'
-import { AuthContext } from '../context/AuthContext'
+import React, { useEffect, useState } from 'react';
+import api from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { useToast } from '../context/ToastContext';
+import {
+  AlertTriangle,
+  Plus,
+  Trash2,
+  Edit2,
+  PlayCircle,
+  PauseCircle,
+  Zap,
+  Droplets,
+  Activity,
+  Shield
+} from 'lucide-react';
+import Card from '../components/common/Card';
+import Button from '../components/common/Button';
+import Badge from '../components/common/Badge';
+import EmptyState from '../components/common/EmptyState';
+import { ConfirmModal } from '../components/common/Modal';
 
 export default function AlertsList() {
-  const [rules, setRules] = useState([])
-  const [systemAlerts, setSystemAlerts] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('system') // 'system' | 'rules'
+  const [rules, setRules] = useState([]);
+  const [systemAlerts, setSystemAlerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('system');
+  const [deleteId, setDeleteId] = useState(null);
 
-  const { addToast } = useToast()
-  const { user } = useContext(AuthContext)
-  const navigate = useNavigate()
+  const { addToast } = useToast();
+  const navigate = useNavigate();
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load();
+  }, []);
 
   async function load() {
-    setLoading(true)
+    setLoading(true);
     try {
-      // 1. Fetch Rules (Configured by Admins)
-      const resRules = await api.get('/api/alerts')
-      setRules((resRules && resRules.rules) || [])
-
-      // 2. Fetch System Alerts (Real Data)
-      const resAlerts = await api.get('/api/alerts/system')
-      setSystemAlerts((resAlerts && resAlerts.alerts) || [])
-
+      const [resRules, resAlerts] = await Promise.all([
+        api.get('/api/alerts/rules'),
+        api.get('/api/alerts/system')
+      ]);
+      setRules(resRules.data?.data || resRules.data?.rules || []);
+      setSystemAlerts(resAlerts.data?.data || resAlerts.data?.alerts || []);
     } catch (err) {
-      addToast('Failed to load alerts', 'error')
-    } finally { setLoading(false) }
-  }
-
-  async function deleteRule(id) {
-    if (!confirm('Are you sure you want to delete this alert rule?')) return
-    try {
-      await api.del(`/api/alerts/${id}`)
-      setRules(prev => prev.filter(r => r._id !== id))
-      addToast('Rule deleted successfully')
-    } catch (e) {
-      addToast(e.message || 'Failed to delete rule', 'error')
+      addToast('Failed to load alerts data', 'error');
+    } finally {
+      setLoading(false);
     }
   }
 
+  async function deleteRule() {
+    if (!deleteId) return;
+    try {
+      await api.delete(`/api/alerts/${deleteId}`);
+      setRules(prev => prev.filter(r => r._id !== deleteId));
+      addToast('Rule deleted successfully');
+    } catch (e) {
+      addToast(e.response?.data?.message || 'Failed to delete rule', 'error');
+    } finally {
+      setDeleteId(null);
+      setDeleteItem(null);
+    }
+  }
+
+  async function toggleRule(rule) {
+    try {
+      const res = await api.patch(`/api/alerts/${rule._id}`, { active: !rule.active });
+      if (res.data.success) {
+        setRules(prev => prev.map(r => r._id === rule._id ? { ...r, active: !r.active } : r));
+        addToast(`Rule ${!rule.active ? 'activated' : 'deactivated'}`);
+      }
+    } catch (e) {
+      addToast(e.response?.data?.message || 'Failed to toggle rule', 'error');
+    }
+  }
+
+  const [deleteItem, setDeleteItem] = useState(null);
+
   return (
-    <div>
-      <div className="dashboard-header">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1>Alerts & Configurations</h1>
-          <p className="subtitle">Monitor system anomalies and configure updated thresholds</p>
+          <h1 style={{ color: 'var(--text-primary)' }}>System Alerts</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>
+            Monitor system anomalies and configure detection rules
+          </p>
         </div>
-        <div>
-          {/* Only Admins can create new rules */}
-          {user && user.role === 'admin' && (
-            <button onClick={() => navigate('/alerts/new')} className="primary-btn">+ New Rule</button>
-          )}
-        </div>
+        {activeTab === 'rules' && (
+          <Button variant="primary" onClick={() => navigate('/alerts/new')}>
+            <Plus size={16} className="mr-2" />
+            New Rule
+          </Button>
+        )}
       </div>
 
       {/* Tabs */}
-      <div className="tabs" style={{ display: 'flex', gap: 20, marginBottom: 20, borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+      <div className="flex bg-white dark:bg-slate-800 rounded-lg p-1 w-fit border" style={{ borderColor: 'var(--border)' }}>
         <button
-          className={`btn-ghost ${activeTab === 'system' ? 'active' : ''}`}
-          style={{
-            padding: '10px 4px',
-            borderBottom: activeTab === 'system' ? '2px solid var(--primary)' : '2px solid transparent',
-            color: activeTab === 'system' ? 'var(--primary)' : 'var(--muted)',
-            fontWeight: activeTab === 'system' ? 700 : 500,
-            borderRadius: 0
-          }}
-          onClick={() => setActiveTab('system')}>
-          System Notifications
+          onClick={() => setActiveTab('system')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'system'
+            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 shadow-sm'
+            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+            }`}
+        >
+          <Activity size={14} />
+          Active Alerts
         </button>
         <button
-          className={`btn-ghost ${activeTab === 'rules' ? 'active' : ''}`}
-          style={{
-            padding: '10px 4px',
-            borderBottom: activeTab === 'rules' ? '2px solid var(--primary)' : '2px solid transparent',
-            color: activeTab === 'rules' ? 'var(--primary)' : 'var(--muted)',
-            fontWeight: activeTab === 'rules' ? 700 : 500,
-            borderRadius: 0
-          }}
-          onClick={() => setActiveTab('rules')}>
-          My Alert Rules
+          onClick={() => setActiveTab('rules')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'rules'
+            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 shadow-sm'
+            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+            }`}
+        >
+          <Shield size={14} />
+          Alert Rules
         </button>
       </div>
 
-      {loading ? <Loading /> : (
+      {/* Content */}
+      {loading ? (
+        <div className="py-20 text-center">
+          <div className="spinner mb-4"></div>
+          <p className="text-slate-500">Loading alerts data...</p>
+        </div>
+      ) : (
         <>
-          {/* System Notifications Tab */}
           {activeTab === 'system' && (
-            <div className="card">
-              <h3>Recent System Alerts</h3>
-              {systemAlerts.length === 0 ? <EmptyState icon="✅" title="No Recent Alerts" description="Your system is running smoothly." /> : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {systemAlerts.map(alert => (
-                    <div key={alert._id} className={`alert-item ${alert.status === 'danger' ? 'danger' : 'warning'}`}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <strong style={{ fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
-                          {alert.resourceType === 'Electricity' ? '⚡' : alert.resourceType === 'Water' ? '💧' : '📢'}
-                          {alert.resourceType || 'System'} Alert
-                        </strong>
-                        <span className="alert-date" style={{ fontSize: 12, opacity: 0.7 }}>{new Date(alert.createdAt).toLocaleString()}</span>
+            <div className="space-y-4">
+              {systemAlerts.length === 0 ? (
+                <EmptyState title="No Active Alerts" description="System is running normally." />
+              ) : (
+                systemAlerts.map(alert => (
+                  <Card key={alert._id}>
+                    <div className="flex items-start gap-4">
+                      <div className={`p-3 rounded-full ${alert.status === 'danger' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'
+                        }`}>
+                        <AlertTriangle size={20} />
                       </div>
-
-                      {/* Admin View: Show User Triggering Alert */}
-                      {user && user.role === 'admin' && alert.user && (
-                        <div style={{ fontSize: 12, color: '#666', marginBottom: 4, paddingBottom: 4, borderBottom: '1px dashed rgba(0,0,0,0.1)' }}>
-                          User: <b>{alert.user.name}</b> ({alert.user.email})
+                      <div className="flex-1">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h3 className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>
+                              {alert.resourceType} - {alert.status === 'danger' ? 'Critical' : 'Warning'}
+                            </h3>
+                            <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+                              {alert.message}
+                            </p>
+                          </div>
+                          <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
+                            {new Date(alert.createdAt).toLocaleString()}
+                          </span>
                         </div>
-                      )}
-
-                      <div style={{ fontSize: 14, lineHeight: 1.5 }}>
-                        {alert.message}
+                        {alert.user && (
+                          <div className="mt-3 text-sm flex items-center gap-2">
+                            <span className="text-slate-500">Reported by:</span>
+                            <span className="font-medium">{alert.user.name}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  ))}
-                </div>
+                  </Card>
+                ))
               )}
             </div>
           )}
 
-          {/* Custom Rules Tab */}
           {activeTab === 'rules' && (
-            <div className="card">
-              <h3>Configuration Rules</h3>
-              <div className="table-wrap">
-                {rules.length === 0 ? <EmptyState icon="⚙️" title="No Rules Configured" description="Create a rule to get notified about usage anomalies." action={
-                  user && user.role === 'admin' ? <button onClick={() => navigate('/alerts/new')} className="btn small primary">Create Rule</button> : null
-                } /> : (
-                  <table className="usage-table">
-                    <thead>
-                      <tr>
-                        <th>Resource</th>
-                        <th>Condition</th>
-                        <th>Threshold</th>
-                        <th>Status</th>
-                        <th style={{ textAlign: 'right' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rules.map(r => (
-                        <tr key={r._id}>
-                          <td style={{ fontWeight: 600 }}>{r.resource_type}</td>
-                          <td>{r.comparison === 'gt' ? 'Above (>)' : r.comparison === 'lt' ? 'Below (<)' : 'Equals (=)'}</td>
-                          <td style={{ fontWeight: 600 }}>{r.threshold_value}</td>
-                          <td>
-                            <span className={`badge ${r.active ? 'badge-success' : 'badge-warning'}`}>
-                              {r.active ? 'Active' : 'Paused'}
-                            </span>
-                          </td>
-                          <td style={{ textAlign: 'right' }}>
-                            {user && user.role === 'admin' && (
-                              <>
-                                <button onClick={() => navigate(`/alerts/${r._id}/edit`)} className="btn small secondary" style={{ marginRight: 8 }}>Edit</button>
-                                <button onClick={() => deleteRule(r._id)} className="btn small" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>Delete</button>
-                              </>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {rules.length === 0 ? (
+                <div className="col-span-2">
+                  <EmptyState title="No Alert Rules" description="Create a rule to start monitoring resources." />
+                </div>
+              ) : (
+                rules.map(rule => (
+                  <Card key={rule._id}>
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${rule.resource_type === 'Electricity' ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600'
+                          }`}>
+                          {rule.resource_type === 'Electricity' ? <Zap size={20} /> : <Droplets size={20} />}
+                        </div>
+                        <div>
+                          <h3 className="font-bold" style={{ color: 'var(--text-primary)' }}>{rule.resource_type}</h3>
+                          <div className="text-xs text-slate-500 uppercase tracking-wider font-semibold">
+                            {rule.comparison === 'gt' ? 'Above' : 'Below'} {rule.threshold_value}
+                          </div>
+                        </div>
+                      </div>
+                      <Badge variant={rule.active ? 'success' : 'secondary'}>
+                        {rule.active ? 'Active' : 'Paused'}
+                      </Badge>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => toggleRule(rule)}
+                        title={rule.active ? 'Pause Rule' : 'Activate Rule'}
+                      >
+                        {rule.active ? <PauseCircle size={16} /> : <PlayCircle size={16} />}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => navigate(`/alerts/${rule._id}/edit`)}
+                      >
+                        <Edit2 size={16} />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => { setDeleteId(rule._id); setDeleteItem(rule); }}
+                      >
+                        <Trash2 size={16} />
+                      </Button>
+                    </div>
+                  </Card>
+                ))
+              )}
             </div>
           )}
         </>
       )}
-    </div>
-  )
-}
 
+      <ConfirmModal
+        isOpen={!!deleteId}
+        onClose={() => { setDeleteId(null); setDeleteItem(null); }}
+        onConfirm={deleteRule}
+        title="Delete Rule"
+        message={deleteItem
+          ? `Are you sure you want to delete the alert rule for ${deleteItem.resource_type} (${deleteItem.comparison === 'gt' ? '>' : '<'} ${deleteItem.threshold_value})?`
+          : "Are you sure you want to delete this alert rule?"}
+      />
+    </div>
+  );
+}

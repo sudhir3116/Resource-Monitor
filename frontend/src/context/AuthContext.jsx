@@ -14,32 +14,42 @@ export function AuthProvider({ children }) {
   // Verify authentication status on mount
   const checkAuth = useCallback(async () => {
     try {
-      // Axios interceptor handles 401 -> refresh -> retry automatically
       const response = await api.get('/api/auth/me');
 
-      if (response.status === 200 && response.data.user) {
-        setUser(response.data.user);
+      if (response.status === 200) {
+        // Support both response formats during migration
+        const userData = response.data.data || response.data.user;
+        if (userData) {
+          setUser(userData);
+        } else {
+          setUser(null);
+        }
       } else {
         setUser(null);
       }
     } catch (error) {
-      // If error persists after interceptor's retry attempts -> explicit logout
       console.error('Auth check failed:', error);
       setUser(null);
     } finally {
-      // Crucial: Set loading to false regardless of outcome so app doesn't hang
       setLoading(false);
     }
-  }, []); // Stable dependency
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/api/auth/logout');
+    } catch (e) {
+      console.error('Logout error', e);
+    }
+    setUser(null);
+    setLoading(false);
+    navigate('/login', { replace: true });
+  }, [navigate]);
 
   useEffect(() => {
-    // Run auth check once on mount
     checkAuth();
 
-    // Listen for global unauthorized events (from api.js interceptor)
     const handleAuthError = () => {
-      // We use the logout function but ensure it doesn't cause loops
-      // The logout function handles API call and state clearing
       logout();
     };
 
@@ -47,52 +57,107 @@ export function AuthProvider({ children }) {
     return () => {
       window.removeEventListener('auth:unauthorized', handleAuthError);
     };
-  }, [checkAuth]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const login = async (email, password) => {
     try {
       const response = await api.post('/api/auth/login', { email, password })
-      setUser(response.data.user)
+      const userData = response.data.data || response.data.user;
+      setUser(userData)
 
-      // Navigate based on role or remembered location
-      const from = location.state?.from?.pathname || (response.data.user.role === 'admin' ? '/admin' : '/dashboard')
+      // Navigate based on role
+      const from = location.state?.from?.pathname || '/dashboard';
       navigate(from, { replace: true })
       return { success: true }
-    } catch (e) {
-      console.error('Login error:', e)
-      throw e
+    } catch (error) {
+      console.error('Login error:', error)
+
+      // Enhanced error handling with specific messages
+      let errorMessage = 'Login failed. Please try again.';
+
+      if (error.message) {
+        // Use the friendly error from api.js interceptor
+        errorMessage = error.message;
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Invalid email or password.';
+      } else if (error.response?.status === 429) {
+        errorMessage = 'Too many login attempts. Please try again in 15 minutes.';
+      }
+
+      // Create enhanced error
+      const enhancedError = new Error(errorMessage);
+      enhancedError.originalError = error;
+      throw enhancedError;
     }
   }
 
-  const googleLogin = async () => {
-    setLoading(true);
-    await checkAuth();
-    const from = location.state?.from?.pathname || '/dashboard'
-    navigate(from, { replace: true });
+  const googleLogin = async (credential) => {
+    try {
+      console.log('🔐 Sending Google credential to backend...');
+
+      const response = await api.post('/api/auth/google', { credential });
+      const userData = response.data.data || response.data.user;
+
+      if (response.data.success && userData) {
+        console.log('✅ Google login successful');
+        setUser(userData);
+
+        const from = location.state?.from?.pathname || '/dashboard';
+        navigate(from, { replace: true });
+        return { success: true };
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (error) {
+      console.error('❌ Google login error:', error);
+
+      // Enhanced error handling
+      let errorMessage = 'Google login failed. Please try again.';
+
+      if (error.message && !error.message.includes('Invalid response')) {
+        errorMessage = error.message;
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      }
+
+      const enhancedError = new Error(errorMessage);
+      enhancedError.originalError = error;
+      throw enhancedError;
+    }
   }
 
   const register = async (name, email, password, role) => {
     try {
       const response = await api.post('/api/auth/register', { name, email, password, role })
-      setUser(response.data.user)
+      const userData = response.data.data || response.data.user;
+      setUser(userData)
       navigate('/dashboard', { replace: true })
       return { success: true }
-    } catch (e) {
-      console.error('Register error:', e)
-      throw e
-    }
-  }
+    } catch (error) {
+      console.error('Register error:', error)
 
-  const logout = async () => {
-    try {
-      await api.post('/api/auth/logout');
-    } catch (e) {
-      console.error('Logout error', e);
+      // Enhanced error handling
+      let errorMessage = 'Registration failed. Please try again.';
+
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.status === 400) {
+        errorMessage = 'Invalid registration data. Please check your inputs.';
+      } else if (error.response?.status === 409) {
+        errorMessage = 'An account with this email already exists.';
+      }
+
+      const enhancedError = new Error(errorMessage);
+      enhancedError.originalError = error;
+      throw enhancedError;
     }
-    // Clear state and redirect
-    setUser(null);
-    setLoading(false);
-    navigate('/login', { replace: true })
   }
 
   const value = {

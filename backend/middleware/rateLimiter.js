@@ -1,7 +1,7 @@
 const rateLimit = require('express-rate-limit');
 
 // Determine if we are in development mode
-const isDevelopment = process.env.NODE_ENV === 'development';
+const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
 
 /**
  * Authentication Rate Limiter

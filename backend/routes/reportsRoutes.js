@@ -1,14 +1,26 @@
-const express = require('express')
-const router = express.Router()
-const auth = require('../middleware/authMiddleware')
-const reports = require('../controllers/reportsController')
+const express = require('express');
+const router = express.Router();
+const authMiddleware = require('../middleware/authMiddleware');
+const {
+    exportCSV,
+    getBillEstimate,
+    getBlockComparison,
+    getHistoricalTrends
+} = require('../controllers/reportsController');
 
-const { authorizeRoles } = require('../middleware/roleMiddleware');
+// All routes require authentication
+router.use(authMiddleware);
 
-router.use(auth);
-// Restrict report endpoints to officials
-router.use(authorizeRoles('admin', 'warden', 'dean', 'principal'));
+// GET /api/reports/export/csv - Export usage data as CSV
+router.get('/export/csv', exportCSV);
 
-router.get('/usages/csv', reports.exportUsagesCSV)
+// GET /api/reports/bill-estimate - Calculate monthly bill
+router.get('/bill-estimate', getBillEstimate);
 
-module.exports = router
+// GET /api/reports/comparison - Compare blocks
+router.get('/comparison', getBlockComparison);
+
+// GET /api/reports/trends - Historical trends
+router.get('/trends', getHistoricalTrends);
+
+module.exports = router;

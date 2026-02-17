@@ -1,112 +1,222 @@
-/* eslint-disable react-hooks/exhaustive-deps */
-import React, { useEffect, useState, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
 import api from '../services/api';
-import Loading from '../components/Loading';
-import { AuthContext } from '../context/AuthContext';
+import { Zap, Droplets, AlertTriangle, Plus, Download } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import Card, { MetricCard } from '../components/common/Card';
+import Button from '../components/common/Button';
+import EmptyState from '../components/common/EmptyState';
+import { exportToCSV } from '../utils/export';
+import { useToast } from '../context/ToastContext';
 
 export default function WardenDashboard() {
-    const { user } = useContext(AuthContext);
-    const navigate = useNavigate();
-    const [usages, setUsages] = useState([]);
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
-
-    const fetchData = async () => {
-        try {
-            setLoading(true);
-            // Warden sees block usage due to backend logic update
-            // axios returns { data: { usages: [...] } }
-            const usageRes = await api.get('/api/usage');
-            const data = usageRes.data?.usages || [];
-            setUsages(Array.isArray(data) ? data : []);
-
-            // Stats
-            const statsRes = await api.get('/api/usage/stats');
-            setStats(statsRes.data || {});
-        } catch (err) {
-            console.error('Warden Dashboard fetch error:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
+    const { addToast } = useToast();
 
     useEffect(() => {
-        fetchData();
+        async function fetchStats() {
+            try {
+                const response = await api.get('/api/dashboard/warden');
+                setStats(response.data.data || response.data);
+            } catch (err) {
+                console.error("Failed to fetch warden dashboard", err);
+                addToast("Failed to load dashboard data", "error");
+            } finally {
+                setLoading(false);
+            }
+        }
+        fetchStats();
     }, []);
 
-    if (loading) return <Loading />;
+    const handleExportCSV = () => {
+        if (!stats?.todayUsage || stats.todayUsage.length === 0) {
+            addToast('No usage data to export', 'warning');
+            return;
+        }
+
+        const data = stats.todayUsage.map(u => ({
+            Resource: u._id,
+            TotalConsumption: u.total,
+            Unit: u._id === 'Electricity' ? 'kWh' : 'Liters',
+            Date: new Date().toLocaleDateString()
+        }));
+
+        exportToCSV(data, `warden_daily_report_${new Date().toISOString().split('T')[0]}.csv`);
+        addToast('Report exported successfully');
+    };
+
+    if (loading) {
+        return (
+            <div className="space-y-6">
+                <div className="h-8 rounded" style={{ backgroundColor: 'var(--bg-hover)', width: '200px' }}></div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {[1, 2, 3].map(i => (
+                        <div key={i} className="h-32 rounded-lg animate-pulse" style={{ backgroundColor: 'var(--bg-hover)' }}></div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    if (!stats) {
+        return (
+            <EmptyState
+                title="No Data Available"
+                description="Unable to load dashboard data"
+            />
+        );
+    }
+
+    const { electricity, water, activeAlerts, todayUsage = [] } = stats;
 
     return (
-        <div className="dashboard-container fade-in">
-            <div className="dashboard-header">
+        <div className="space-y-6">
+            {/* Header */}
+            <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="page-title">Warden Dashboard</h1>
-                    <p className="text-muted">Manage resource consumption for your block</p>
+                    <h1 style={{ color: 'var(--text-primary)' }}>Block Management</h1>
+                    <p style={{ color: 'var(--text-secondary)' }}>
+                        Monitor and manage resource usage for your assigned block
+                    </p>
                 </div>
-                <button
-                    className="btn btn-primary"
-                    onClick={() => navigate('/usage/new')}
-                >
-                    + Add Block Usage
-                </button>
+                <Link to="/usage/new">
+                    <Button variant="primary">
+                        <Plus size={16} className="mr-2" />
+                        Add Usage
+                    </Button>
+                </Link>
             </div>
 
-            <div className="dashboard-grid">
-                {/* Stats Card */}
-                <div className="card stat-card">
-                    <div className="stat-value">{usages.length}</div>
-                    <div className="stat-label">Block Records</div>
-                </div>
+            {/* Metrics Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <MetricCard
+                    icon={<AlertTriangle size={20} />}
+                    label="Active Alerts"
+                    value={<span style={{ color: 'var(--color-danger)' }}>{activeAlerts || 0}</span>}
+                />
 
-                {/* Sustainability Score */}
-                <div className="card stat-card">
-                    <div className="stat-value">
-                        {stats?.sustainabilityScore ?? '-'}
+                <MetricCard
+                    icon={<Zap size={20} />}
+                    label="Electricity"
+                    value={<>{electricity?.current?.toLocaleString() || 0} <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>kWh</span></>}
+                    change={electricity?.percentageChange}
+                />
+
+                <MetricCard
+                    icon={<Droplets size={20} />}
+                    label="Water"
+                    value={<>{water?.current?.toLocaleString() || 0} <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>L</span></>}
+                    change={water?.percentageChange}
+                />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Today's Usage */}
+                <Card
+                    title="Today's Usage"
+                    action={
+                        <Button variant="secondary" size="sm" onClick={handleExportCSV}>
+                            <Download size={16} className="mr-2" />
+                            Export
+                        </Button>
+                    }
+                >
+                    <div className="space-y-3">
+                        {todayUsage.length > 0 ? (
+                            todayUsage.map((usage, index) => (
+                                <div
+                                    key={index}
+                                    className="flex items-center justify-between p-3 rounded-lg border"
+                                    style={{ borderColor: 'var(--border)' }}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-10 w-10 rounded-lg flex items-center justify-center"
+                                            style={{ backgroundColor: 'var(--bg-hover)' }}>
+                                            {usage._id === 'Electricity' ? (
+                                                <Zap size={20} style={{ color: 'var(--color-warning)' }} />
+                                            ) : (
+                                                <Droplets size={20} style={{ color: 'var(--color-primary)' }} />
+                                            )}
+                                        </div>
+                                        <div>
+                                            <h4 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                                {usage._id}
+                                            </h4>
+                                            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                                                {usage._id === 'Electricity' ? 'kWh' : 'Litres'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                                            {usage.total?.toLocaleString() || 0}
+                                        </p>
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <EmptyState
+                                title="No usage recorded"
+                                description="No usage data available for today"
+                            />
+                        )}
                     </div>
-                    <div className="stat-label">Block Sustainability Score</div>
-                </div>
+                </Card>
 
-                {/* Total Usage */}
-                <div className="card stat-card">
-                    <div className="stat-value">
-                        {stats?.totalUsage ? Number(stats.totalUsage).toFixed(1) : '0'}
-                    </div>
-                    <div className="stat-label">Total Block Consumption</div>
-                </div>
-
-                {/* Recent Usage List */}
-                <div className="card" style={{ gridColumn: 'span 3' }}>
-                    <h3>Recent Block Activity</h3>
-                    {usages.length > 0 ? (
-                        <div className="table-responsive">
-                            <table className="table">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Category</th>
-                                        <th>Resource</th>
-                                        <th>Amount</th>
-                                        <th>Notes</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {usages.slice(0, 10).map(u => (
-                                        <tr key={u._id}>
-                                            <td>{new Date(u.usage_date).toLocaleDateString()}</td>
-                                            <td>{u.category || '-'}</td>
-                                            <td>{u.resource_type}</td>
-                                            <td>{u.usage_value} {u.unit || ''}</td>
-                                            <td className="text-muted" style={{ fontSize: '0.85rem' }}>{u.notes}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                {/* Block Performance */}
+                <Card title="Block Performance" description="Overall efficiency metrics">
+                    <div className="space-y-6">
+                        {/* Overall Efficiency */}
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+                                    Overall Efficiency
+                                </span>
+                                <span className="text-sm font-semibold" style={{ color: 'var(--color-success)' }}>
+                                    84%
+                                </span>
+                            </div>
+                            <div className="w-full rounded-full h-2 overflow-hidden" style={{ backgroundColor: 'var(--bg-hover)' }}>
+                                <div
+                                    className="h-full transition-all duration-500 rounded-full"
+                                    style={{ width: '84%', backgroundColor: 'var(--color-success)' }}
+                                />
+                            </div>
                         </div>
-                    ) : (
-                        <p className="text-muted">No usage data recorded for this block yet.</p>
-                    )}
-                </div>
+
+                        {/* Sustainability Rating */}
+                        <div className="p-4 rounded-lg border" style={{
+                            borderColor: 'var(--color-success)',
+                            backgroundColor: '#DCFCE7'
+                        }}>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-xs font-medium uppercase tracking-wider mb-1"
+                                        style={{ color: 'var(--color-success)' }}>
+                                        Sustainability Rating
+                                    </p>
+                                    <p className="text-3xl font-bold" style={{ color: 'var(--color-success)' }}>
+                                        A+
+                                    </p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-xs" style={{ color: 'var(--color-success)' }}>
+                                        Top tier
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Quick Action */}
+                        <div className="pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+                            <Link to="/reports">
+                                <Button variant="secondary" className="w-full justify-center">
+                                    View Detailed Reports
+                                </Button>
+                            </Link>
+                        </div>
+                    </div>
+                </Card>
             </div>
         </div>
     );

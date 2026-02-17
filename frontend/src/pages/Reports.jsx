@@ -1,302 +1,168 @@
-import React, { useEffect, useState, useMemo, useContext } from 'react'
-import api from '../services/api'
-import Loading from '../components/Loading'
-import UsageFilter from '../components/UsageFilter'
-import { useToast } from '../context/ToastContext'
-import EmptyState from '../components/EmptyState'
-import { AuthContext } from '../context/AuthContext'
-import Modal from '../components/Modal'
+import React, { useEffect, useState, useContext } from 'react';
+import api from '../services/api';
+import { Download, Search, Filter, ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import { ThemeContext } from '../context/ThemeContext';
+import Card from '../components/common/Card';
+import Button from '../components/common/Button';
+import Badge from '../components/common/Badge';
+import EmptyState from '../components/common/EmptyState';
+import { exportToCSV } from '../utils/export';
+import { useToast } from '../context/ToastContext';
 
 export default function Reports() {
-  const [usages, setUsages] = useState([]) // All fetched usages
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const { addToast } = useToast()
-  const { user } = useContext(AuthContext)
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [sortConfig, setSortConfig] = useState({ key: 'usage_date', direction: 'desc' });
+  const [searchTerm, setSearchTerm] = useState('');
+  const { addToast } = useToast();
 
-  // Delete Modal State
-  const [showDeleteModal, setShowDeleteModal] = useState(false)
-  const [selectedRecord, setSelectedRecord] = useState(null)
-
-  // Filters from UsageFilter
-  const [apiFilters, setApiFilters] = useState({})
-  // Local Search
-  const [searchTerm, setSearchTerm] = useState('')
-  // Pagination
-  const [page, setPage] = useState(1)
-  const itemsPerPage = 10
-  // Sorting
-  const [sortConfig, setSortConfig] = useState({ key: 'usage_date', direction: 'desc' })
-
-  useEffect(() => { load() }, [apiFilters])
-
-  async function load() {
-    setLoading(true);
-    try {
-      // Construct Query from apiFilters
-      let query = '?'
-      if (apiFilters.resource) query += `resource=${apiFilters.resource}&`
-      if (apiFilters.category) query += `category=${apiFilters.category}&`
-      if (apiFilters.start) query += `start=${apiFilters.start}&`
-      if (apiFilters.end) query += `end=${apiFilters.end}&`
-      // Default api sort
-      query += `sort=${apiFilters.sort || 'usage_date:desc'}&`
-
-      const d = await api.get(`/api/usage${query}`);
-      setUsages(d.usages || [])
-      setPage(1) // Reset to page 1 on new fetch
-    } catch (e) {
-      setError(e.message)
-      addToast(e.message, 'error')
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    async function fetchReports() {
+      try {
+        const res = await api.get('/api/usage');
+        setReports(res.data.usages || []);
+      } catch (err) {
+        addToast('Failed to load reports', 'error');
+      } finally {
+        setLoading(false);
+      }
     }
-  }
-
-  // Handle Client-Side Search, Sort & Pagination
-  const processedData = useMemo(() => {
-    let data = [...usages]
-
-    // 1. Search
-    if (searchTerm) {
-      const lower = searchTerm.toLowerCase()
-      data = data.filter(u =>
-        u.resource_type.toLowerCase().includes(lower) ||
-        (u.category && u.category.toLowerCase().includes(lower)) ||
-        (u.notes && u.notes.toLowerCase().includes(lower))
-      )
-    }
-
-    // 2. Sort
-    if (sortConfig.key) {
-      data.sort((a, b) => {
-        const aVal = a[sortConfig.key] || ''
-        const bVal = b[sortConfig.key] || ''
-        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1
-        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1
-        return 0
-      })
-    }
-
-    return data
-  }, [usages, searchTerm, sortConfig])
-
-  const paginatedData = processedData.slice((page - 1) * itemsPerPage, page * itemsPerPage)
-  const totalPages = Math.ceil(processedData.length / itemsPerPage)
+    fetchReports();
+  }, []);
 
   const handleSort = (key) => {
-    let direction = 'asc'
-    if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc'
-    setSortConfig({ key, direction })
-  }
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const getSortedReports = () => {
+    return [...reports].sort((a, b) => {
+      let valA = a[sortConfig.key];
+      let valB = b[sortConfig.key];
+
+      // Handle nested properties if needed, or dates
+      if (sortConfig.key === 'usage_date') {
+        valA = new Date(valA);
+        valB = new Date(valB);
+      }
+
+      if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  const filteredReports = getSortedReports().filter(r =>
+    (r.resource_type || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (r.category || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (r.userId?.name || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const handleExport = () => {
+    const data = filteredReports.map(r => ({
+      Date: new Date(r.usage_date).toLocaleString(),
+      Resource: r.resource_type,
+      Value: r.usage_value,
+      Unit: r.unit || 'units',
+      Category: r.category || 'N/A',
+      LoggedBy: r.userId?.name || 'N/A',
+      Notes: r.notes || ''
+    }));
+    exportToCSV(data, `detailed_report_${new Date().toISOString().split('T')[0]}.csv`);
+    addToast('Report exported successfully');
+  };
 
   const getSortIcon = (key) => {
-    if (sortConfig.key !== key) return <span style={{ opacity: 0.3 }}>⇅</span>
-    return sortConfig.direction === 'asc' ? '↑' : '↓'
-  }
-
-  // Helper for units
-  const getUnit = (type) => {
-    switch (type) {
-      case 'Electricity': return 'kWh'
-      case 'Water': return 'L'
-      case 'Diesel': return 'L'
-      case 'LPG': return 'kg'
-      case 'Food': return 'kg'
-      case 'Waste': return 'kg'
-      default: return 'units'
-    }
-  }
-
-  // Exports
-  function downloadCSV() {
-    const token = sessionStorage.getItem('token')
-    const url = (import.meta.env.VITE_API_URL || 'http://localhost:4000') + '/api/reports/usages/csv'
-
-    // Use fetch for auth header
-    fetch(url, { headers: { Authorization: token ? `Bearer ${token}` : '' } })
-      .then(r => r.blob())
-      .then(blob => {
-        const u = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = u
-        link.download = `usages_report_${new Date().toISOString().slice(0, 10)}.csv`
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        URL.revokeObjectURL(u)
-        addToast('CSV Download Started')
-      })
-      .catch(() => addToast('Download failed', 'error'))
-  }
-
-  function printReport() {
-    window.print()
-  }
-
-  // Delete Handlers
-  const handleDeleteClick = (u) => {
-    setSelectedRecord(u)
-    setShowDeleteModal(true)
-  }
-
-  const confirmDelete = async () => {
-    if (!selectedRecord) return
-    try {
-      // Use api.del since the service defines 'del', not 'delete'
-      await api.del('/api/usage/' + selectedRecord._id)
-      addToast('Usage record deleted successfully', 'success')
-      setShowDeleteModal(false)
-      setSelectedRecord(null)
-      load() // Refresh data
-    } catch (e) {
-      addToast(e.message || 'Delete failed', 'error')
-    }
-  }
-
-  const totalRecords = processedData.length
-  const totalUsage = processedData.reduce((s, u) => s + (Number(u.usage_value) || 0), 0)
-  const uniqueResources = Array.from(new Set(processedData.map(u => u.resource_type))).length
-
-  // Render content logic to simplify JSX
-  const renderContent = () => {
-    if (loading) return <Loading />
-    if (error) return <div className="error">{error}</div>
-
-    return (
-      <div>
-        {/* Stats Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 20 }}>
-          <div className="stat-card">
-            <div className="stat-value">{totalRecords}</div>
-            <div className="stat-label">Records Found</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{totalUsage.toLocaleString()}</div>
-            <div className="stat-label">Total Units</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{uniqueResources}</div>
-            <div className="stat-label">Resources</div>
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="card">
-          <div className="table-wrap">
-            {paginatedData.length > 0 ? (
-              <table className="usage-table">
-                <thead>
-                  <tr>
-                    <th onClick={() => handleSort('resource_type')} style={{ cursor: 'pointer' }}>Resource {getSortIcon('resource_type')}</th>
-                    <th onClick={() => handleSort('category')} style={{ cursor: 'pointer' }}>Category {getSortIcon('category')}</th>
-                    <th onClick={() => handleSort('usage_value')} style={{ cursor: 'pointer' }}>Value {getSortIcon('usage_value')}</th>
-                    <th onClick={() => handleSort('usage_date')} style={{ cursor: 'pointer' }}>Date {getSortIcon('usage_date')}</th>
-                    <th>Notes</th>
-                    <th style={{ width: 100 }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedData.map(u => (
-                    <tr key={u._id}>
-                      <td>
-                        <span style={{ marginRight: 8 }}>{
-                          u.resource_type === 'Electricity' ? '⚡' :
-                            u.resource_type === 'Water' ? '💧' :
-                              u.resource_type === 'Food' ? '🍽' :
-                                u.resource_type === 'LPG' ? '🔥' :
-                                  u.resource_type === 'Diesel' ? '🛢' : '♻'
-                        }</span>
-                        {u.resource_type}
-                      </td>
-                      <td>{u.category || '-'}</td>
-                      <td style={{ fontWeight: 600 }}>{u.usage_value} <span style={{ fontSize: 10, color: 'var(--muted)' }}>{getUnit(u.resource_type)}</span></td>
-                      <td style={{ color: 'var(--muted)' }}>{new Date(u.usage_date).toLocaleString()}</td>
-                      <td style={{ maxWidth: '200px' }} className="truncate">{u.notes}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="action-btn" title="Edit">✎</button>
-                          {user?.role === 'admin' && (
-                            <button
-                              className="action-btn delete"
-                              onClick={() => handleDeleteClick(u)}
-                              title="Delete"
-                            >
-                              🗑
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : <EmptyState icon="📉" title="No Records" description="No data matches your criteria." />}
-          </div>
-
-          {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="pagination" style={{ marginTop: 16, display: 'flex', justifyContent: 'center', gap: 10 }}>
-              <button className="btn small secondary" disabled={page === 1} onClick={() => setPage(p => p - 1)}>Previous</button>
-              <span style={{ alignSelf: 'center', fontSize: 14 }}>Page {page} of {totalPages}</span>
-              <button className="btn small secondary" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>Next</button>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
+    if (sortConfig.key !== key) return null;
+    return sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />;
+  };
 
   return (
-    <div>
-      <div className="page-header">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2>Reports</h2>
-          <div className="muted">Professional, exportable reports for your usage data</div>
+          <h1 style={{ color: 'var(--text-primary)' }}>Usage Reports</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>
+            Detailed log of resource consumption across the campus
+          </p>
         </div>
-        <div className="report-actions">
-          <button onClick={downloadCSV} className="btn small">Download CSV</button>
-          <button onClick={printReport} className="btn secondary small">Print</button>
-        </div>
+        <Button variant="primary" onClick={handleExport}>
+          <Download size={16} className="mr-2" />
+          Export CSV
+        </Button>
       </div>
 
-      {/* Filter and Search Section */}
-      <UsageFilter filters={apiFilters} onFilterChange={setApiFilters} />
+      {/* Filters */}
+      <Card>
+        <div className="flex items-center gap-4">
+          <div className="flex-1 relative">
+            <Search size={20} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              className="input pl-10"
+              placeholder="Search by resource, location, or user..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+      </Card>
 
-      <div className="search-bar" style={{ marginBottom: 20 }}>
-        <input
-          type="text"
-          className="search-input input"
-          style={{ maxWidth: 300 }}
-          placeholder="Search within results..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
+      {/* Table */}
+      <Card>
+        {loading ? (
+          <div className="py-20 text-center text-slate-500">Loading data...</div>
+        ) : filteredReports.length === 0 ? (
+          <EmptyState
+            title="No Data Found"
+            description="No records match your search criteria."
+            icon={<FileText size={48} />}
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th className="cursor-pointer hover:text-blue-500" onClick={() => handleSort('usage_date')}>
+                    <div className="flex items-center gap-1">Date {getSortIcon('usage_date')}</div>
+                  </th>
+                  <th className="cursor-pointer hover:text-blue-500" onClick={() => handleSort('resource_type')}>
+                    <div className="flex items-center gap-1">Resource {getSortIcon('resource_type')}</div>
+                  </th>
+                  <th>Value</th>
+                  <th>Location / Category</th>
+                  <th>Logged By</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredReports.map((report) => (
+                  <tr key={report._id}>
+                    <td>{new Date(report.usage_date).toLocaleDateString()} <span className="text-slate-400 text-xs">{new Date(report.usage_date).toLocaleTimeString()}</span></td>
+                    <td>
+                      <Badge variant={report.resource_type === 'Electricity' ? 'warning' : 'primary'}>
+                        {report.resource_type}
+                      </Badge>
+                    </td>
+                    <td className="font-mono font-medium">{report.usage_value} {report.unit}</td>
+                    <td>{report.category || '-'}</td>
+                    <td>{report.userId?.name || 'Unknown'}</td>
+                    <td className="max-w-xs truncate text-slate-500" title={report.notes}>{report.notes || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <div className="text-right text-sm text-slate-500">
+        Showing {filteredReports.length} records
       </div>
-
-      {renderContent()}
-
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={showDeleteModal}
-        onClose={() => setShowDeleteModal(false)}
-        title="Confirm Deletion"
-      >
-        <p>Are you sure you want to delete this usage record?</p>
-        <div style={{ background: 'rgba(0,0,0,0.03)', padding: 12, borderRadius: 8, margin: '12px 0', fontSize: 14 }}>
-          <div><strong>Resource:</strong> {selectedRecord?.resource_type}</div>
-          <div><strong>Value:</strong> {selectedRecord?.usage_value} {selectedRecord && getUnit(selectedRecord.resource_type)}</div>
-          <div><strong>Date:</strong> {selectedRecord && new Date(selectedRecord.usage_date).toLocaleString()}</div>
-        </div>
-        <p style={{ color: 'var(--danger)', fontWeight: 500, fontSize: 14 }}>
-          This action cannot be undone.
-        </p>
-
-        <div className="modal-footer" style={{ marginTop: 20, padding: 0, borderTop: 0, background: 'none' }}>
-          <button className="btn secondary" onClick={() => setShowDeleteModal(false)}>Cancel</button>
-          <button className="btn-danger" onClick={confirmDelete}>Confirm Delete</button>
-        </div>
-      </Modal>
     </div>
-  )
+  );
 }

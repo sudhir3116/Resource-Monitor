@@ -10,16 +10,16 @@ router.use(adminMiddleware);
 
 // User management
 router.get('/users', adminController.listUsers);
+router.get('/blocks', adminController.getBlocks);
 router.delete('/users/:id', adminController.deleteUser);
 router.patch('/users/:id/role', adminController.updateUserRole);
 router.get('/usage/summary', adminController.getSystemUsageSummary);
 
 // Threshold configuration (admin only)
-router.get('/config/thresholds', configController.getAllThresholds);
-router.get('/config/thresholds/:resource', configController.getThresholdByResource);
+router.get('/config/thresholds', configController.getThresholds);
+router.get('/config/thresholds/:resource', configController.getResourceThreshold);
 router.post('/config/thresholds', configController.createThreshold);
 router.put('/config/thresholds/:resource', configController.updateThreshold);
 router.delete('/config/thresholds/:resource', configController.deleteThreshold);
-router.patch('/config/thresholds/:resource/toggle', configController.toggleAlerts);
 
 module.exports = router;

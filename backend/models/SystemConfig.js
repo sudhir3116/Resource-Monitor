@@ -36,7 +36,10 @@ const systemConfigSchema = new mongoose.Schema({
     spikeThreshold: { type: Number, default: 50 }, // 50% spike triggers alert
 
     // Enable/disable alerts for this resource
-    alertsEnabled: { type: Boolean, default: true }
+    alertsEnabled: { type: Boolean, default: true },
+
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
 module.exports = mongoose.model('SystemConfig', systemConfigSchema);

@@ -1,199 +1,235 @@
-import React, { useEffect, useState, useContext } from 'react'
-import api from '../services/api'
-import Loading from '../components/Loading'
-import { AuthContext } from '../context/AuthContext'
+import React, { useEffect, useState, useContext } from 'react';
+import api from '../services/api';
+import { AuthContext } from '../context/AuthContext';
+import { User, Mail, Shield, Key, Camera, Lock, Check, AlertCircle } from 'lucide-react';
+import Card from '../components/common/Card';
+import Button from '../components/common/Button';
+import Badge from '../components/common/Badge';
 
 export default function Profile() {
-  const { logout, checkAuth } = useContext(AuthContext)
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-
-  // Profile Form State
-  const [profileData, setProfileData] = useState({ name: '', avatar: '' })
-  const [profileMsg, setProfileMsg] = useState({ type: '', text: '' })
-
-  // Password Form State
-  const [pw, setPw] = useState({ currentPassword: '', newPassword: '' })
-  const [pwMsg, setPwMsg] = useState({ type: '', text: '' })
+  const { user: authUser, checkAuth } = useContext(AuthContext);
+  const [loading, setLoading] = useState(false);
+  const [profileData, setProfileData] = useState({
+    name: authUser?.name || '',
+    avatar: authUser?.avatar || ''
+  });
+  const [message, setMessage] = useState({ type: '', text: '' });
+  const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
   useEffect(() => {
-    load()
-  }, [])
-
-  async function load() {
-    setLoading(true)
-    try {
-      const d = await api.get('/api/profile')
-      setUser(d.user)
-      setProfileData({ name: d.user.name || '', avatar: d.user.avatar || '' })
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
+    if (authUser) {
+      setProfileData({
+        name: authUser.name || '',
+        avatar: authUser.avatar || ''
+      });
     }
-  }
+  }, [authUser]);
 
   async function updateProfile(e) {
-    e.preventDefault()
-    setProfileMsg({ type: '', text: '' })
+    e.preventDefault();
+    setMessage({ type: '', text: '' });
+    setLoading(true);
+
     try {
-      await api.put('/api/profile', profileData)
-      setProfileMsg({ type: 'success', text: 'Profile updated successfully' })
-      await checkAuth() // Refresh global auth state
+      await api.put('/api/profile', profileData);
+      setMessage({ type: 'success', text: 'Profile updated successfully' });
+      await checkAuth();
     } catch (err) {
-      setProfileMsg({ type: 'error', text: err.message || 'Failed to update profile' })
+      setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to update profile' });
+    } finally {
+      setLoading(false);
     }
   }
 
   async function changePw(e) {
-    e.preventDefault()
-    setPwMsg({ type: '', text: '' })
+    e.preventDefault();
+    setMessage({ type: '', text: '' });
+
+    if (pw.newPassword !== pw.confirmPassword) {
+      setMessage({ type: 'error', text: 'New passwords do not match' });
+      return;
+    }
+
+    setLoading(true);
     try {
-      await api.put('/api/profile/password', pw)
-      setPwMsg({ type: 'success', text: 'Password changed successfully' })
-      setPw({ currentPassword: '', newPassword: '' })
+      await api.put('/api/profile/password', {
+        currentPassword: pw.currentPassword,
+        newPassword: pw.newPassword
+      });
+      setMessage({ type: 'success', text: 'Password changed successfully' });
+      setPw({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (err) {
-      setPwMsg({ type: 'error', text: err.message || 'Failed to change password' })
+      setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to change password' });
+    } finally {
+      setLoading(false);
     }
   }
 
-  if (loading) return <Loading />
-  if (error) return <div className="p-4 text-red-600 bg-red-100 rounded">{error}</div>
-  if (!user) return null
-
   return (
-    <div className="container fade-in" style={{ maxWidth: 800, margin: '0 auto', padding: '20px' }}>
-      <h1 className="page-title" style={{ marginBottom: 24, fontSize: '2rem', fontWeight: 'bold' }}>My Profile</h1>
-
-      {/* Profile Details Card */}
-      <div className="card" style={{ marginBottom: 24, background: '#fff', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-        <div className="card-header" style={{ padding: '16px 24px', borderBottom: '1px solid #eee' }}>
-          <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Personal Information</h2>
-        </div>
-        <div className="card-body" style={{ padding: 24 }}>
-
-          <form onSubmit={updateProfile}>
-            <div className="form-group" style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', marginBottom: 8, fontWeight: 600, color: '#374151' }}>Full Name</label>
-              <input
-                type="text"
-                className="form-control"
-                value={profileData.name}
-                onChange={e => setProfileData({ ...profileData, name: e.target.value })}
-                required
-                style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d1d5db' }}
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', marginBottom: 8, fontWeight: 600, color: '#374151' }}>Avatar URL</label>
-              <input
-                type="url"
-                className="form-control"
-                value={profileData.avatar}
-                onChange={e => setProfileData({ ...profileData, avatar: e.target.value })}
-                placeholder="https://example.com/avatar.jpg"
-                style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d1d5db' }}
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', marginBottom: 8, fontWeight: 600, color: '#374151' }}>Email Address</label>
-              <input
-                type="email"
-                className="form-control"
-                value={user.email}
-                disabled
-                style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', color: '#6b7280' }}
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 24 }}>
-              <label style={{ display: 'block', marginBottom: 8, fontWeight: 600, color: '#374151' }}>Role</label>
-              <span className={`badge ${['admin', 'principal', 'dean'].includes(user.role) ? 'badge-primary' : 'badge-secondary'}`}
-                style={{ padding: '4px 12px', borderRadius: '999px', fontSize: '0.875rem', fontWeight: 600, backgroundColor: '#e5e7eb', color: '#374151' }}>
-                {user.role ? user.role.toUpperCase() : 'USER'}
-              </span>
-            </div>
-
-            {profileMsg.text && (
-              <div className={`alert ${profileMsg.type === 'error' ? 'alert-error' : 'alert-success'}`}
-                style={{
-                  padding: 12, borderRadius: 6, marginBottom: 16,
-                  backgroundColor: profileMsg.type === 'error' ? '#fee2e2' : '#dcfce7',
-                  color: profileMsg.type === 'error' ? '#991b1b' : '#166534'
-                }}>
-                {profileMsg.text}
-              </div>
-            )}
-
-            <div style={{ textAlign: 'right' }}>
-              <button type="submit" className="primary-btn" style={{ padding: '10px 24px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 500 }}>
-                Save Changes
-              </button>
-            </div>
-          </form>
-
-        </div>
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 style={{ color: 'var(--text-primary)' }}>Profile Settings</h1>
+        <p style={{ color: 'var(--text-secondary)' }}>
+          Manage your account settings and preferences
+        </p>
       </div>
 
-      {/* Password Change Card */}
-      <div className="card" style={{ background: '#fff', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-        <div className="card-header" style={{ padding: '16px 24px', borderBottom: '1px solid #eee' }}>
-          <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Security Settings</h2>
+      {message.text && (
+        <div className={`p-4 rounded-lg flex items-center gap-3 ${message.type === 'error'
+            ? 'bg-red-50 text-red-700 border border-red-200'
+            : 'bg-green-50 text-green-700 border border-green-200'
+          }`}>
+          {message.type === 'error' ? <AlertCircle size={20} /> : <Check size={20} />}
+          {message.text}
         </div>
-        <div className="card-body" style={{ padding: 24 }}>
-          <h3 style={{ fontSize: '1rem', marginBottom: 16, fontWeight: 600, color: '#4b5563' }}>Change Password</h3>
-          <form onSubmit={changePw}>
-            <div className="form-group" style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Current Password</label>
-              <input
-                type="password"
-                className="form-control"
-                value={pw.currentPassword}
-                onChange={e => setPw({ ...pw, currentPassword: e.target.value })}
-                required
-                style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d1d5db' }}
-              />
-            </div>
-            <div className="form-group" style={{ marginBottom: 24 }}>
-              <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>New Password</label>
-              <input
-                type="password"
-                className="form-control"
-                value={pw.newPassword}
-                onChange={e => setPw({ ...pw, newPassword: e.target.value })}
-                required
-                style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d1d5db' }}
-              />
-            </div>
-            {pwMsg.text && (
-              <div style={{
-                padding: 12, borderRadius: 6, marginBottom: 16,
-                backgroundColor: pwMsg.type === 'error' ? '#fee2e2' : '#dcfce7',
-                color: pwMsg.type === 'error' ? '#991b1b' : '#166534'
-              }}>
-                {pwMsg.text}
-              </div>
-            )}
+      )}
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="btn btn-danger"
-                onClick={logout}
-                style={{ padding: '10px 24px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-              >
-                Sign Out
-              </button>
-              <button type="submit" className="primary-btn" style={{ padding: '10px 24px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
-                Update Password
-              </button>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column - User Info Card */}
+        <div className="lg:col-span-1">
+          <Card>
+            <div className="flex flex-col items-center text-center p-4">
+              <div className="relative mb-4">
+                <div className="h-24 w-24 rounded-full flex items-center justify-center overflow-hidden"
+                  style={{ backgroundColor: 'var(--bg-hover)' }}>
+                  {authUser?.avatar ? (
+                    <img src={authUser.avatar} alt={authUser.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <User size={40} style={{ color: 'var(--text-secondary)' }} />
+                  )}
+                </div>
+                <button className="absolute bottom-0 right-0 p-2 rounded-full shadow-lg"
+                  style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                  <Camera size={14} style={{ color: 'var(--text-primary)' }} />
+                </button>
+              </div>
+
+              <h2 className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{authUser?.name}</h2>
+              <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>{authUser?.email}</p>
+
+              <Badge variant="primary" className="mb-4">{authUser?.role}</Badge>
+
+              <div className="w-full pt-4 border-t space-y-3 text-left" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center justify-between text-sm">
+                  <span style={{ color: 'var(--text-secondary)' }}>Block</span>
+                  <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{authUser?.block || 'N/A'}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span style={{ color: 'var(--text-secondary)' }}>Joined</span>
+                  <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {new Date(authUser?.createdAt || Date.now()).toLocaleDateString()}
+                  </span>
+                </div>
+              </div>
             </div>
-          </form>
+          </Card>
+        </div>
+
+        {/* Right Column - Forms */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* General Information */}
+          <Card title="General Information">
+            <form onSubmit={updateProfile} className="space-y-4">
+              <div>
+                <label className="label">Full Name</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input
+                    type="text"
+                    className="input pl-10"
+                    value={profileData.name}
+                    onChange={e => setProfileData({ ...profileData, name: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="label">Email Address</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input
+                    type="email"
+                    className="input pl-10"
+                    value={authUser?.email}
+                    disabled
+                    style={{ backgroundColor: 'var(--bg-hover)', cursor: 'not-allowed' }}
+                  />
+                </div>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  Email address cannot be changed. Contact admin for assistance.
+                </p>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <Button type="submit" variant="primary" disabled={loading}>
+                  {loading ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </div>
+            </form>
+          </Card>
+
+          {/* Security */}
+          {authUser?.provider !== 'google' && (
+            <Card title="Security">
+              <form onSubmit={changePw} className="space-y-4">
+                <div>
+                  <label className="label">Current Password</label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input
+                      type="password"
+                      className="input pl-10"
+                      value={pw.currentPassword}
+                      onChange={e => setPw({ ...pw, currentPassword: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">New Password</label>
+                    <div className="relative">
+                      <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                      <input
+                        type="password"
+                        className="input pl-10"
+                        value={pw.newPassword}
+                        onChange={e => setPw({ ...pw, newPassword: e.target.value })}
+                        required
+                        minLength={6}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="label">Confirm New Password</label>
+                    <div className="relative">
+                      <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                      <input
+                        type="password"
+                        className="input pl-10"
+                        value={pw.confirmPassword}
+                        onChange={e => setPw({ ...pw, confirmPassword: e.target.value })}
+                        required
+                        minLength={6}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <Button type="submit" variant="secondary" disabled={loading}>
+                    {loading ? 'Updating...' : 'Update Password'}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          )}
         </div>
       </div>
     </div>
-  )
+  );
 }

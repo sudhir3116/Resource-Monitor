@@ -20,22 +20,31 @@ const connectDB = async () => {
 const seedData = async () => {
     await connectDB();
 
-    // 1. Seed Admin User
-    const adminEmail = 'admin@college.com';
-    const adminExists = await User.findOne({ email: adminEmail });
+    // 1. Seed Users
+    const users = [
+        { name: 'System Administrator', email: 'admin@college.com', password: 'Admin@123', role: ROLES.ADMIN },
+        { name: 'Student User', email: 'student@college.com', password: 'Student@123', role: ROLES.STUDENT },
+        { name: 'Hostel Warden', email: 'warden@college.com', password: 'Warden@123', role: ROLES.WARDEN },
+        { name: 'College Dean', email: 'dean@college.com', password: 'Dean@123', role: ROLES.DEAN },
+        { name: 'College Principal', email: 'principal@college.com', password: 'Principal@123', role: ROLES.PRINCIPAL }
+    ];
 
-    if (!adminExists) {
-        const hashedPassword = await bcrypt.hash('admin123', 10);
-        await User.create({
-            name: 'System Administrator',
-            email: adminEmail,
-            password: hashedPassword,
-            role: ROLES.ADMIN,
-            provider: 'local'
-        });
-        console.log('✅ Admin User Created (admin@college.com / admin123)');
-    } else {
-        console.log('ℹ️ Admin User already exists');
+    for (const user of users) {
+        const hashedPassword = await bcrypt.hash(user.password, 10);
+
+        await User.findOneAndUpdate(
+            { email: user.email },
+            {
+                name: user.name,
+                email: user.email,
+                password: hashedPassword,
+                role: user.role,
+                provider: 'local',
+                status: 'active'
+            },
+            { upsert: true, new: true }
+        );
+        console.log(`✅ User Seeded/Updated: ${user.email} (${user.role})`);
     }
 
     // 2. Seed System Configurations (Thresholds)

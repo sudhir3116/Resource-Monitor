@@ -6,31 +6,32 @@ import './styles.css'
 import { AuthProvider } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import { ToastProvider } from './context/ToastContext'
-import ErrorBoundary from './components/ErrorBoundary'
+import GlobalErrorBoundary from './components/GlobalErrorBoundary'
 
-createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <ThemeProvider>
-        <AuthProvider>
-          <ToastProvider>
-            <ErrorBoundary>
-              <App />
-            </ErrorBoundary>
-          </ToastProvider>
-        </AuthProvider>
-      </ThemeProvider>
-    </BrowserRouter>
-  </React.StrictMode>
-)
+const rootElement = document.getElementById('root');
+if (!rootElement) throw new Error('Failed to find the root element');
 
-// quick sanity log to ensure main executed
-console.log('main.jsx mounted')
+try {
+  const root = createRoot(rootElement);
 
-// global error logging
-if (typeof window !== 'undefined') {
-  window.addEventListener('error', (e) => console.error('Global error', e.error || e.message))
-  window.addEventListener('unhandledrejection', (ev) => console.error('Unhandled rejection', ev.reason))
+  root.render(
+    <React.StrictMode>
+      <GlobalErrorBoundary>
+        <BrowserRouter>
+          <ThemeProvider>
+            <AuthProvider>
+              <ToastProvider>
+                <App />
+              </ToastProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </BrowserRouter>
+      </GlobalErrorBoundary>
+    </React.StrictMode>
+  );
+
+  console.log('React app mounted successfully');
+} catch (error) {
+  console.error('Error mounting React app:', error);
+  document.body.innerHTML = '<div style="color:red; padding:20px;"><h2>Application Failed to Start</h2><p>Check console for details.</p></div>';
 }
-
-// debug banner removed

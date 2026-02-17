@@ -1,89 +1,139 @@
-import React, { useContext } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
-import Login from './pages/Login'
-import Register from './pages/Register'
-import ForgotPassword from './pages/ForgotPassword'
-import ResetPassword from './pages/ResetPassword'
-import Dashboard from './pages/Dashboard'
-import UsageList from './pages/UsageList'
-import UsageForm from './pages/UsageForm'
-import AlertsList from './pages/AlertsList'
-import AlertForm from './pages/AlertForm'
-import Reports from './pages/Reports'
-import Profile from './pages/Profile'
-import AdminDashboard from './pages/AdminDashboard'
-import Nav from './components/Nav'
-import ProtectedRoute from './components/ProtectedRoute'
-import PublicRoute from './components/PublicRoute'
-import { AuthContext } from './context/AuthContext'
-import { ROLES } from './utils/roles'
-import Loading from './components/Loading'
+import React, { useContext, Suspense } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import MainLayout from './components/layout/MainLayout';
+import ProtectedRoute from './components/ProtectedRoute';
+import PublicRoute from './components/PublicRoute';
+import { AuthContext } from './context/AuthContext';
+import { ROLES } from './utils/roles';
+import Loading from './components/Loading';
+import ErrorBoundary from './components/common/ErrorBoundary';
+
+// Lazy Load Pages
+const LandingPage = React.lazy(() => import('./pages/LandingPage'));
+const Login = React.lazy(() => import('./pages/Login'));
+const Register = React.lazy(() => import('./pages/Register'));
+const ForgotPassword = React.lazy(() => import('./pages/ForgotPassword'));
+const ResetPassword = React.lazy(() => import('./pages/ResetPassword'));
+const Dashboard = React.lazy(() => import('./pages/Dashboard'));
+const UsageList = React.lazy(() => import('./pages/UsageList'));
+const UsageForm = React.lazy(() => import('./pages/UsageForm'));
+const Alerts = React.lazy(() => import('./pages/Alerts'));
+const AlertForm = React.lazy(() => import('./pages/AlertForm'));
+const EnhancedReports = React.lazy(() => import('./pages/EnhancedReports'));
+const Profile = React.lazy(() => import('./pages/Profile'));
+const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
+const UserManagement = React.lazy(() => import('./pages/UserManagement'));
+const Settings = React.lazy(() => import('./pages/Settings'));
+const AlertsList = React.lazy(() => import('./pages/AlertsList'));
+const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
+const Resources = React.lazy(() => import('./pages/Usage'));
+const AuditLogs = React.lazy(() => import('./pages/AuditLogs'));
+const NotFound = React.lazy(() => import('./pages/NotFound'));
 
 function App() {
-  const { user, loading } = useContext(AuthContext)
+  const { loading } = useContext(AuthContext);
 
-  if (loading) return <Loading />
+  if (loading) {
+    return <Loading />;
+  }
 
   return (
-    <div>
-      <Nav />
-      <main className="container main-content">
+    <ErrorBoundary>
+      <Suspense fallback={
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', width: '100%', backgroundColor: 'var(--bg-primary)' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div className="spinner" style={{ margin: '0 auto 16px' }}></div>
+            <span style={{ color: 'var(--text-secondary)' }}>Loading modules...</span>
+          </div>
+        </div>
+      }>
         <Routes>
-          <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />} />
-
+          {/* Public Routes (No Layout) */}
+          <Route path="/" element={<PublicRoute><LandingPage /></PublicRoute>} />
           <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
           <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
           <Route path="/forgot" element={<ForgotPassword />} />
           <Route path="/reset/:token" element={<ResetPassword />} />
 
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          {/* Protected Routes (MainLayout) */}
+          <Route path="/*" element={
+            <ProtectedRoute>
+              <MainLayout>
+                <Routes>
+                  {/* Core Dashboard */}
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/profile" element={<Profile />} />
 
-          <Route path="/admin" element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.PRINCIPAL, ROLES.DEAN, ROLES.WARDEN]}>
-              <AdminDashboard />
+                  {/* Resource Management */}
+                  <Route path="/resources" element={<Resources />} />
+                  <Route path="/analytics" element={<AnalyticsPage />} />
+
+                  {/* Usage Records */}
+                  <Route path="/usage/all" element={<UsageList />} />
+                  <Route path="/usage/new" element={
+                    <ProtectedRoute roles={[ROLES.ADMIN, ROLES.WARDEN]}>
+                      <UsageForm />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/usage/:id/edit" element={
+                    <ProtectedRoute roles={[ROLES.ADMIN, ROLES.WARDEN]}>
+                      <UsageForm />
+                    </ProtectedRoute>
+                  } />
+
+                  {/* Alerts */}
+                  <Route path="/alerts" element={<Alerts />} />
+                  <Route path="/alerts/rules" element={<AlertsList />} />
+                  <Route path="/alerts/new" element={
+                    <ProtectedRoute roles={[ROLES.ADMIN, ROLES.WARDEN]}>
+                      <AlertForm />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/alerts/:id/edit" element={
+                    <ProtectedRoute roles={[ROLES.ADMIN, ROLES.WARDEN]}>
+                      <AlertForm />
+                    </ProtectedRoute>
+                  } />
+
+                  {/* Reports */}
+                  <Route path="/reports" element={
+                    <ProtectedRoute roles={[ROLES.ADMIN, ROLES.PRINCIPAL, ROLES.DEAN, ROLES.WARDEN]}>
+                      <EnhancedReports />
+                    </ProtectedRoute>
+                  } />
+
+                  {/* Admin Routes */}
+                  <Route path="/admin" element={
+                    <ProtectedRoute roles={[ROLES.ADMIN, ROLES.PRINCIPAL, ROLES.DEAN, ROLES.WARDEN]}>
+                      <AdminDashboard />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/users" element={
+                    <ProtectedRoute roles={[ROLES.ADMIN]}>
+                      <UserManagement />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/settings" element={
+                    <ProtectedRoute roles={[ROLES.ADMIN]}>
+                      <Settings />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/audit-logs" element={
+                    <ProtectedRoute roles={[ROLES.ADMIN]}>
+                      <AuditLogs />
+                    </ProtectedRoute>
+                  } />
+
+                  {/* Fallback */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </MainLayout>
             </ProtectedRoute>
           } />
-
-          <Route path="/usage" element={<ProtectedRoute><UsageList /></ProtectedRoute>} />
-
-          <Route path="/usage/new" element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.WARDEN]}>
-              <UsageForm />
-            </ProtectedRoute>
-          } />
-
-          <Route path="/usage/:id/edit" element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.WARDEN]}>
-              <UsageForm />
-            </ProtectedRoute>
-          } />
-
-          <Route path="/alerts" element={<ProtectedRoute><AlertsList /></ProtectedRoute>} />
-
-          <Route path="/alerts/new" element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.PRINCIPAL, ROLES.DEAN, ROLES.WARDEN]}>
-              <AlertForm />
-            </ProtectedRoute>
-          } />
-
-          <Route path="/alerts/:id/edit" element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.PRINCIPAL, ROLES.DEAN, ROLES.WARDEN]}>
-              <AlertForm />
-            </ProtectedRoute>
-          } />
-
-          <Route path="/reports" element={
-            <ProtectedRoute roles={[ROLES.ADMIN, ROLES.PRINCIPAL, ROLES.DEAN, ROLES.WARDEN]}>
-              <Reports />
-            </ProtectedRoute>
-          } />
-          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-
-          <Route path="*" element={<div style={{ padding: 32, textAlign: 'center' }}>Page Not Found</div>} />
         </Routes>
-      </main>
-    </div>
-  )
+      </Suspense>
+    </ErrorBoundary>
+  );
 }
 
-export default App
+export default App;

@@ -1,17 +1,22 @@
-import React from 'react'
+import React from 'react';
 
 export default function EmptyState({
     icon = '📂',
     title = 'No Data Found',
-    description = 'There are no records to display at the moment.',
+    message = 'There are no records to display at the moment.',
+    description = '',
     action = null
 }) {
+    // Allow either message or description prop
+    const displayText = message || description;
+
     return (
-        <div className="empty-card">
-            <div className="empty-icon">{icon}</div>
-            <div className="empty-title">{title}</div>
-            <div className="empty-desc">{description}</div>
-            {action && <div>{action}</div>}
+        <div className="empty-state">
+            <div className="empty-state-icon">{icon}</div>
+            <div className="empty-state-title">{title}</div>
+            <div className="empty-state-text">{displayText}</div>
+            {action && <div style={{ marginTop: 16 }}>{action}</div>}
         </div>
-    )
+    );
 }
+

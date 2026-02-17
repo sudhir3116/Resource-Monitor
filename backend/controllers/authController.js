@@ -6,13 +6,17 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require('crypto');
 const asyncHandler = require('../middleware/asyncHandler');
+const { OAuth2Client } = require('google-auth-library');
 require('dotenv').config();
+
+// Initialize Google OAuth Client
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const GENERATE_TOKENS = (user) => {
   const payload = {
     id: user._id,
     role: user.role,
-    instanceId: SERVER_INSTANCE_ID // Bind token to current server instance
+    instanceId: SERVER_INSTANCE_ID
   };
 
   const accessToken = jwt.sign(
@@ -21,7 +25,6 @@ const GENERATE_TOKENS = (user) => {
     { expiresIn: '15m' }
   );
 
-  // Refresh token also needs instanceId to be invalidated on restart
   const refreshToken = jwt.sign(
     { id: user._id, instanceId: SERVER_INSTANCE_ID },
     process.env.JWT_SECRET,
@@ -35,30 +38,48 @@ const SET_COOKIES = (res, accessToken, refreshToken) => {
   res.cookie('accessToken', accessToken, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'lax', // Required for Google OAuth redirect flow
-    maxAge: 15 * 60 * 1000 // 15 minutes
+    sameSite: 'lax',
+    maxAge: 15 * 60 * 1000
   });
   if (refreshToken) {
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax', // Must match accessToken policy
+      sameSite: 'lax',
       path: '/api/auth/refresh',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      maxAge: 7 * 24 * 60 * 60 * 1000
     });
   }
+};
+
+// Helper: Format user object consistently
+const formatUserResponse = (user) => {
+  return {
+    id: user._id,
+    _id: user._id, // Include both for compatibility
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    avatar: user.avatar || null,
+    provider: user.provider || 'local'
+  };
 };
 
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
+// @desc    Register user
+// @route   POST /api/auth/register
+// @access  Public
 const register = asyncHandler(async (req, res) => {
-  const { name, email, password, role } = req.body;
+  let { name, email, password } = req.body;
 
   if (!name || !email || !password) {
     res.status(400);
     throw new Error("All fields are required");
   }
+
+  email = email.toLowerCase(); // Normalize email
 
   const existingUser = await User.findOne({ email });
   if (existingUser) {
@@ -68,15 +89,12 @@ const register = asyncHandler(async (req, res) => {
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  // Public registration is restricted to Students only
-  // Admins must be created via Seed script or by another Admin
-  const userRole = ROLES.STUDENT;
-
   const user = await User.create({
     name,
     email,
     password: hashedPassword,
-    role: userRole
+    role: ROLES.STUDENT,
+    provider: 'local'
   });
 
   const { accessToken, refreshToken } = GENERATE_TOKENS(user);
@@ -85,7 +103,8 @@ const register = asyncHandler(async (req, res) => {
   res.status(201).json({
     success: true,
     message: "Registered successfully",
-    user: { id: user._id, name: user.name, email: user.email, role: user.role }
+    token: accessToken,
+    data: formatUserResponse(user)
   });
 });
 
@@ -93,16 +112,25 @@ const register = asyncHandler(async (req, res) => {
 // @route   POST /api/auth/login
 // @access  Public
 const login = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
+  let { email, password } = req.body;
+
+  if (!email || !password) {
+    res.status(400);
+    throw new Error("Email and password are required");
+  }
+
+  email = email.toLowerCase(); // Normalize email
 
   const user = await User.findOne({ email });
   if (!user) {
+    console.log(`❌ Login failed: User not found for email ${email}`);
     res.status(401);
     throw new Error("Invalid credentials");
   }
 
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
+    console.log(`❌ Login failed: Password mismatch for user ${email}`);
     res.status(401);
     throw new Error("Invalid credentials");
   }
@@ -110,11 +138,121 @@ const login = asyncHandler(async (req, res) => {
   const { accessToken, refreshToken } = GENERATE_TOKENS(user);
   SET_COOKIES(res, accessToken, refreshToken);
 
+  console.log('✅ Email/password login successful for:', user.email);
+
   res.status(200).json({
     success: true,
     message: "Login successful",
-    user: { id: user._id, name: user.name, email: user.email, role: user.role }
+    token: accessToken,
+    data: formatUserResponse(user)
   });
+});
+
+// @desc    Google OAuth Login (ID Token Verification) - Campus-Wide
+// @route   POST /api/auth/google
+// @access  Public
+const googleLogin = asyncHandler(async (req, res) => {
+  const { credential } = req.body;
+
+  if (!credential) {
+    res.status(400);
+    throw new Error("Google ID token is required");
+  }
+
+  try {
+    // Verify the Google ID token
+    console.log('🔍 Verifying Google ID token...');
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+
+    const payload = ticket.getPayload();
+    console.log('✅ Google token verified successfully');
+    console.log('📧 Email:', payload.email);
+    console.log('👤 Name:', payload.name);
+
+    // Optional: Check email domain restriction for campus-wide deployment
+    const allowedDomains = process.env.ALLOWED_EMAIL_DOMAINS;
+    if (allowedDomains && allowedDomains.trim() !== '') {
+      const domains = allowedDomains.split(',').map(d => d.trim().toLowerCase());
+      const userDomain = payload.email.split('@')[1].toLowerCase();
+
+      if (!domains.includes(userDomain)) {
+        console.log('❌ Email domain not allowed:', userDomain);
+        console.log('✅ Allowed domains:', domains);
+        res.status(403);
+        throw new Error(`Access restricted. Only ${domains.join(', ')} email addresses are allowed.`);
+      }
+      console.log('✅ Email domain check passed:', userDomain);
+    } else {
+      console.log('ℹ️  No domain restriction - accepting any Google account');
+    }
+
+    // Check if user exists
+    let user = await User.findOne({ email: payload.email });
+
+    if (user) {
+      console.log('👤 Existing user found - ID:', user._id);
+      // Update Google ID and avatar if not set
+      if (!user.googleId) {
+        user.googleId = payload.sub;
+        user.provider = 'google';
+        if (!user.avatar && payload.picture) {
+          user.avatar = payload.picture;
+        }
+        await user.save();
+        console.log('✅ Updated existing user with Google info');
+      }
+    } else {
+      console.log('🆕 Creating new user from Google account');
+
+      // Create new user with default student role
+      user = await User.create({
+        name: payload.name,
+        email: payload.email,
+        password: await bcrypt.hash(Math.random().toString(36), 10),
+        googleId: payload.sub,
+        provider: 'google',
+        avatar: payload.picture,
+        role: ROLES.STUDENT // Default role - admin can update later
+      });
+      console.log('✅ New user created with STUDENT role - ID:', user._id);
+    }
+
+    // Generate JWT tokens
+    const { accessToken, refreshToken } = GENERATE_TOKENS(user);
+    SET_COOKIES(res, accessToken, refreshToken);
+
+    console.log('✅ Google login successful for:', user.email, '- Role:', user.role);
+
+    // Return consistent user object structure
+    res.status(200).json({
+      success: true,
+      message: "Google login successful",
+      data: formatUserResponse(user)
+    });
+  } catch (error) {
+    console.error('❌ Google login error:', error.message);
+
+    // Handle specific errors
+    if (error.message && error.message.includes('Token used too late')) {
+      res.status(401);
+      throw new Error('Google token expired. Please try logging in again.');
+    }
+
+    if (error.message && error.message.includes('Invalid token signature')) {
+      res.status(401);
+      throw new Error('Invalid Google token. Please try again.');
+    }
+
+    if (error.message && error.message.includes('Access restricted')) {
+      throw error; // Already has proper status code
+    }
+
+    res.status(400);
+    throw new Error(`Google authentication failed: ${error.message}`);
+  }
 });
 
 // @desc    Logout user
@@ -139,19 +277,25 @@ const refresh = asyncHandler(async (req, res) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Critical Security Check: Instance ID (Server Restart Validation)
-    if (decoded.instanceId !== SERVER_INSTANCE_ID) {
+
+    // Check if token is from a previous server instance (or missing instanceId)
+    if (!decoded.instanceId || decoded.instanceId !== SERVER_INSTANCE_ID) {
+      // Clear invalid cookies
+      res.clearCookie('accessToken');
+      res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
       res.status(403);
-      throw new Error('Session expired (server restart)');
+      throw new Error('Session expired (server reset or invalid token). Please log in again.');
     }
 
     const user = await User.findById(decoded.id);
     if (!user) {
+      // Clear cookies for non-existent user
+      res.clearCookie('accessToken');
+      res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
       res.status(401);
-      throw new Error('User not found');
+      throw new Error('User account not found');
     }
 
-    // Issue new access token
     const accessToken = jwt.sign(
       { id: user._id, role: user.role, instanceId: SERVER_INSTANCE_ID },
       process.env.JWT_SECRET,
@@ -167,8 +311,25 @@ const refresh = asyncHandler(async (req, res) => {
 
     res.json({ success: true, message: 'Refreshed' });
   } catch (err) {
-    res.status(403); // Forbidden implies invalid token logic
-    throw new Error('Invalid refresh token');
+    // Clear cookies on any error to prevent infinite retry loops
+    res.clearCookie('accessToken');
+    res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+
+    // Provide specific error message
+    if (err.name === 'TokenExpiredError') {
+      res.status(403);
+      throw new Error('Refresh token expired. Please log in again.');
+    }
+    if (err.message && err.message.includes('server reset')) {
+      throw err; // Already has proper status and message
+    }
+    if (err.message && err.message.includes('User account not found')) {
+      throw err; // Already has proper status and message
+    }
+
+    res.status(403);
+    // Generic message for other JWT errors (invalid signature, malformed)
+    throw new Error('Invalid authentication session. Please log in again.');
   }
 });
 
@@ -176,7 +337,6 @@ const refresh = asyncHandler(async (req, res) => {
 // @route   GET /api/auth/me
 // @access  Private
 const verifyToken = asyncHandler(async (req, res) => {
-  // req.user is populated by authMiddleware
   if (!req.user) {
     res.status(401);
     throw new Error('Not authenticated');
@@ -187,7 +347,12 @@ const verifyToken = asyncHandler(async (req, res) => {
     res.status(401);
     throw new Error("User not found");
   }
-  res.status(200).json({ success: true, user });
+
+  // Return consistent user object
+  res.status(200).json({
+    success: true,
+    data: formatUserResponse(user)
+  });
 });
 
 // @desc    Request Password Reset
@@ -202,18 +367,22 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
   const user = await User.findOne({ email });
   if (!user) {
-    // Fail silently for security
-    return res.status(200).json({ success: true, message: 'If that email exists, a reset token has been sent.' });
+    return res.status(200).json({
+      success: true,
+      message: 'If that email exists, a reset token has been sent.'
+    });
   }
 
-  // create token
   const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60); // 1 hour
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60);
 
   await PasswordResetToken.create({ user: user._id, token, expiresAt });
 
-  // In production: send email with reset link. For now returning context.
-  res.json({ success: true, message: 'Reset token generated (check console/email)', token });
+  res.json({
+    success: true,
+    message: 'Reset token generated (check console/email)',
+    token
+  });
 });
 
 // @desc    Reset Password
@@ -255,8 +424,10 @@ const resetPassword = asyncHandler(async (req, res) => {
 module.exports = {
   GENERATE_TOKENS,
   SET_COOKIES,
+  formatUserResponse,
   register,
   login,
+  googleLogin,
   logout,
   refresh,
   verifyToken,
