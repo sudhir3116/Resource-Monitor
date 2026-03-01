@@ -59,6 +59,10 @@ const userSchema = new mongoose.Schema(
     lastLogin: {
       type: Date
     },
+    lastLogoutAt: {
+      type: Date,
+      default: null
+    },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
   },
   { timestamps: true }

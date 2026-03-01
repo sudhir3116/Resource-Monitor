@@ -485,10 +485,159 @@ const getEfficiencyRating = async (req, res) => {
     }
 };
 
+/**
+ * @desc    Get budget monitoring for blocks
+ * @route   GET /api/analytics/budget
+ * @access  Private
+ */
+const getBudgetMonitoring = async (req, res) => {
+    try {
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        // Fetch all blocks and configs (for rates)
+        const blocks = await Block.find({});
+        const configs = await SystemConfig.find({});
+
+        // Calculate usage cost per block
+        const usageAgg = await Usage.aggregate([
+            { $match: { usage_date: { $gte: startOfMonth } } },
+            {
+                $group: {
+                    _id: { blockId: '$blockId', resource: '$resource_type' },
+                    totalUsage: { $sum: '$usage_value' }
+                }
+            }
+        ]);
+
+        const blockBudgets = blocks.map(block => {
+            let totalCost = 0;
+            const resourceCosts = [];
+
+            const blockUsage = usageAgg.filter(u => String(u._id.blockId) === String(block._id));
+
+            for (const usage of blockUsage) {
+                const config = configs.find(c => c.resource === usage._id.resource);
+                const rate = config ? config.rate : 0;
+                const cost = usage.totalUsage * rate;
+                totalCost += cost;
+
+                resourceCosts.push({
+                    resource: usage._id.resource,
+                    usage: usage.totalUsage,
+                    rate,
+                    cost
+                });
+            }
+
+            const total_budget = block.monthly_budget || 0;
+            const remaining = total_budget - totalCost;
+            const percentageUsed = total_budget > 0 ? (totalCost / total_budget) * 100 : 0;
+
+            let status = 'Good';
+            if (percentageUsed >= 100) status = 'Critical';
+            else if (percentageUsed >= 80) status = 'Warning';
+
+            return {
+                blockId: block._id,
+                blockName: block.name,
+                budget: total_budget,
+                spent: totalCost,
+                remaining,
+                percentageUsed,
+                status,
+                resourceCosts
+            };
+        });
+
+        // Filter for user
+        let result = blockBudgets;
+        if (req.user.role === ROLES.WARDEN) {
+            const user = await require('../models/User').findById(req.user.id);
+            if (user.block) {
+                result = blockBudgets.filter(b => String(b.blockId) === String(user.block));
+            }
+        } else if (req.user.role === ROLES.STUDENT) {
+            return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+
+        res.json({ success: true, budgets: result });
+    } catch (error) {
+        console.error('Budget monitoring error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * @desc    Get hostel leaderboard
+ * @route   GET /api/analytics/leaderboard
+ * @access  Private
+ */
+const getHostelLeaderboard = async (req, res) => {
+    try {
+        const blocks = await Block.find({ type: 'Hostel' });
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        const configs = await SystemConfig.find({});
+
+        const rankings = [];
+        for (const block of blocks) {
+            const actualUsage = await Usage.aggregate([
+                { $match: { blockId: block._id, usage_date: { $gte: startOfMonth } } },
+                { $group: { _id: '$resource_type', total: { $sum: '$usage_value' } } }
+            ]);
+
+            let totalScore = 100;
+
+            for (const usage of actualUsage) {
+                const config = configs.find(c => c.resource === usage._id);
+                if (config && config.monthlyLimitPerBlock) {
+                    const usagePercentage = (usage.total / config.monthlyLimitPerBlock) * 100;
+                    if (usagePercentage > 100) {
+                        totalScore -= (usagePercentage - 100) * 0.5;
+                    } else if (usagePercentage > 90) {
+                        totalScore -= (usagePercentage - 90) * 0.2;
+                    }
+                }
+            }
+
+            totalScore = Math.max(0, Math.min(100, Math.round(totalScore * 100) / 100));
+            // Update block efficiency score
+            if (block.efficiency_score !== totalScore) {
+                block.efficiency_score = totalScore;
+                await block.save();
+            }
+
+            rankings.push({
+                blockId: block._id,
+                blockName: block.name,
+                score: totalScore,
+                capacity: block.capacity
+            });
+        }
+
+        // Sort by score descending
+        rankings.sort((a, b) => b.score - a.score);
+
+        res.json({
+            success: true,
+            leaderboard: rankings,
+            top3: rankings.slice(0, 3),
+            bottom3: rankings.slice(-3).reverse()
+        });
+    } catch (error) {
+        console.error('Leaderboard error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 module.exports = {
     getAnalyticsSummary,
     getResourceTrends,
     detectAnomalies,
     getSustainabilityScore,
-    getEfficiencyRating
+    getEfficiencyRating,
+    getBudgetMonitoring,
+    getHostelLeaderboard
 };

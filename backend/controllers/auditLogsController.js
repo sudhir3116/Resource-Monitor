@@ -241,6 +241,8 @@ exports.checkDuplicate = async (req, res) => {
         };
 
         if (blockId) filter.blockId = blockId;
+        // Exclude soft-deleted records
+        filter.deleted = { $ne: true };
 
         const duplicates = await Usage.find(filter)
             .populate('createdBy', 'name email')

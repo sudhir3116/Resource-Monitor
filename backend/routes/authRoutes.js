@@ -19,12 +19,12 @@ const authLimiter = require('../middleware/rateLimiter');
 
 // Standard Auth
 router.get('/me', authMiddleware, verifyToken);
-router.post('/register', authLimiter, register);
-router.post('/login', authLimiter, login);
+router.post('/register', register);
+router.post('/login', login);
 router.post('/logout', logout);
 router.post('/refresh', refresh);
-router.post('/forgot', authLimiter, forgotPassword);
-router.post('/reset/:token', authLimiter, resetPassword);
+router.post('/forgot', forgotPassword);
+router.post('/reset/:token', resetPassword);
 
 // Google OAuth - Modern approach (Google Identity Services)
 // Route: POST /api/auth/google

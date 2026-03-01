@@ -398,6 +398,56 @@
 
   .alert-actions {
     @apply flex gap-2 pt-3 border-t;
+
+  /* Notification bell badge styles + animations */
+  .alert-bell-badge {
+    z-index: 10;
+    line-height: 1;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+    transform-origin: center;
+    will-change: transform, opacity, box-shadow;
+  }
+
+  /* show/hide with fade+scale to avoid layout shift */
+  .badge-show {
+    opacity: 1;
+    transform: scale(1);
+    transition: opacity 200ms ease, transform 220ms cubic-bezier(.2,.9,.2,1);
+    pointer-events: auto;
+  }
+  .badge-hide {
+    opacity: 0;
+    transform: scale(0.75);
+    transition: opacity 180ms ease, transform 180ms ease;
+    pointer-events: none;
+  }
+
+  /* subtle glow pulse when active */
+  @keyframes badgeGlow {
+    0% { box-shadow: 0 0 0 0 rgba(220,38,38,0.0); }
+    50% { box-shadow: 0 0 8px 4px rgba(220,38,38,0.12); }
+    100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.0); }
+  }
+  .badge-pulse {
+    animation: badgeGlow 1800ms ease-in-out infinite;
+  }
+
+  /* quick bounce for new alerts */
+  @keyframes badgeBounce {
+    0% { transform: translateY(0) scale(1); }
+    30% { transform: translateY(-6px) scale(1.05); }
+    60% { transform: translateY(0) scale(0.98); }
+    100% { transform: translateY(0) scale(1); }
+  }
+  .badge-bounce {
+    animation: badgeBounce 620ms cubic-bezier(.22,.8,.3,1);
+  }
+
+  /* Respect reduced motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    .badge-pulse, .badge-bounce { animation: none !important; }
+    .badge-show, .badge-hide { transition: none !important; }
+  }
     border-color: var(--border);
   }
 

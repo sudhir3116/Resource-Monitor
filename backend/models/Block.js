@@ -33,6 +33,15 @@ const blockSchema = new mongoose.Schema({
     meters: {
         electricity_meter_id: String,
         water_meter_id: String
+    },
+    // Budget Monitoring settings
+    monthly_budget: {
+        type: Number,
+        default: 0
+    },
+    efficiency_score: {
+        type: Number,
+        default: 100 // Out of 100
     }
 }, { timestamps: true });
 

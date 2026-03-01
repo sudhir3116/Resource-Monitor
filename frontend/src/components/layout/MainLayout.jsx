@@ -1,4 +1,5 @@
 import React from 'react';
+import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 
@@ -9,7 +10,7 @@ export default function MainLayout({ children }) {
             <Header />
             <main className="main-content">
                 <div className="content-container">
-                    {children}
+                    {children || <Outlet />}
                 </div>
             </main>
         </div>

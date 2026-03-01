@@ -9,7 +9,7 @@ const startDailyReportJob = () => {
     // Schedule task to run at 8:00 PM every day
     // Pattern: '0 20 * * *' (minute hour day-of-month month day-of-week)
     cron.schedule('0 20 * * *', async () => {
-        console.log('Running daily sustainability report job...');
+        if (process.env.NODE_ENV !== 'production') console.log('Running daily sustainability report job...');
         try {
             const data = await reportService.generateDailyReportData();
             const html = reportService.formatReportHtml(data);
@@ -21,18 +21,18 @@ const startDailyReportJob = () => {
 
             const emails = recipients.map(u => u.email).filter(e => e);
 
-            if (emails.length > 0) {
-                await emailService.sendReportEmail(emails, `Sustainability Report - ${data.date}`, html);
-                console.log(`Daily report sent successfully to ${emails.length} recipients.`);
-            } else {
-                console.warn('No admin recipients found for daily report.');
-            }
+                if (emails.length > 0) {
+                    await emailService.sendReportEmail(emails, `Sustainability Report - ${data.date}`, html);
+                    if (process.env.NODE_ENV !== 'production') console.log(`Daily report sent successfully to ${emails.length} recipients.`);
+                } else {
+                    if (process.env.NODE_ENV !== 'production') console.warn('No admin recipients found for daily report.');
+                }
         } catch (error) {
             console.error('Error generating/sending daily report:', error);
         }
     });
 
-    console.log('Daily Report Cron Job scheduled for 20:00 daily.');
+    if (process.env.NODE_ENV !== 'production') console.log('Daily Report Cron Job scheduled for 20:00 daily.');
 };
 
 module.exports = startDailyReportJob;

@@ -17,12 +17,17 @@ import api from '../services/api';
 import { Download, Zap, Droplets, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
 import { ThemeContext } from '../context/ThemeContext';
 import Card, { MetricCard } from '../components/common/Card';
+import EmptyState from '../components/common/EmptyState';
 import Button from '../components/common/Button';
+import { logger } from '../utils/logger';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
 
 export default function ExecutiveDashboard() {
     const [stats, setStats] = useState(null);
+    const [trendData, setTrendData] = useState(null);
+    const [leaderboard, setLeaderboard] = useState(null);
+    const [days, setDays] = useState(7);
     const [loading, setLoading] = useState(true);
     const { theme } = useContext(ThemeContext);
     const isDark = theme === 'dark';
@@ -30,16 +35,40 @@ export default function ExecutiveDashboard() {
     useEffect(() => {
         async function fetchStats() {
             try {
-                const response = await api.get('/api/dashboard/executive');
-                setStats(response.data.data || response.data);
+                setLoading(true);
+                const [dashboardRes, leaderboardRes] = await Promise.all([
+                    api.get('/api/dashboard/executive'),
+                    api.get('/api/analytics/leaderboard').catch(() => ({ data: { leaderboard: [] } }))
+                ]);
+
+                setStats(dashboardRes.data.data || dashboardRes.data);
+
+                if (leaderboardRes.data?.leaderboard) {
+                    setLeaderboard(leaderboardRes.data);
+                }
             } catch (err) {
-                console.error("Failed to fetch executive dashboard", err);
+                logger.error("Failed to fetch executive dashboard", err);
             } finally {
                 setLoading(false);
             }
         }
         fetchStats();
     }, []);
+
+    // Refetch electricity trend whenever `days` changes
+    useEffect(() => {
+        async function fetchTrend() {
+            try {
+                const range = days === 30 ? '30days' : '7days';
+                const res = await api.get(`/api/usage/trends?resource=Electricity&range=${range}`);
+                setTrendData(res.data?.data || []);
+            } catch (err) {
+                logger.error('Failed to fetch electricity trend', err);
+                setTrendData([]);
+            }
+        }
+        fetchTrend();
+    }, [days]);
 
     if (loading) {
         return (
@@ -97,13 +126,18 @@ export default function ExecutiveDashboard() {
         }
     };
 
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    // trendData is now [{date:'2026-02-20', total:450}, ...]
+    const elecLabels = trendData.map(d =>
+        new Date(d.date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    );
+    const elecValues = trendData.map(d => d.total);
+    const elecMax = Math.max(...elecValues, 0);
 
     const electricityData = {
-        labels: days,
+        labels: elecLabels,
         datasets: [{
             label: 'Electricity (kWh)',
-            data: [1200, 1350, 1250, 1400, 1600, 1100, 1050],
+            data: elecValues,
             borderColor: '#2563EB',
             backgroundColor: 'rgba(37, 99, 235, 0.1)',
             tension: 0.4,
@@ -114,6 +148,18 @@ export default function ExecutiveDashboard() {
             pointBorderWidth: 2,
             borderWidth: 2,
         }],
+    };
+
+    const chartOptionsWithScale = {
+        ...chartOptions,
+        scales: {
+            ...chartOptions.scales,
+            y: {
+                ...chartOptions.scales.y,
+                beginAtZero: true,
+                suggestedMax: elecMax > 0 ? elecMax * 1.15 : 10,
+            }
+        }
     };
 
     const resourceData = {
@@ -166,10 +212,27 @@ export default function ExecutiveDashboard() {
 
             {/* Charts Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Weekly Trend */}
-                <Card title="Weekly Electricity Trend" description="Last 7 days usage pattern">
+                {/* Trend Chart */}
+                <Card
+                    title="Electricity Trend"
+                    description={days === 7 ? "Last 7 days usage pattern" : "Last 30 days usage pattern"}
+                    action={
+                        <select
+                            className="text-sm p-1 rounded border dark:bg-slate-800 dark:border-slate-700"
+                            value={days}
+                            onChange={(e) => setDays(Number(e.target.value))}
+                        >
+                            <option value={7}>7 Days</option>
+                            <option value={30}>30 Days</option>
+                        </select>
+                    }
+                >
                     <div className="h-[300px]">
-                        <Line data={electricityData} options={chartOptions} />
+                        {trendData.length === 0 ? (
+                            <EmptyState title="No data available" description="No electricity usage recorded in this period" />
+                        ) : (
+                            <Line data={electricityData} options={chartOptionsWithScale} />
+                        )}
                     </div>
                 </Card>
 
@@ -184,55 +247,77 @@ export default function ExecutiveDashboard() {
             </div>
 
             {/* Block Performance Table */}
-            <Card title="Block Performance" description="Per-capita consumption comparison">
-                <div className="overflow-x-auto">
-                    <table className="table">
-                        <thead>
-                            <tr>
-                                <th>Block</th>
-                                <th className="text-right">Occupancy</th>
-                                <th className="text-right">Per Capita</th>
-                                <th className="text-center">Rating</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {blockRanking.map((block, idx) => (
-                                <tr key={idx}>
-                                    <td>
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-8 w-8 rounded-lg flex items-center justify-center"
-                                                style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}>
-                                                <span className="text-sm font-semibold">
-                                                    {block.name.charAt(0)}
-                                                </span>
-                                            </div>
-                                            <span className="font-semibold">{block.name}</span>
+            <Card title="Hostel Leaderboard" description="Efficiency Index Ranking">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Top 3 */}
+                    <div>
+                        <h3 className="font-semibold mb-3 text-green-500">🏆 Top 3 Efficient Blocks</h3>
+                        <div className="space-y-3">
+                            {leaderboard?.top3?.map((block, idx) => (
+                                <div key={idx} className="flex items-center justify-between p-3 border rounded-lg" style={{ borderColor: 'var(--border)' }}>
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-8 w-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold">
+                                            {idx + 1}
                                         </div>
-                                    </td>
-                                    <td className="text-right" style={{ color: 'var(--text-secondary)' }}>
-                                        1,000 students
-                                    </td>
-                                    <td className="text-right font-semibold">
-                                        {block.perCapita} <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>kWh</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className={`badge ${block.perCapita < 100
-                                            ? 'badge-success'
-                                            : block.perCapita < 150
-                                                ? 'badge-warning'
-                                                : 'badge-danger'
-                                            }`}>
-                                            {block.perCapita < 100 ? 'A+' : block.perCapita < 150 ? 'C' : 'F'}
-                                        </span>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                                        <span className="font-medium">{block.blockName}</span>
+                                    </div>
+                                    <span className="font-bold text-green-500">{block.score}%</span>
+                                </div>
+                            )) || <p className="text-sm text-slate-500">No data available</p>}
+                        </div>
+                    </div>
+
+                    {/* Bottom 3 */}
+                    <div>
+                        <h3 className="font-semibold mb-3 text-red-500">⚠️ Needs Improvement</h3>
+                        <div className="space-y-3">
+                            {leaderboard?.bottom3?.map((block, idx) => (
+                                <div key={idx} className="flex items-center justify-between p-3 border rounded-lg" style={{ borderColor: 'var(--border)' }}>
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-8 w-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold">
+                                            !
+                                        </div>
+                                        <span className="font-medium">{block.blockName}</span>
+                                    </div>
+                                    <span className="font-bold text-red-500">{block.score}%</span>
+                                </div>
+                            )) || <p className="text-sm text-slate-500">No data available</p>}
+                        </div>
+                    </div>
                 </div>
 
-                <div className="mt-4 pt-4 border-t text-sm" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
-                    Showing {blockRanking.length} of {blockRanking.length} blocks
+                <div className="mt-6 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+                    <div className="overflow-x-auto">
+                        <table className="table w-full">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Block Name</th>
+                                    <th className="text-center">Efficiency Score</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {leaderboard?.leaderboard?.map((block, idx) => (
+                                    <tr key={idx}>
+                                        <td className="w-16">
+                                            #{idx + 1}
+                                        </td>
+                                        <td className="font-semibold">
+                                            {block.blockName}
+                                        </td>
+                                        <td className="text-center">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${block.score >= 80 ? 'bg-green-100 text-green-700' :
+                                                block.score >= 60 ? 'bg-amber-100 text-amber-700' :
+                                                    'bg-red-100 text-red-700'
+                                                }`}>
+                                                {block.score}% (Grade {block.score >= 90 ? 'A' : block.score >= 80 ? 'B' : block.score >= 70 ? 'C' : block.score >= 60 ? 'D' : 'F'})
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </Card>
         </div>

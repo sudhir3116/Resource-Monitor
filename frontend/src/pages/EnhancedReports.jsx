@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import api from '../services/api';
 import { AuthContext } from '../context/AuthContext';
+import { logger } from '../utils/logger';
 import { FileText, BarChart2, TrendingUp, Download, Filter } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import Card from '../components/common/Card';
@@ -72,7 +73,7 @@ export default function EnhancedReports() {
             const res = await api.get('/api/admin/blocks');
             setBlocks(res.data?.blocks || []);
         } catch (err) {
-            console.error('Failed to fetch blocks', err);
+            logger.error('Failed to fetch blocks', err);
         }
     };
 

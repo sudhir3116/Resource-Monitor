@@ -9,6 +9,17 @@ const api = axios.create({
   }
 });
 
+// Request Interceptor to attach Authorization header
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
+});
+
 api.interceptors.response.use(
   (response) => {
     return response;
@@ -37,7 +48,12 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        await api.post('/api/auth/refresh');
+        const response = await api.post('/api/auth/refresh');
+        if (response.data.token) {
+          localStorage.setItem('token', response.data.token);
+          api.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`;
+          originalRequest.headers['Authorization'] = `Bearer ${response.data.token}`;
+        }
         return api(originalRequest);
       } catch (refreshError) {
         window.dispatchEvent(new CustomEvent('auth:unauthorized'));

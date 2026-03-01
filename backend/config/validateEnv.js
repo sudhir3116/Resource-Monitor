@@ -77,6 +77,12 @@ function validateEnvironment() {
     }
 
     console.log(''); // Empty line for readability
+    if (process.env.NODE_ENV === 'production') {
+        // In production, avoid verbose env prints; only show critical warnings
+        if (warnings.length > 0) {
+            console.warn('Environment warnings: ', warnings.join('; '));
+        }
+    }
 }
 
 module.exports = { validateEnvironment };

@@ -64,7 +64,7 @@ exports.updateUserRole = async (req, res) => {
         const oldUser = await User.findById(req.params.id);
         if (!oldUser) return res.status(404).json({ success: false, message: 'User not found' });
 
-        const user = await User.findByIdAndUpdate(req.params.id, { role }, { new: true }).select('-password');
+        const user = await User.findByIdAndUpdate(req.params.id, { role }, { returnDocument: 'after' }).select('-password');
 
         // Audit Log
         await AuditLog.create({

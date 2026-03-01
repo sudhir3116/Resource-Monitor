@@ -4,42 +4,77 @@ const systemConfigSchema = new mongoose.Schema({
     resource: {
         type: String,
         required: true,
-        unique: true,
-        enum: ['Electricity', 'Water', 'LPG', 'Diesel', 'Food', 'Waste']
+        trim: true
     },
-    // Daily limits
-    dailyLimitPerPerson: { type: Number, required: true }, // e.g., 5 kWh per student
-    dailyLimitPerBlock: { type: Number }, // e.g., 500 kWh per block (optional)
 
-    // Monthly limits
-    monthlyLimitPerPerson: { type: Number }, // e.g., 150 kWh per student per month
-    monthlyLimitPerBlock: { type: Number }, // e.g., 15000 kWh per block per month
+    // — Primary fields used by UI ——————————————————————————————————
+    unit: { type: String, required: true },          // e.g. 'kWh', 'Liters', 'kg'
+    costPerUnit: { type: Number, required: true, min: 0 }, // alias: rate
+    dailyThreshold: { type: Number, required: true, min: 0 },   // alias: dailyLimitPerPerson
+    monthlyThreshold: { type: Number, required: true, min: 0 }, // alias: monthlyLimitPerPerson
+    isActive: { type: Boolean, default: true },
 
-    unit: { type: String, required: true }, // e.g., 'kWh', 'Liters', 'kg'
-    rate: { type: Number, required: true }, // Cost per unit in INR
+    // — Legacy / thresholdService fields (kept for backward compat) ——
+    dailyLimitPerPerson: { type: Number },
+    dailyLimitPerBlock: { type: Number },
+    monthlyLimitPerPerson: { type: Number },
+    monthlyLimitPerBlock: { type: Number },
+    rate: { type: Number },                          // kept for budget checks
 
-    // Severity thresholds (percentage of limit to trigger alerts)
+    // Severity thresholds (% of limit)
     severityThreshold: {
-        medium: { type: Number, default: 70 }, // 70% usage triggers warning
-        high: { type: Number, default: 90 },   // 90% usage triggers high alert
-        critical: { type: Number, default: 100 } // 100%+ triggers critical alert
+        medium: { type: Number, default: 70 },
+        high: { type: Number, default: 90 },
+        critical: { type: Number, default: 100 }
     },
-
-    // Alert level configuration
     alertLevel: {
         type: String,
         enum: ['low', 'medium', 'high', 'critical'],
         default: 'medium'
     },
-
-    // Spike detection threshold (percentage increase over average)
-    spikeThreshold: { type: Number, default: 50 }, // 50% spike triggers alert
-
-    // Enable/disable alerts for this resource
+    spikeThreshold: { type: Number, default: 50 },
     alertsEnabled: { type: Boolean, default: true },
 
+    // — Block-level overrides: { blockId: { dailyThreshold, monthlyThreshold } } —
+    blockOverrides: {
+        type: Map,
+        of: new mongoose.Schema({
+            dailyThreshold: { type: Number, min: 0 },
+            monthlyThreshold: { type: Number, min: 0 },
+            blockName: { type: String }
+        }, { _id: false }),
+        default: {}
+    },
+
+    // Audit
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
+// Virtual: keep rate in sync with costPerUnit for budget checks
+systemConfigSchema.pre('save', function (next) {
+    if (this.costPerUnit !== undefined) this.rate = this.costPerUnit;
+    if (this.dailyThreshold !== undefined) this.dailyLimitPerPerson = this.dailyThreshold;
+    if (this.monthlyThreshold !== undefined) this.monthlyLimitPerPerson = this.monthlyThreshold;
+    if (typeof next === 'function') next();
+});
+
+systemConfigSchema.pre('findOneAndUpdate', function (next) {
+    try {
+        const update = this.getUpdate();
+        const src = update.$set || update;
+        const dst = update.$set || update;
+
+        if (src.costPerUnit !== undefined) dst.rate = src.costPerUnit;
+        if (src.dailyThreshold !== undefined) dst.dailyLimitPerPerson = src.dailyThreshold;
+        if (src.monthlyThreshold !== undefined) dst.monthlyLimitPerPerson = src.monthlyThreshold;
+        if (typeof next === 'function') next();
+    } catch (e) {
+        if (typeof next === 'function') next();
+    }
+});
+
 module.exports = mongoose.model('SystemConfig', systemConfigSchema);
+
+// Ensure a unique index on resource for fast lookups and to prevent duplicates
+systemConfigSchema.index({ resource: 1 }, { unique: true, background: true });

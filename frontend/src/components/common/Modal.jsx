@@ -82,24 +82,24 @@ export default function Modal({
     );
 }
 
-export function ConfirmModal({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', type = 'danger' }) {
+export function ConfirmModal({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', type = 'danger', disabled = false }) {
     return (
         <Modal
             isOpen={isOpen}
-            onClose={onClose}
+            onClose={disabled ? undefined : onClose}
             title={title}
             footer={
                 <>
-                    <Button variant="secondary" onClick={onClose}>
+                    <Button variant="secondary" onClick={onClose} disabled={disabled}>
                         Cancel
                     </Button>
-                    <Button variant={type} onClick={onConfirm}>
+                    <Button variant={type} onClick={onConfirm} disabled={disabled}>
                         {confirmText}
                     </Button>
                 </>
             }
         >
-            <p style={{ color: 'var(--text-secondary)' }}>{message}</p>
+            <p style={{ color: 'var(--text-secondary)', whiteSpace: 'pre-line' }}>{message}</p>
         </Modal>
     );
 }

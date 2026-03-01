@@ -18,6 +18,7 @@ import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import EmptyState from '../components/common/EmptyState';
+import { logger } from '../utils/logger';
 
 export default function AuditLogs() {
     const [logs, setLogs] = useState([]);
@@ -46,7 +47,7 @@ export default function AuditLogs() {
             const res = await api.get(`/api/audit-logs?${params}`);
             setLogs(res.data.logs || []);
         } catch (err) {
-            console.error('Failed to fetch logs', err);
+            logger.error('Failed to fetch logs', err);
         } finally {
             setLoading(false);
         }

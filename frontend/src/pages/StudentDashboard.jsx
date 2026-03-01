@@ -1,12 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useContext } from 'react';
+import {
+    Chart as ChartJS, CategoryScale, LinearScale, PointElement,
+    LineElement, Title, Tooltip, Legend, Filler
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
 import api from '../services/api';
-import { Zap, Droplets, Leaf, TrendingUp, TrendingDown } from 'lucide-react';
+import { Zap, Droplets, Leaf, TrendingDown } from 'lucide-react';
+import { ThemeContext } from '../context/ThemeContext';
 import Card, { MetricCard } from '../components/common/Card';
 import EmptyState from '../components/common/EmptyState';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
 export default function StudentDashboard() {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [electricityTrend, setElectricityTrend] = useState([]);
+    const { theme } = useContext(ThemeContext);
+    const isDark = theme === 'dark';
 
     useEffect(() => {
         async function fetchStats() {
@@ -14,12 +25,24 @@ export default function StudentDashboard() {
                 const response = await api.get('/api/dashboard/student');
                 setStats(response.data.data || response.data);
             } catch (err) {
-                console.error("Failed to fetch student dashboard", err);
+                logger.error("Failed to fetch student dashboard", err);
             } finally {
                 setLoading(false);
             }
         }
         fetchStats();
+    }, []);
+
+    useEffect(() => {
+        async function fetchTrend() {
+            try {
+                const res = await api.get('/api/usage/trends?resource=Electricity&range=7days');
+                setElectricityTrend(res.data?.data || []);
+            } catch (err) {
+                logger.error('Failed to fetch student electricity trend', err);
+            }
+        }
+        fetchTrend();
     }, []);
 
     if (loading) {
@@ -137,6 +160,73 @@ export default function StudentDashboard() {
                     </div>
                 </Card>
             </div>
+
+            {/* Electricity Trend Chart */}
+            {(() => {
+                const elecLabels = electricityTrend.map(d =>
+                    new Date(d.date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                );
+                const elecValues = electricityTrend.map(d => d.total);
+                const maxVal = Math.max(...elecValues, 0);
+
+                const elecChartData = {
+                    labels: elecLabels,
+                    datasets: [{
+                        label: 'Electricity (kWh)',
+                        data: elecValues,
+                        borderColor: '#2563EB',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 4,
+                        pointBackgroundColor: isDark ? '#0f172a' : '#ffffff',
+                        pointBorderColor: '#2563EB',
+                        pointBorderWidth: 2,
+                        borderWidth: 2,
+                    }]
+                };
+
+                const opts = {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                            titleColor: isDark ? '#f1f5f9' : '#0f172a',
+                            bodyColor: isDark ? '#cbd5e1' : '#475569',
+                            borderColor: isDark ? '#334155' : '#e2e8f0',
+                            borderWidth: 1,
+                            padding: 10,
+                            cornerRadius: 8,
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            suggestedMax: maxVal > 0 ? maxVal * 1.15 : 10,
+                            grid: { color: isDark ? '#334155' : '#e2e8f0', drawBorder: false },
+                            ticks: { color: isDark ? '#94a3b8' : '#64748b', font: { size: 11 } }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: isDark ? '#94a3b8' : '#64748b', font: { size: 11 } }
+                        }
+                    }
+                };
+
+                return (
+                    <Card title="Electricity Usage — Last 7 Days" description="Your personal electricity consumption trend">
+                        <div className="h-[220px]">
+                            {electricityTrend.length === 0 ? (
+                                <EmptyState title="No data available" description="No electricity usage recorded in the last 7 days" />
+                            ) : (
+                                <Line data={elecChartData} options={opts} />
+                            )}
+                        </div>
+                    </Card>
+                );
+            })()}
 
             {/* Quick Tips */}
             <Card title="Quick Tips" description="Improve your sustainability score">

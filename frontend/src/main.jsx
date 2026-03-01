@@ -6,7 +6,9 @@ import './styles.css'
 import { AuthProvider } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import { ToastProvider } from './context/ToastContext'
+import { AlertCountProvider } from './context/AlertCountContext'
 import GlobalErrorBoundary from './components/GlobalErrorBoundary'
+import { logger } from './utils/logger'
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Failed to find the root element');
@@ -20,18 +22,19 @@ try {
         <BrowserRouter>
           <ThemeProvider>
             <AuthProvider>
-              <ToastProvider>
-                <App />
-              </ToastProvider>
+              <AlertCountProvider>
+                <ToastProvider>
+                  <App />
+                </ToastProvider>
+              </AlertCountProvider>
             </AuthProvider>
           </ThemeProvider>
         </BrowserRouter>
       </GlobalErrorBoundary>
     </React.StrictMode>
   );
-
-  console.log('React app mounted successfully');
+  logger.log('React app mounted successfully');
 } catch (error) {
-  console.error('Error mounting React app:', error);
+  logger.error('Error mounting React app:', error);
   document.body.innerHTML = '<div style="color:red; padding:20px;"><h2>Application Failed to Start</h2><p>Check console for details.</p></div>';
 }

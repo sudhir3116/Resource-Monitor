@@ -1,4 +1,5 @@
 import React, { Component } from 'react';
+import { logger } from '../utils/logger';
 
 class GlobalErrorBoundary extends Component {
     constructor(props) {
@@ -11,8 +12,13 @@ class GlobalErrorBoundary extends Component {
     }
 
     componentDidCatch(error, errorInfo) {
-        console.error('CRITICAL APP ERROR:', error, errorInfo);
+        logger.error('CRITICAL APP ERROR:', error, errorInfo);
         this.setState({ error, errorInfo });
+    }
+
+    handleReset = () => {
+        localStorage.clear();
+        window.location.href = '/login';
     }
 
     render() {
@@ -24,38 +30,119 @@ class GlobalErrorBoundary extends Component {
                     left: 0,
                     width: '100%',
                     height: '100vh',
-                    backgroundColor: '#f8d7da',
-                    color: '#721c24',
+                    backgroundColor: '#0f172a',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
                     padding: '20px',
                     zIndex: 9999,
-                    fontFamily: 'system-ui, sans-serif'
+                    fontFamily: 'system-ui, sans-serif',
+                    overflow: 'auto'
                 }}>
-                    <h1 style={{ fontSize: '2rem', marginBottom: '1rem' }}>Application Failed to Load</h1>
-                    <p style={{ maxWidth: '600px', textAlign: 'center', marginBottom: '2rem' }}>
-                        We encountered a critical error. Please check the browser console for details.
-                    </p>
-                    <details style={{ whiteSpace: 'pre-wrap', background: 'rgba(255,255,255,0.5)', padding: '1rem', borderRadius: '4px' }}>
-                        {this.state.error && this.state.error.toString()}
-                    </details>
-                    <button
-                        onClick={() => window.location.reload()}
-                        style={{
-                            marginTop: '2rem',
-                            padding: '10px 20px',
-                            border: 'none',
-                            background: '#721c24',
-                            color: 'white',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '1rem'
-                        }}
-                    >
-                        Reload Application
-                    </button>
+                    <div style={{ maxWidth: '500px', textAlign: 'center' }}>
+                        <div style={{
+                            fontSize: '4rem',
+                            marginBottom: '1rem',
+                            opacity: 0.8
+                        }}>
+                            ⚠️
+                        </div>
+                        <h1 style={{
+                            fontSize: '2rem',
+                            marginBottom: '0.5rem',
+                            color: '#f1f5f9',
+                            fontWeight: 'bold'
+                        }}>
+                            Oops! Something went wrong
+                        </h1>
+                        <p style={{
+                            fontSize: '1rem',
+                            color: '#cbd5e1',
+                            marginBottom: '2rem',
+                            lineHeight: '1.6'
+                        }}>
+                            The application encountered an unexpected error and had to stop. 
+                            Try reloading or clearing your browser cache and trying again.
+                        </p>
+
+                        {process.env.NODE_ENV === 'development' && (
+                            <details style={{
+                                textAlign: 'left',
+                                background: 'rgba(30, 41, 59, 0.8)',
+                                padding: '1rem',
+                                borderRadius: '6px',
+                                marginBottom: '2rem',
+                                border: '1px solid rgba(203, 213, 225, 0.2)',
+                                color: '#cbd5e1',
+                                fontSize: '0.875rem'
+                            }}>
+                                <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#f87171' }}>
+                                    Error Details (Development Only)
+                                </summary>
+                                <pre style={{
+                                    marginTop: '1rem',
+                                    overflow: 'auto',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-word',
+                                    color: '#fca5a5'
+                                }}>
+                                    {this.state.error && this.state.error.toString()}
+                                    {this.state.errorInfo && '\n\n' + this.state.errorInfo.componentStack}
+                                </pre>
+                            </details>
+                        )}
+
+                        <div style={{
+                            display: 'flex',
+                            gap: '1rem',
+                            justifyContent: 'center',
+                            flexWrap: 'wrap'
+                        }}>
+                            <button
+                                onClick={() => window.location.reload()}
+                                style={{
+                                    padding: '10px 20px',
+                                    border: 'none',
+                                    background: '#3b82f6',
+                                    color: 'white',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '1rem',
+                                    fontWeight: '500',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseOver={(e) => e.target.style.background = '#2563eb'}
+                                onMouseOut={(e) => e.target.style.background = '#3b82f6'}
+                            >
+                                🔄 Reload Page
+                            </button>
+                            <button
+                                onClick={this.handleReset}
+                                style={{
+                                    padding: '10px 20px',
+                                    border: '1px solid #cbd5e1',
+                                    background: 'transparent',
+                                    color: '#cbd5e1',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '1rem',
+                                    fontWeight: '500',
+                                    transition: 'all 0.2s'
+                                }}
+                                onMouseOver={(e) => {
+                                    e.target.style.background = 'rgba(203, 213, 225, 0.1)';
+                                    e.target.style.color = '#f1f5f9';
+                                }}
+                                onMouseOut={(e) => {
+                                    e.target.style.background = 'transparent';
+                                    e.target.style.color = '#cbd5e1';
+                                }}
+                            >
+                                🔑 Go to Login
+                            </button>
+                        </div>
+                    </div>
                 </div>
             );
         }

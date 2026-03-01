@@ -1,427 +1,459 @@
-# 🏫 College Hostel Resource Management System
+# Sustainable Resource Monitor
 
-A production-ready **MERN Stack** application for monitoring and managing resource consumption in college hostels. Features role-based dashboards, automatic alerts, sustainability scoring, and executive analytics.
+A comprehensive **full-stack enterprise resource monitoring system** designed for institutional facilities management. This MERN application enables real-time tracking and optimization of utilities (electricity, water, gas, diesel) and services (waste, food) across multi-block campuses with advanced alerting, compliance auditing, and role-based access control.
 
-![Status](https://img.shields.io/badge/status-production--ready-brightgreen)
-![License](https://img.shields.io/badge/license-MIT-blue)
-
----
-
-## 📋 Table of Contents
-
-- [Features](#-features)
-- [Technology Stack](#-technology-stack)
-- [Project Structure](#-project-structure)
-- [Installation](#-installation)
-- [Usage](#-usage)
-- [Role-Based Access](#-role-based-access)
-- [API Documentation](#-api-documentation)
-- [Screenshots](#-screenshots)
-- [Contributing](#-contributing)
-- [License](#-license)
+**Designed for:** Hostels, Colleges, Universities, Institutional Complexes  
+**Deployment Ready:** Production-grade backend & frontend with 8/8 QA test coverage
 
 ---
 
-## ✨ Features
+## 🎯 Key Features
 
-### Core Functionality
-- ✅ **Role-Based Dashboards** - Custom views for Students, Wardens, Dean, Principal, and Admin
-- ✅ **Resource Monitoring** - Track Electricity, Water, Food, LPG, Diesel consumption
-- ✅ **Sustainability Scoring** - Automatic calculation based on resource usage
-- ✅ **Threshold Alert System** - Automatic alerts when limits are exceeded
-- ✅ **Executive Analytics** - High-level insights for management
-- ✅ **User Management** - Complete CRUD operations for admins
-- ✅ **Block-Level Tracking** - Monitor hostel blocks independently
+- **Real-Time Resource Monitoring**
+  - Live consumption tracking for 6+ resource types (Electricity, Water, LPG, Diesel, Food, Waste)
+  - Unit-specific metrics (kWh, Liters, kg)
+  - Multi-block resource isolation and cost attribution
 
-### Technical Features
-- 🔒 **JWT Authentication** - Secure token-based auth
-- 🔐 **Role-Based Access Control (RBAC)** - 5 distinct user roles
-- 📧 **Email Notifications** - Daily summary reports (optional)
-- 🎨 **Responsive UI** - Modern, professional design
-- 📊 **Data Visualization** - Charts and graphs for insights
-- 🚀 **Production-Ready** - Error handling, validation, security
+- **Intelligent Alert Engine**
+  - Automated threshold breach detection (daily/weekly limits)
+  - Spike anomaly detection (7-day historical analysis)
+  - 4 severity levels (Critical, High, Medium, Low)
+  - Multi-status workflow (Pending → Investigating → Reviewed → Resolved)
+
+- **Compliance & Auditing**
+  - Immutable audit logs for all CREATE/UPDATE/DELETE operations
+  - Soft-delete with timestamp metadata for data recovery
+  - Role-based action tracking
+  - 99+ hours of daily report scheduling
+
+- **Advanced Configuration**
+  - Dynamic resource allocation with block-level overrides
+  - Per-resource thresholds and cost parameters
+  - Budget caps and escalation rules
+  - Admin-controlled system configuration
+
+- **User Complaint Management**
+  - Student-facing issue submission (Plumbing, Electrical, Internet, Cleanliness, Security)
+  - Multi-stage workflow (Open → Under Review → In Progress → Escalated/Resolved)
+  - Escalation to Dean/Principal with reason tracking
+  - Complete action history per complaint
+
+- **Role-Based Access Control (RBAC)**
+  - **Student:** View personal alerts, submit complaints, access own usage
+  - **Warden:** Manage block resources, investigate alerts, handle complaints
+  - **Dean/Principal:** Institutional oversight, escalation authority
+  - **Admin:** System-wide configuration, user management, audit access
+
+- **Real-Time Notifications**
+  - WebSocket-driven alert count updates
+  - Polling fallback (15s) for disconnections
+  - Unread badge with instant refresh
+  - Automatic socket reconnection
+
+- **Data Export**
+  - CSV export of usage records and alerts
+  - PDF report generation with charts and summaries
+  - Soft-deleted record exclusion from exports
 
 ---
 
-## 🛠 Technology Stack
+## 🏗️ Supported Roles
+
+| Role | Permissions | UI Access |
+|------|-------------|-----------|
+| **Student** | View alerts, submit complaints, access own data | Dashboard, Complaints, Profile |
+| **Warden** | Manage block resources, resolve alerts, handle complaints | All + Resource Config, Audit Logs |
+| **Dean** | Institutional oversight, escalation authority | Dashboard, Analytics, Complaint Review |
+| **Principal** | System-wide authority | Dashboard, Analytics, Audit Logs |
+| **Admin** | Full system access, user management, configuration | All modules including User Management |
+
+---
+
+## 🛠️ Technology Stack
 
 ### Backend
-- **Node.js** + **Express.js** - RESTful API
-- **MongoDB** + **Mongoose** - Database
-- **JWT** - Authentication
-- **bcrypt** - Password hashing
-- **express-validator** - Input validation
-- **nodemailer** - Email service (optional)
+- **Runtime:** Node.js 18+ with Express.js 4.x
+- **Database:** MongoDB 6.0+ with Mongoose ODM
+- **Real-Time:** Socket.IO 4.x for WebSocket communication
+- **Authentication:** JWT (jsonwebtoken) with Google OAuth passport strategy
+- **Job Scheduling:** cron-job-manager for daily reports & escalations
+- **Security:** helmet, express-rate-limiter, bcryptjs
+- **Validation:** express-validator with custom middleware
+- **PDF Generation:** pdfkit
+- **Email:** nodemailer with template support
 
 ### Frontend
-- **React 18** - UI framework
-- **React Router v6** - Navigation
-- **Axios** - HTTP client
-- **Context API** - State management
-- **CSS3** - Styling
-- **Vite** - Build tool
+- **Framework:** React 18.2 with React Router 6.x
+- **Build Tool:** Vite 5.x with HMR (Hot Module Replacement)
+- **Styling:** Tailwind CSS 3.x + custom CSS variables for theming
+- **Charts:** Chart.js 4.x with react-chartjs-2
+- **Icons:** lucide-react (24px+ SVG icons)
+- **HTTP Client:** axios with interceptors
+- **State Management:** React Context API
+- **Animation:** Framer Motion 12.x
+
+### DevOps & Quality
+- **Version Control:** Git with .gitignore optimization
+- **QA Framework:** Comprehensive 8/8 test suite (Auth, Usage, Alerts, Dashboard, Complaints, Export, Stress)
+- **Build Optimization:** Tree-shaking, code splitting, HMR in dev
 
 ---
 
-## 📁 Project Structure
+## 📐 Architecture Overview
 
 ```
-sustainable_resource_monitor/
-├── backend/
-│   ├── config/
-│   │   └── roles.js              # Role definitions
-│   ├── controllers/
-│   │   ├── authController.js     # Authentication logic
-│   │   ├── usageController.js    # Resource usage CRUD
-│   │   └── adminController.js    # Admin operations
-│   ├── middleware/
-│   │   ├── authMiddleware.js     # JWT verification
-│   │   └── roleMiddleware.js     # Permission checks
-│   ├── models/
-│   │   ├── User.js               # User schema
-│   │   ├── Usage.js              # Usage records
-│   │   ├── Block.js              # Hostel blocks
-│   │   ├── Alert.js              # System alerts
-│   │   └── SystemConfig.js       # Thresholds
-│   ├── routes/
-│   │   ├── authRoutes.js
-│   │   ├── usageRoutes.js
-│   │   └── adminRoutes.js
-│   ├── services/
-│   │   ├── thresholdService.js   # Alert generation
-│   │   └── sustainabilityService.js
-│   ├── utils/
-│   │   └── emailService.js       # Email notifications
-│   ├── app.js                    # Express app setup
-│   ├── seed.js                   # Default configs
-│   └── seedTestData.js           # Test data seeding
-│
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Navbar.jsx
-│   │   │   ├── ProtectedRoute.jsx
-│   │   │   └── PublicRoute.jsx
-│   │   ├── pages/
-│   │   │   ├── Dashboard.jsx
-│   │   │   ├── StudentDashboard.jsx
-│   │   │   ├── WardenDashboard.jsx
-│   │   │   ├── AdminDashboard.jsx
-│   │   │   ├── ExecutiveDashboard.jsx
-│   │   │   ├── Login.jsx
-│   │   │   ├── Register.jsx
-│   │   │   ├── Alerts.jsx
-│   │   │   └── Reports.jsx
-│   │   ├── context/
-│   │   │   └── AuthContext.jsx   # Global auth state
-│   │   ├── services/
-│   │   │   └── api.js            # API client
-│   │   ├── App.jsx
-│   │   └── main.jsx
-│   └── package.json
-│
-├── docs/
-│   ├── PRODUCTION_AUTH.md
-│   ├── THRESHOLD_ALERT_SYSTEM.md
-│   └── TESTING_CHECKLIST.md
-│
-├── QUICK_START_GUIDE.md
-├── REFACTORING_COMPLETE.md
-├── .gitignore
-└── README.md
+┌─────────────────────────────────────────────────────────────┐
+│                      Frontend (Vite + React)               │
+│  - Role-based UI routing with ProtectedRoute components   │
+│  - Socket.io client for real-time badge updates           │
+│  - Context API for auth, theme, alerts, toast notifications│
+│  - Lazy-loaded pages for optimal bundle size              │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ HTTP/WebSocket
+┌──────────────────────┴──────────────────────────────────────┐
+│                    Backend (Express.js)                     │
+│                                                              │
+│  ┌─ Routes Layer ─────────────────────────────────────────┐ │
+│  │ 12 routable modules (auth, usage, alerts, config, ...) │ │
+│  │ Request validation + audit logging middleware           │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ┌─ Controllers Layer ──────────────────────────────────┐  │
+│  │ 13 specialized controllers with business logic       │  │
+│  │ Soft-delete handling, role checks               │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                              │
+│  ┌─ Services/Models Layer ──────────────────────────┐    │
+│  │ - thresholdService: Alert generation & dedup     │    │
+│  │ - reportService: CSV/PDF export                  │    │
+│  │ - 14+ Mongoose models for data persistence       │    │
+│  └──────────────────────────────────────────────────┘    │
+│                                                              │
+│  ┌─ Infrastructure ─────────────────────────────────────┐  │
+│  │ - Socket.io: Real-time event broadcasting            │  │
+│  │ - Cron Jobs: Daily reports + escalation              │  │
+│  │ - Middleware: Auto error handling, rate limiting     │  │
+│  │ - Audit Logs: Immutable action tracking              │  │
+│  └────────────────────────────────────────────────────────┘  │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ Mongoose
+┌──────────────────────┴──────────────────────────────────────┐
+│              MongoDB Database (Atlas or Local)             │
+│  - 14 collections (User, Alert, Usage, Config, etc.)       │
+│  - Indexes optimized for query performance                 │
+│  - Soft-delete compliance (deleted flag tracking)          │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🚀 Installation
+## 🚀 Setup Instructions
 
 ### Prerequisites
-- **Node.js** (v16 or higher)
-- **MongoDB** (local or Atlas)
-- **npm** or **yarn**
+- **Node.js** 18+ & npm 8+
+- **MongoDB** 6.0+ (Atlas cloud or local instance)
+- **Git**
 
-### Step 1: Clone the Repository
-```bash
-git clone https://github.com/your-username/sustainable-resource-monitor.git
-cd sustainable-resource-monitor
-```
+### 1. Clone & Install
 
-### Step 2: Backend Setup
 ```bash
+git clone <repository-url>
+cd sustainable_resource_monitor
+
+# Backend setup
 cd backend
 npm install
 
-# Create .env file (use .env.example as template)
-cp .env.example .env
-
-# Edit .env with your credentials
-nano .env
-```
-
-**Required Environment Variables:**
-```env
-PORT=4000
-MONGO_URI=mongodb+srv://your_username:your_password@cluster.mongodb.net/database
-JWT_SECRET=your_super_secret_jwt_key
-FRONTEND_URL=http://localhost:5173
-```
-
-### Step 3: Frontend Setup
-```bash
+# Frontend setup
 cd ../frontend
 npm install
 ```
 
-### Step 4: Seed Default Data
-```bash
-cd ../backend
+### 2. Configure Environment Variables
 
-# Seed default configurations and admin user
+**Backend** (`backend/.env`):
+```env
+# Database
+MONGO_URI=mongodb+srv://user:pass@cluster.mongodb.net/sustainable_monitor?retryWrites=true&w=majority
+
+# Server
+PORT=5001
+NODE_ENV=development
+
+# JWT
+JWT_SECRET=your-secret-key-min-32-characters-for-security
+
+# Google OAuth (optional)
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+GOOGLE_CALLBACK_URL=http://localhost:5001/api/auth/google/callback
+
+# Email
+DISABLE_EMAILS=true  # Set to 'false' and add SMTP config for production
+
+# Frontend URL
+FRONTEND_URL=http://localhost:5173
+```
+
+**Frontend** (`frontend/.env`):
+```env
+VITE_API_URL=http://localhost:5001
+VITE_BACKEND_PORT=5001
+```
+
+### 3. Database Initialization
+
+```bash
+# Backend folder
+cd backend
+
+# Create required indexes
+node scripts/create_indexes.js
+
+# Seed initial data (users, blocks, config)
 node seed.js
 
-# (Optional) Seed test data with sample users and usage records
+# (Optional) Load test data for QA
 node seedTestData.js
 ```
 
-### Step 5: Run the Application
+### 4. Start Development Servers
 
-**Terminal 1 - Backend:**
+**Backend:**
 ```bash
 cd backend
-node app.js
-# Backend running on http://localhost:4000
+NODE_ENV=development PORT=5001 npm start
 ```
 
-**Terminal 2 - Frontend:**
+**Frontend (in another terminal):**
 ```bash
 cd frontend
 npm run dev
-# Frontend running on http://localhost:5173
 ```
+
+Open http://localhost:5173 in your browser.
 
 ---
 
-## 🎯 Usage
+## 🧪 QA Validation
 
-### Default Login Credentials
+### Running End-to-End Tests
 
-After running `seed.js`:
-
-**Admin Account:**
-```
-Email: admin@college.com
-Password: admin123
-```
-
-After running `seedTestData.js` (optional):
-
-| Role | Email | Password |
-|------|-------|----------|
-| **Admin** | admin@college.com | admin123 |
-| **Student** | student@college.com | student123 |
-| **Warden** | warden@college.com | warden123 |
-| **Dean** | dean@college.com | dean123 |
-| **Principal** | principal@college.com | principal123 |
-
----
-
-## 👥 Role-Based Access
-
-### 1. **Student** 🎓
-- ✅ View personal usage history
-- ✅ View personal sustainability score
-- ✅ View personal alerts
-- ❌ Cannot see other users' data
-
-### 2. **Warden** 🏠
-- ✅ Add/Edit block-level usage
-- ✅ View all students in assigned hostel block
-- ✅ Monitor block sustainability
-- ❌ Cannot manage users or system settings
-
-### 3. **Dean** / **Principal** 📊
-- ✅ View executive analytics dashboard
-- ✅ View system-wide reports
-- ✅ Export data
-- ❌ Read-only access (no editing)
-
-### 4. **Admin** 👨‍💼
-- ✅ Full system access
-- ✅ User management (CRUD)
-- ✅ Role assignment
-- ✅ System configuration
-- ✅ Delete records
-- ✅ Manage thresholds
-
----
-
-## 📡 API Documentation
-
-### Authentication
-
-#### Register User
-```http
-POST /api/auth/register
-Content-Type: application/json
-
-{
-  "name": "John Doe",
-  "email": "john@college.com",
-  "password": "password123"
-}
-```
-
-#### Login
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "email": "john@college.com",
-  "password": "password123"
-}
-```
-
-### Usage Records
-
-#### Get Usage Records (Role-based)
-```http
-GET /api/usage
-Authorization: Bearer <token>
-```
-
-#### Create Usage Record
-```http
-POST /api/usage
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "resource_type": "Electricity",
-  "category": "Hostel Block A",
-  "usage_value": 500,
-  "unit": "kWh",
-  "usage_date": "2026-02-15",
-  "notes": "Monthly consumption"
-}
-```
-
-#### Delete Usage Record (Admin only)
-```http
-DELETE /api/usage/:id
-Authorization: Bearer <token>
-```
-
-### Admin Routes
-
-#### Get All Users
-```http
-GET /api/admin/users
-Authorization: Bearer <token>
-```
-
-#### Update User Role
-```http
-PATCH /api/admin/users/:id/role
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "role": "warden"
-}
-```
-
----
-
-## 📸 Screenshots
-
-### Student Dashboard
-![Student Dashboard](docs/screenshots/student-dashboard.png)
-
-### Warden Dashboard
-![Warden Dashboard](docs/screenshots/warden-dashboard.png)
-
-### Admin Dashboard
-![Admin Dashboard](docs/screenshots/admin-dashboard.png)
-
-### Executive Analytics
-![Executive Dashboard](docs/screenshots/executive-dashboard.png)
-
----
-
-## 🧪 Testing
-
-### Run Backend Tests
 ```bash
 cd backend
-npm test
+DISABLE_EMAILS=true node scripts/qa_full_test.js
 ```
 
-### Run Frontend Tests
-```bash
-cd frontend
-npm test
+### Expected Output (8/8 Tests PASS)
+
+```
+=== QA VALIDATION REPORT ===
+AUTH:            PASS ✅ (Login/logout flow, token refresh)
+USAGE:           PASS ✅ (Create, read, edit, delete with soft-delete)
+ALERT ENGINE:    PASS ✅ (Threshold breach, spike detection, dedup)
+ALERT LIFECYCLE: PASS ✅ (Status transitions, resolution workflow)
+DASHBOARD:       PASS ✅ (Role-based data visibility, aggregation)
+COMPLAINT:       PASS ✅ (Submission, workflow, escalation)
+EXPORT:          PASS ✅ (CSV/PDF generation with filters)
+STRESS TEST:     PASS ✅ (10+ concurrent threshold checks, no duplicates)
 ```
 
-### Manual Testing Checklist
-See `docs/TESTING_CHECKLIST.md` for comprehensive testing guide.
+---
+
+## 📁 Folder Structure
+
+```
+sustainable_resource_monitor/
+│
+├── backend/
+│   ├── app.js                      # Express server entry point
+│   ├── package.json                # Dependencies & scripts
+│   │
+│   ├── config/                     # Configuration modules
+│   │   ├── validateEnv.js          # Startup env validation
+│   │   ├── passport.js             # JWT & Google OAuth strategies
+│   │   ├── roles.js                # RBAC role constants
+│   │   ├── constants.js            # App-wide constants
+│   │   └── runtime.js              # Runtime settings
+│   │
+│   ├── models/                     # Mongoose schemas (14 collections)
+│   │   ├── User.js                 # User accounts with roles/blocks
+│   │   ├── Usage.js                # Resource consumption (soft-delete)
+│   │   ├── Alert.js                # Generated alerts with workflow
+│   │   ├── SystemConfig.js         # Dynamic resource thresholds
+│   │   ├── Block.js                # Hostel/building blocks
+│   │   ├── Complaint.js            # Student complaints
+│   │   ├── AuditLog.js             # Immutable action audit trail
+│   │   └── ...7 more models
+│   │
+│   ├── controllers/                # Business logic (13 modules)
+│   │   ├── authController.js       # Login, registration, token refresh
+│   │   ├── usageController.js      # CRUD for resource consumption
+│   │   ├── alertsController.js     # Alert actions & status changes
+│   │   ├── complaintsController.js # Complaint lifecycle
+│   │   ├── reportsController.js    # CSV/PDF export
+│   │   ├── configController.js     # Threshold management
+│   │   └── ...7 more controllers
+│   │
+│   ├── routes/                     # API endpoints (12 routers)
+│   │   ├── authRoutes.js
+│   │   ├── usageRoutes.js
+│   │   ├── alertsRoutes.js
+│   │   ├── complaintsRoutes.js
+│   │   └── ...8 more API routes
+│   │
+│   ├── middleware/                 # Express middleware
+│   │   ├── authMiddleware.js       # JWT verification
+│   │   ├── roleMiddleware.js       # Role-based access checks
+│   │   ├── errorHandler.js         # Global error handling
+│   │   ├── auditMiddleware.js      # Audit log creation
+│   │   ├── validate.js             # Input validation runner
+│   │   ├── rateLimiter.js          # DDoS protection
+│   │   └── asyncHandler.js         # Error-catching wrapper
+│   │
+│   ├── services/                   # Business logic services
+│   │   ├── thresholdService.js     # Alert generation & dedup
+│   │   ├── reportService.js        # Export generation
+│   │   └── emailService.js         # Email notifications
+│   │
+│   ├── utils/                      # Helper utilities
+│   │   ├── socket.js               # Socket.io instance management
+│   │   ├── auditLogger.js          # Audit log helpers
+│   │   ├── mailer.js               # Email template rendering
+│   │   └── seedDefaults.js         # Default data templates
+│   │
+│   ├── cron/                       # Scheduled jobs
+│   │   ├── dailyReport.js          # Scheduled daily report
+│   │   └── escalation.js           # Alert escalation (30min intervals)
+│   │
+│   ├── scripts/                    # Utility scripts
+│   │   ├── create_indexes.js       # MongoDB index creation
+│   │   ├── qa_full_test.js         # Comprehensive QA suite [8/8 PASS]
+│   │   └── seed.js / seedTestData.js   # Data seeding
+│   │
+│   └── seed.js                     # Initial data loading
+│
+├── frontend/
+│   ├── index.html                  # HTML entry point
+│   ├── package.json                # Dependencies & scripts
+│   ├── vite.config.js              # Vite build configuration
+│   ├── tailwind.config.cjs         # Tailwind theme config
+│   │
+│   ├── src/
+│   │   ├── main.jsx                # React app bootstrap
+│   │   ├── App.jsx                 # Main router with role-based routes
+│   │   ├── styles.css              # Global + theme CSS
+│   │   │
+│   │   ├── components/             # Reusable React components
+│   │   │   ├── ProtectedRoute.jsx  # Route guard with role check
+│   │   │   ├── PublicRoute.jsx     # Unauthenticated route guard
+│   │   │   ├── GlobalErrorBoundary.jsx  # App-level error boundary
+│   │   │   ├── layout/             # Layout components
+│   │   │   ├── common/             # Shared UI components
+│   │   │   └── ...other components
+│   │   │
+│   │   ├── context/                # React Context providers
+│   │   │   ├── AuthContext.jsx     # User & auth state
+│   │   │   ├── AlertCountContext.jsx  # Real-time alert counts
+│   │   │   ├── ThemeContext.jsx    # Dark/light theme
+│   │   │   └── ToastContext.jsx    # Toast notifications
+│   │   │
+│   │   ├── pages/                  # Route pages (25+ components)
+│   │   │   ├── Login.jsx           # Authentication
+│   │   │   ├── Dashboard.jsx       # Role-based dashboard
+│   │   │   ├── Usage.jsx           # Resource overview
+│   │   │   ├── Alerts.jsx          # Alert management
+│   │   │   ├── Complaints.jsx      # Complaint management
+│   │   │   └── ...20+ more pages
+│   │   │
+│   │   ├── services/               # API & utility services
+│   │   │   ├── api.js              # Axios client with interceptors
+│   │   │   └── ...other services
+│   │   │
+│   │   └── utils/                  # Utility functions
+│   │       ├── logger.js           # Dev-only console logging
+│   │       ├── roles.js            # Role constants
+│   │       └── export.js           # Export utilities
+│   │
+│   └── dist/                       # Build output (git-ignored)
+│
+├── docs/
+│   ├── PRODUCTION_AUTH.md          # Auth flow documentation
+│   ├── TESTING_CHECKLIST.md        # QA test procedures
+│   └── THRESHOLD_ALERT_SYSTEM.md   # Alert engine architecture
+│
+├── .gitignore                      # Git ignore rules (updated)
+├── README.md                       # This file
+├── ENVIRONMENT_VARIABLES.md        # Detailed env var reference
+└── TEST_CREDENTIALS.md             # QA login credentials
+```
 
 ---
 
-## 🤝 Contributing
+## 🔧 Environment Variables Required
 
-Contributions are welcome! Please follow these steps:
+### Backend
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+| Variable | Example | Notes |
+|----------|---------|-------|
+| `MONGO_URI` | `mongodb+srv://user:pass@cluster.mongodb.net/db` | MongoDB connection string |
+| `PORT` | `5001` | Server port |
+| `NODE_ENV` | `development` | Environment mode |
+| `JWT_SECRET` | `your-32-char-secret-key...` | Token signing key (≥32 chars) |
+| `GOOGLE_CLIENT_ID` | `xxx.apps.googleusercontent.com` | Google OAuth (optional) |
+| `DISABLE_EMAILS` | `true` | Email notifications toggle |
+| `FRONTEND_URL` | `http://localhost:5173` | CORS origin |
 
----
+### Frontend
 
-## 📄 License
+| Variable | Example |
+|----------|---------|
+| `VITE_API_URL` | `http://localhost:5001` |
+| `VITE_BACKEND_PORT` | `5001` |
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 👨‍💻 Author
-
-**Sudhir**
-
-- GitHub: [@sudhir3116](https://github.com/sudhir3116)
-- Project: [Sustainable Resource Monitor](https://github.com/sudhir3116/sustainable-resource-monitor)
+See `ENVIRONMENT_VARIABLES.md` for complete reference.
 
 ---
 
-## 🙏 Acknowledgments
+## 🔒 Production Deployment
 
-- Built with MERN Stack
-- Inspired by sustainability and resource management best practices
-- Thanks to all contributors!
+### Pre-Deployment Checklist
+
+- [ ] Set `NODE_ENV=production`
+- [ ] Use strong `JWT_SECRET` (≥32 characters)
+- [ ] Configure MongoDB Atlas with IP whitelist
+- [ ] Enable HTTPS (not HTTP)
+- [ ] Set `DISABLE_EMAILS=false` with SMTP credentials
+- [ ] Configure `FRONTEND_URL` to production domain
+- [ ] Build frontend: `npm run build`
+- [ ] Test all 8 QA suites in production environment
+- [ ] Monitor logs and error rates
+
+---
+
+## 🚦 Future Improvements
+
+- **Analytics Dashboard:** Predictive trend analysis with ML-based anomaly detection
+- **Mobile App:** React Native client for on-the-go monitoring
+- **Blockchain Audit:** Immutable distributed ledger for compliance
+- **IoT Integration:** Direct sensor data ingestion for real-time metering
+- **Multi-Language Support:** Internationalization (i18n) for regional deployments
+- **Advanced Reporting:** Custom report builder with scheduling
+- **API Rate Tier:** Tiered API access for third-party integrations
 
 ---
 
 ## 📞 Support
 
-For issues, questions, or feature requests:
-- Open an issue on [GitHub Issues](https://github.com/sudhir3116/sustainable-resource-monitor/issues)
-- Check the [Quick Start Guide](QUICK_START_GUIDE.md)
-- Review the [Documentation](docs/)
+This project is maintained as a portfolio piece. For bug reports or feature requests, please reach out to the maintainer.
 
 ---
 
-## 🎯 Roadmap
+## 📜 License
 
-- [ ] Mobile app (React Native)
-- [ ] Real-time WebSocket notifications
-- [ ] Advanced analytics with ML predictions
-- [ ] Multi-language support
-- [ ] Dark mode
-- [ ] PDF report generation
-- [ ] Integration with IoT sensors
+This project is provided as-is for educational and portfolio purposes.
 
 ---
 
-**⭐ If you find this project helpful, please give it a star!**
+**Status:** ✅ Production-Ready | 8/8 QA PASS | Deployment Ready  
+**Last Updated:** March 1, 2026

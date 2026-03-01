@@ -2,15 +2,17 @@ import React, { useContext } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import { ROLES } from '../../utils/roles';
+import api from '../../services/api';
 import {
     LayoutDashboard,
     Activity,
     BarChart3,
     AlertTriangle,
-    FileText,
     Users,
-    Settings,
-    User
+    User,
+    MessageSquare,
+    SlidersHorizontal,
+    ScrollText
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -30,28 +32,34 @@ export default function Sidebar() {
             roles: [ROLES.STUDENT, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN]
         },
         {
-            label: 'Resources',
+            label: 'Usage',
             icon: Activity,
-            path: '/resources',
+            path: '/usage',
             roles: [ROLES.STUDENT, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN]
         },
         {
             label: 'Analytics',
             icon: BarChart3,
             path: '/analytics',
-            roles: [ROLES.STUDENT, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN]
+            roles: [ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN]
         },
         {
             label: 'Alerts',
             icon: AlertTriangle,
             path: '/alerts',
+            roles: [ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN]
+        },
+        {
+            label: 'Complaints',
+            icon: MessageSquare,
+            path: '/complaints',
             roles: [ROLES.STUDENT, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN]
         },
         {
-            label: 'Reports',
-            icon: FileText,
-            path: '/reports',
-            roles: [ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN]
+            label: 'Resource Config',
+            icon: SlidersHorizontal,
+            path: '/resource-config',
+            roles: [ROLES.ADMIN]
         },
         {
             label: 'Users',
@@ -60,16 +68,35 @@ export default function Sidebar() {
             roles: [ROLES.ADMIN]
         },
         {
-            label: 'Settings',
-            icon: Settings,
-            path: '/settings',
-            roles: [ROLES.ADMIN]
+            label: 'Audit Logs',
+            icon: ScrollText,
+            path: '/audit-logs',
+            roles: [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL]
         }
     ];
 
     const visibleItems = navItems.filter(item =>
         user && item.roles.includes(user.role)
     );
+
+    const [unreadAlerts, setUnreadAlerts] = React.useState(0);
+
+    React.useEffect(() => {
+        if (user && user.role !== ROLES.STUDENT) {
+            const fetchAlerts = async () => {
+                try {
+                    const res = await api.get('/api/alerts');
+                    if (res.data?.alerts) {
+                        const count = res.data.alerts.filter(a => a.status === 'Pending').length;
+                        setUnreadAlerts(count);
+                    }
+                } catch (e) { }
+            };
+            fetchAlerts();
+            const interval = setInterval(fetchAlerts, 60000);
+            return () => clearInterval(interval);
+        }
+    }, [user]);
 
     return (
         <div className="sidebar flex flex-col">
@@ -100,7 +127,12 @@ export default function Sidebar() {
                                 className={`nav-item ${active ? 'active' : ''}`}
                             >
                                 <Icon size={20} />
-                                <span>{item.label}</span>
+                                <span className="flex-1">{item.label}</span>
+                                {item.path === '/alerts' && unreadAlerts > 0 && (
+                                    <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                        {unreadAlerts > 99 ? '99+' : unreadAlerts}
+                                    </span>
+                                )}
                             </Link>
                         );
                     })}

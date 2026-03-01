@@ -16,6 +16,7 @@ import {
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import EmptyState from '../components/common/EmptyState';
+import { logger } from '../utils/logger';
 
 export default function Resources() {
     const [stats, setStats] = useState(null);
@@ -28,7 +29,7 @@ export default function Resources() {
                 const res = await api.get('/api/usage/stats');
                 setStats(res.data.stats || {});
             } catch (err) {
-                console.error('Failed to fetch resource stats', err);
+                logger.error('Failed to fetch resource stats', err);
             } finally {
                 setLoading(false);
             }

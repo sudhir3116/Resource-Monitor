@@ -71,7 +71,10 @@ export default function UsageList() {
     if (!deleteId) return;
     try {
       await api.delete(`/api/usage/${deleteId}`);
-      setUsages(prev => prev.filter(u => u._id !== deleteId));
+      // Re-fetch the list to reflect soft-delete and prevent stale state
+      await load();
+      // Request alert counts refresh via context if available
+      try { if (window && window.dispatchEvent) window.dispatchEvent(new Event('usage:deleted')); } catch (e) {}
       addToast('Record deleted successfully');
     } catch (err) {
       addToast(err.response?.data?.message || 'Failed to delete record', 'error');

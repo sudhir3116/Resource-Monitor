@@ -8,6 +8,9 @@ node_modules/
 .env.local
 .env.development
 .env.production
+.env.development.local
+.env.production.local
+.env.test
 *.env
 .env.backup
 *.env.backup
@@ -18,7 +21,7 @@ node_modules/
 /backend/dist/
 /backend/build/
 
-# Logs
+# Logs & temporary files
 logs/
 *.log
 npm-debug.log*
@@ -26,28 +29,58 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 pnpm-debug.log*
+/tmp/
+*.tmp
 
 # OS Files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 *.swp
 *.swo
 *~
+*.bak
 
 # IDE Files
 .vscode/
+.vscode/settings.json
 .idea/
 *.sublime-project
 *.sublime-workspace
 .atom/
 .vs/
+*.iml
 
-# Testing
+# Testing & Coverage
 coverage/
 *.coverage
 .nyc_output/
+.mocha/
+.jest/
 
-# Temporary files
+# Package lock files (optional - uncomment if not tracking)
+# package-lock.json
+# yarn.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+
+# Misc
+*.pid
+*.seed
+*.pid.lock
+.cache/
+dist/
+build/
 tmp/
 temp/
 *.tmp

@@ -35,7 +35,18 @@ module.exports = async function (req, res, next) {
     // also attach full user object as req.userObj for convenience (optional)
     try {
       const userObj = await User.findById(decoded.id).select('-password')
-      if (userObj) req.userObj = userObj
+      if (userObj) {
+        req.userObj = userObj
+
+        // Invalidate tokens issued before user's last logout
+        if (userObj.lastLogoutAt && decoded.iat) {
+          const tokenIssuedAt = decoded.iat; // seconds since epoch
+          const lastLogoutAtSec = Math.floor(new Date(userObj.lastLogoutAt).getTime() / 1000);
+          if (tokenIssuedAt <= lastLogoutAtSec) {
+            return res.status(401).json({ message: 'Token invalid (user logged out)' });
+          }
+        }
+      }
     } catch (e) {
       // ignore user attach errors, continue with req.userId
     }

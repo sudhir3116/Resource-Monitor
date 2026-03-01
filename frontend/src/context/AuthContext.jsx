@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import api from '../services/api'
 import Loading from '../components/Loading'
+import { logger } from '../utils/logger'
 
 export const AuthContext = createContext()
 
@@ -21,14 +22,22 @@ export function AuthProvider({ children }) {
         const userData = response.data.data || response.data.user;
         if (userData) {
           setUser(userData);
+          const token = localStorage.getItem('token');
+          if (token) api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
         } else {
+          localStorage.removeItem('token');
+          delete api.defaults.headers.common["Authorization"];
           setUser(null);
         }
       } else {
+        localStorage.removeItem('token');
+        delete api.defaults.headers.common["Authorization"];
         setUser(null);
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
+      logger.error('Auth check failed:', error);
+      localStorage.removeItem('token');
+      delete api.defaults.headers.common["Authorization"];
       setUser(null);
     } finally {
       setLoading(false);
@@ -39,8 +48,10 @@ export function AuthProvider({ children }) {
     try {
       await api.post('/api/auth/logout');
     } catch (e) {
-      console.error('Logout error', e);
+      logger.error('Logout error', e);
     }
+    localStorage.removeItem('token');
+    delete api.defaults.headers.common["Authorization"];
     setUser(null);
     setLoading(false);
     navigate('/login', { replace: true });
@@ -64,7 +75,11 @@ export function AuthProvider({ children }) {
     try {
       const response = await api.post('/api/auth/login', { email, password })
       const userData = response.data.data || response.data.user;
-      setUser(userData)
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token);
+        api.defaults.headers.common["Authorization"] = `Bearer ${response.data.token}`;
+      }
+      setUser(userData);
 
       // Navigate based on role
       const from = location.state?.from?.pathname || '/dashboard';
@@ -103,6 +118,10 @@ export function AuthProvider({ children }) {
 
       if (response.data.success && userData) {
         console.log('✅ Google login successful');
+        if (response.data.token) {
+          localStorage.setItem('token', response.data.token);
+          api.defaults.headers.common["Authorization"] = `Bearer ${response.data.token}`;
+        }
         setUser(userData);
 
         const from = location.state?.from?.pathname || '/dashboard';
@@ -135,7 +154,11 @@ export function AuthProvider({ children }) {
     try {
       const response = await api.post('/api/auth/register', { name, email, password, role })
       const userData = response.data.data || response.data.user;
-      setUser(userData)
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token);
+        api.defaults.headers.common["Authorization"] = `Bearer ${response.data.token}`;
+      }
+      setUser(userData);
       navigate('/dashboard', { replace: true })
       return { success: true }
     } catch (error) {

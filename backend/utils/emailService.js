@@ -9,6 +9,7 @@ const User = require('../models/User');
  */
 const sendAlertEmail = async (userId, subject, message) => {
     try {
+        if (process.env.DISABLE_EMAILS === 'true') return;
         const user = await User.findById(userId).select('email name');
         if (user && user.email) {
             const text = `Hello ${user.name || 'User'},\n\n${message}\n\nLogin to your dashboard for more details.\n\nBest regards,\nSustainable Resource Monitor Team`;
@@ -17,7 +18,7 @@ const sendAlertEmail = async (userId, subject, message) => {
                 subject: `[Alert] ${subject}`,
                 text
             });
-            console.log(`Alert email sent to ${user.email}`);
+            if (process.env.NODE_ENV !== 'production') console.log(`Alert email sent to ${user.email}`);
         }
     } catch (error) {
         console.error('Error sending alert email:', error);
@@ -32,6 +33,7 @@ const sendAlertEmail = async (userId, subject, message) => {
  */
 const sendReportEmail = async (emails, subject, htmlContent) => {
     try {
+        if (process.env.DISABLE_EMAILS === 'true') return;
         if (!emails || emails.length === 0) return;
 
         await mailer.sendMail({
@@ -39,7 +41,7 @@ const sendReportEmail = async (emails, subject, htmlContent) => {
             subject: `[Daily Report] ${subject}`,
             html: htmlContent
         });
-        console.log(`Daily report sent to ${emails.length} recipients`);
+        if (process.env.NODE_ENV !== 'production') console.log(`Daily report sent to ${emails.length} recipients`);
     } catch (error) {
         console.error('Error sending report email:', error);
     }

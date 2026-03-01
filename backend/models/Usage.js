@@ -17,6 +17,11 @@ const usageSchema = new mongoose.Schema({
   // Validation flags
   isVerified: { type: Boolean, default: false },
   isDuplicate: { type: Boolean, default: false }
+  ,
+  // Soft-delete fields
+  deleted: { type: Boolean, default: false },
+  deletedAt: { type: Date, default: null },
+  deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
 }, {
   timestamps: true // Automatically adds createdAt and updatedAt
 });
@@ -34,7 +39,7 @@ usageSchema.pre('save', function (next) {
   if (this.isNew && !this.createdBy && this.userId) {
     this.createdBy = this.userId;
   }
-  next();
+  if (typeof next === 'function') next();
 });
 
 module.exports = mongoose.model('Usage', usageSchema);

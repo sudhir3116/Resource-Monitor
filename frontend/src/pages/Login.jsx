@@ -1,6 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { Navigate, Link } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
+import { logger } from '../utils/logger';
 import { Activity, Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -26,7 +27,7 @@ export default function Login() {
     try {
       await login(email, password);
     } catch (err) {
-      console.error("Login failed", err);
+      logger.error("Login failed", err);
       const msg = err.response?.data?.message || err.message || 'Invalid email or password';
       setError(msg);
     } finally {

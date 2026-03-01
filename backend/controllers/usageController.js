@@ -3,9 +3,12 @@ const AlertRule = require('../models/AlertRule')
 const AlertLog = require('../models/AlertLog')
 const Alert = require('../models/Alert')
 const User = require('../models/User')
+const AuditLog = require('../models/AuditLog') // Added AuditLog Support
 const mailer = require('../utils/mailer')
 const { checkThresholds } = require('../services/thresholdService')
 const mongoose = require('mongoose')
+const SystemConfig = require('../models/SystemConfig')
+const { RESOURCE_UNITS } = require('../config/constants')
 
 // Helper: Calculate Sustainability Score (Context-Aware)
 const calculateSustainabilityScore = async (userId, userRole, blockId) => {
@@ -123,22 +126,38 @@ const sendAlertEmail = async (userId, subject, message) => {
 
 exports.createUsage = async (req, res) => {
   try {
+    // ── Role Guard (middleware must run first, but double-check here) ──────────
+    const callerRole = req.user?.role;
+    const WRITE_ROLES = ['admin', 'warden'];
+    if (!callerRole || !WRITE_ROLES.includes(callerRole)) {
+      return res.status(403).json({
+        success: false,
+        message: `Access denied. Only Wardens and Admins can log usage. Your role: '${callerRole || 'unknown'}'`
+      });
+    }
+
     const resource_type = req.body.resourceType || req.body.resource_type || req.body.resource
     const category = req.body.category || 'General'
-    const usage_value = Number(req.body.amount || req.body.usage_value || 0)
+    const rawValue = req.body.amount ?? req.body.usage_value
     const usage_date = req.body.date || req.body.usage_date || new Date()
     const notes = req.body.notes || ''
 
+    // ── Numeric & Positive Validation ─────────────────────────────────────────
     if (!resource_type) return res.status(400).json({ success: false, message: 'Resource type is required' })
+    if (rawValue === undefined || rawValue === null || rawValue === '') {
+      return res.status(400).json({ success: false, message: 'Usage value is required' })
+    }
+    const usage_value = Number(rawValue)
+    if (isNaN(usage_value)) return res.status(400).json({ success: false, message: 'Usage value must be a number' })
     if (usage_value <= 0) return res.status(400).json({ success: false, message: 'Usage value must be greater than zero' })
     if (!usage_date) return res.status(400).json({ success: false, message: 'Date is required' })
 
-    // Prevent future dates
+    // ── Prevent Future Dates ──────────────────────────────────────────────────
     if (new Date(usage_date) > new Date()) {
       return res.status(400).json({ success: false, message: 'Usage date cannot be in the future' });
     }
 
-    const userId = req.userId || req.user || null
+    const userId = req.userId || req.user?.id || null
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' })
 
     const user = await User.findById(userId);
@@ -149,6 +168,12 @@ exports.createUsage = async (req, res) => {
       resource_type,
       category,
       usage_value,
+      unit: req.body.unit || (await (async () => {
+        try {
+          const cfg = await SystemConfig.findOne({ resource: resource_type });
+          return cfg?.unit || RESOURCE_UNITS[resource_type] || '';
+        } catch (e) { return RESOURCE_UNITS[resource_type] || ''; }
+      })()),
       usage_date,
       notes,
       createdBy: userId
@@ -185,6 +210,22 @@ exports.createUsage = async (req, res) => {
       console.error('AlertRule error', e)
     }
 
+    // AUDIT LOG
+    try {
+      await AuditLog.create({
+        action: 'CREATE',
+        resourceType: 'Usage',
+        resourceId: usage._id,
+        userId: userId,
+        changes: {
+          after: usage.toObject()
+        },
+        description: `Logged new usage: ${usage_value} ${resource_type}`
+      });
+    } catch (err) {
+      console.error('AuditLog error', err);
+    }
+
     res.status(201).json({ success: true, message: 'Usage logged successfully', usage })
   } catch (err) {
     console.error('createUsage error', err)
@@ -212,6 +253,9 @@ exports.getUsages = async (req, res) => {
 
     if (resource && resource !== 'All') filter.resource_type = resource
     if (category) filter.category = category
+
+    // Exclude soft-deleted records
+    filter.deleted = { $ne: true };
 
     if (start || end) {
       filter.usage_date = {}
@@ -242,7 +286,11 @@ exports.getUsages = async (req, res) => {
 
 exports.getUsage = async (req, res) => {
   try {
-    const filter = { _id: req.params.id }
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid record ID' });
+    }
+    const filter = { _id: id, deleted: { $ne: true } }
 
     // Strict IDOR Check
     const usage = await Usage.findOne(filter);
@@ -266,53 +314,64 @@ exports.getUsage = async (req, res) => {
 exports.updateUsage = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid record ID' });
+    }
 
     // 1. Fetch existing record
     const existingUsage = await Usage.findById(id);
     if (!existingUsage) return res.status(404).json({ success: false, message: 'Record not found' });
 
-    // 2. IDOR / Permission Check
-    const isOwner = String(existingUsage.userId) === String(req.userId);
+    // 2. IDOR / Permission Check: Allow if admin OR createdBy matches
     const user = req.userObj || await User.findById(req.userId);
+    const isAdmin = user.role === 'admin';
+    const isCreator = String(existingUsage.createdBy) === String(req.userId) || String(existingUsage.userId) === String(req.userId);
 
-    // Admin can edit anything (full management)
-    if (user.role === 'admin') {
-      // Allowed
+    // Admin can edit anything; creator can edit their own
+    if (isAdmin || isCreator) {
+      // Allowed — proceed to update
     }
-    // Warden: Can add/edit usage for block only
-    else if (user.role === 'warden') {
-      if (!user.block) {
-        // Warden without block can only edit their own
-        if (!isOwner) return res.status(403).json({ success: false, message: 'Access denied: Warden has no assigned block.' });
-      } else {
-        // Check if the usage belongs to the warden's block
-        // We check existingUsage.blockId. If it's missing, we fall back to owner check
-        if (existingUsage.blockId && existingUsage.blockId !== user.block) {
-          return res.status(403).json({ success: false, message: 'Access denied: Usage record belongs to a different block.' });
-        }
-        // If usage has no blockId, check if usage owner is in the same block?
-        // For safety, if blockId is missing on usage, Warden can only edit if they are owner.
-        if (!existingUsage.blockId && !isOwner) {
-          return res.status(403).json({ success: false, message: 'Access denied: Usage record not linked to your block.' });
-        }
-      }
-    }
-    // Student: Can only edit their own? 
-    // Requirement says: "Student: can only view own usage". It doesn't explicitly say "edit".
-    // But usually students can edit if they made a mistake, unless finalized.
-    // However, user Requirement 3 "CRUD Testing" implies full CRUD.
-    // Let's assume Student can edit own.
-    else if (user.role === 'student') {
-      if (!isOwner) return res.status(403).json({ success: false, message: 'Access denied.' });
-    }
-    // Dean/Principal: Read only
-    else if (['dean', 'principal'].includes(user.role)) {
-      return res.status(403).json({ success: false, message: 'Read-only access.' });
+    // Student / Dean / Principal / Warden (non-owners): No write access
+    else {
+      const roleMsg = {
+        'student': 'Students cannot modify usage records. Please contact your Warden.',
+        'warden': 'Wardens can only modify their own usage records or those in their block.',
+        'dean': 'Deans have read-only access. You cannot modify usage records.',
+        'principal': 'Principals have read-only access. You cannot modify usage records.'
+      };
+      return res.status(403).json({
+        success: false,
+        message: roleMsg[user.role] || 'Access denied'
+      });
     }
 
     // 3. Perform Update
     req.body.lastUpdatedBy = req.userId; // Audit trail
-    const usage = await Usage.findByIdAndUpdate(id, req.body, { new: true });
+    const usage = await Usage.findByIdAndUpdate(id, req.body, { returnDocument: 'after' });
+
+    // AUDIT LOG
+    try {
+      await AuditLog.create({
+        action: 'UPDATE',
+        resourceType: 'Usage',
+        resourceId: usage._id,
+        userId: req.userId,
+        changes: {
+          before: existingUsage.toObject(),
+          after: usage.toObject()
+        },
+        description: `Updated usage record for ${usage.resource_type}`
+      });
+    } catch (err) {
+      console.error('AuditLog error', err);
+    }
+
+    // Re-run threshold checks to recalculate any affected alerts
+    try {
+      await checkThresholds(req.userId, usage.resource_type, usage.usage_date);
+    } catch (e) {
+      console.error('Error re-checking thresholds after update:', e.message);
+    }
 
     res.json({ success: true, message: 'Record updated successfully', usage })
   } catch (err) {
@@ -323,52 +382,75 @@ exports.updateUsage = async (req, res) => {
 exports.deleteUsage = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid record ID' });
+    }
 
     // 1. Fetch existing record
     const existingUsage = await Usage.findById(id);
     if (!existingUsage) return res.status(404).json({ success: false, message: 'Record not found' });
 
-    // 2. Permission Check
-    // Rules:
-    // - Students CANNOT delete (archival only or contact admin) - per requirements "Student: No edit/delete buttons"
-    // - But if the user request said "Student: No edit/delete", we should block it here too.
-
+    // 2. IDOR / Permission Check: Allow if admin OR createdBy matches
     const user = req.userObj || await User.findById(req.userId);
+    const isAdmin = user.role === 'admin';
+    const isCreator = String(existingUsage.createdBy) === String(req.userId) || String(existingUsage.userId) === String(req.userId);
 
-    // Permission Logic
-    if (user.role === 'student') {
-      return res.status(403).json({ success: false, message: 'Students cannot delete records. Please contact warden.' });
+    // Admin can delete anything; creator can delete their own
+    if (isAdmin || isCreator) {
+      // Allowed — proceed to delete
+    }
+    // Student / Dean / Principal / Warden (non-owners): No write access
+    else {
+      const roleMsg = {
+        'student': 'Students cannot delete usage records. Please contact your Warden.',
+        'warden': 'Wardens can only delete their own usage records or those in their block.',
+        'dean': 'Deans have read-only access. You cannot delete usage records.',
+        'principal': 'Principals have read-only access. You cannot delete usage records.'
+      };
+      return res.status(403).json({
+        success: false,
+        message: roleMsg[user.role] || 'Access denied'
+      });
     }
 
-    if (user.role === 'warden') {
-      if (!user.block) {
-        if (String(existingUsage.userId) !== String(req.userId)) {
-          return res.status(403).json({ success: false, message: 'Access denied: Warden has no assigned block.' });
-        }
-      } else {
-        if (existingUsage.blockId && existingUsage.blockId !== user.block) {
-          return res.status(403).json({ success: false, message: 'Access denied: Record belongs to another block.' });
-        }
-        if (!existingUsage.blockId && String(existingUsage.userId) !== String(req.userId)) {
-          return res.status(403).json({ success: false, message: 'Access denied.' });
-        }
-      }
+    // 3. Soft-delete: mark record as deleted and set metadata
+    existingUsage.deleted = true;
+    existingUsage.deletedAt = new Date();
+    existingUsage.deletedBy = req.userId;
+    await existingUsage.save();
+
+    // Re-run threshold checks for the same date/resource to update/remove alerts
+    try {
+      await checkThresholds(req.userId, existingUsage.resource_type, existingUsage.usage_date);
+    } catch (e) {
+      console.error('Error re-checking thresholds after delete:', e.message);
     }
 
-    if (['dean', 'principal'].includes(user.role)) {
-      return res.status(403).json({ success: false, message: 'Read-only access.' });
+    // AUDIT LOG — include before/after
+    try {
+      await AuditLog.create({
+        action: 'DELETE',
+        resourceType: 'Usage',
+        resourceId: existingUsage._id,
+        userId: req.userId,
+        changes: {
+          before: existingUsage.toObject(),
+          after: { deleted: true, deletedAt: existingUsage.deletedAt }
+        },
+        description: `Soft-deleted usage record for ${existingUsage.resource_type}`
+      });
+    } catch (err) {
+      console.error('AuditLog error', err);
     }
 
-    // Admin allowed by default if we reach here
-    const canDelete = ['admin', 'warden'].includes(user.role);
-    if (!canDelete) {
-      return res.status(403).json({ success: false, message: 'Access denied' });
-    }
+    // Emit a lightweight event so connected clients can refresh alert counts
+    try {
+      const socketUtil = require('../utils/socket');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) io.emit('alerts:refresh');
+    } catch (e) { /* non-fatal */ }
 
-    // 3. Perform Delete
-    await Usage.findByIdAndDelete(id);
-
-    res.json({ success: true, message: 'Record deleted successfully' })
+    res.json({ success: true, message: 'Record deleted (soft) successfully' })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
   }
@@ -495,5 +577,81 @@ exports.getDashboardStats = async (req, res) => {
       monthlyUsage: [],
       recentAlerts: []
     });
+  }
+}
+
+/**
+ * @desc    Get daily usage trend data for a specific resource
+ * @route   GET /api/usage/trends?resource=Electricity&range=7days
+ * @access  Private (all roles)
+ */
+exports.getUsageTrends = async (req, res) => {
+  try {
+    const { resource, range = '7days' } = req.query;
+    const userId = req.userId || req.user?.id;
+    const userRole = req.user?.role || 'student';
+
+    // ── Date range ──────────────────────────────────────────────
+    const endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+
+    let startDate;
+    if (range === '30days') {
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+    } else if (range === 'monthly') {
+      startDate = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+    } else {
+      // Default: 7 days
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - 6); // inclusive of today = 7 days
+    }
+    startDate.setHours(0, 0, 0, 0);
+
+    // ── Role-based match filter ──────────────────────────────────
+    let matchFilter = { usage_date: { $gte: startDate, $lte: endDate } };
+
+    if (resource && resource !== 'All') {
+      matchFilter.resource_type = resource;
+    }
+
+    if (userRole === 'student') {
+      matchFilter.userId = new mongoose.Types.ObjectId(userId);
+    } else if (userRole === 'warden') {
+      const user = await User.findById(userId);
+      if (user && user.block) {
+        matchFilter.blockId = user.block;
+      } else {
+        matchFilter.userId = new mongoose.Types.ObjectId(userId);
+      }
+    }
+    // admin / dean / principal → no extra filter, see all
+
+    // ── Aggregate by date ────────────────────────────────────────
+    const aggregated = await Usage.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: '%Y-%m-%d', date: '$usage_date' }
+          },
+          total: { $sum: '$usage_value' }
+        }
+      },
+      { $sort: { _id: 1 } },
+      {
+        $project: {
+          _id: 0,
+          date: '$_id',
+          total: { $round: ['$total', 2] }
+        }
+      }
+    ]);
+
+    res.json({ success: true, data: aggregated, range, resource: resource || 'All' });
+
+  } catch (err) {
+    console.error('getUsageTrends error:', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 }

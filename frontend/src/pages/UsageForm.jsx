@@ -2,6 +2,8 @@ import React, { useEffect, useState, useContext } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import api from '../services/api';
 import { useToast } from '../context/ToastContext';
+import { AuthContext } from '../context/AuthContext';
+import { ROLES } from '../utils/roles';
 import {
   Save,
   ArrowLeft,
@@ -14,7 +16,7 @@ import {
   Calendar,
   MapPin,
   AlignLeft,
-  Info
+  ShieldOff
 } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -24,17 +26,43 @@ export default function UsageForm() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const { user } = useContext(AuthContext);
 
   const [loading, setLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const getLocalISOString = () => {
+    const tzOffset = new Date().getTimezoneOffset() * 60000;
+    return new Date(Date.now() - tzOffset).toISOString().slice(0, 16);
+  };
+
   const [form, setForm] = useState({
     resource_type: 'Electricity',
     category: 'Hostel Block A',
     usage_value: '',
-    usage_date: new Date().toISOString().slice(0, 16),
+    usage_date: getLocalISOString(),
     notes: ''
   });
   const [errors, setErrors] = useState({});
+
+  // Role guard — only admin and warden can access this form
+  const canWrite = user && [ROLES.ADMIN, ROLES.WARDEN].includes(user.role);
+  if (!canWrite) {
+    return (
+      <div className="max-w-xl mx-auto py-20 text-center">
+        <div className="h-16 w-16 rounded-full bg-red-500 bg-opacity-10 flex items-center justify-center mx-auto mb-4">
+          <ShieldOff size={32} className="text-red-500" />
+        </div>
+        <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Access Denied</h2>
+        <p className="mb-6" style={{ color: 'var(--text-secondary)' }}>
+          Only Wardens and Admins can log or edit usage records.
+          Your role ({user?.role || 'unknown'}) does not have write access.
+        </p>
+        <Button variant="secondary" onClick={() => navigate('/usage/all')}>
+          <ArrowLeft size={16} className="mr-2" /> Back to Records
+        </Button>
+      </div>
+    );
+  }
 
   useEffect(() => {
     if (id) load();

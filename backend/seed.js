@@ -42,7 +42,7 @@ const seedData = async () => {
                 provider: 'local',
                 status: 'active'
             },
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: 'after' }
         );
         console.log(`✅ User Seeded/Updated: ${user.email} (${user.role})`);
     }

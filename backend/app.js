@@ -19,6 +19,7 @@ validateEnvironment();
 require('./config/passport');
 
 const app = express();
+// We'll attach socket.io after server starts and store on app for controllers
 
 // Security Middleware
 app.use(helmet());
@@ -27,17 +28,19 @@ app.use(cookieParser());
 
 // Request Logger
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  }
   next();
 });
 
-// Rate Limiting (100 requests per 15 minutes)
+// Rate Limiting (500 requests per 15 minutes)
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 500, // Increased limit for dashboard API calls
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  message: 'Too many requests from this IP, please try again after 15 minutes'
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many requests, please try again after 15 minutes.' }
 });
 app.use('/api', limiter);
 
@@ -71,18 +74,38 @@ app.use(passport.initialize());
 mongoose.connect(process.env.MONGO_URI, {
   serverSelectionTimeoutMS: 5000,
 }).then(() => {
-  console.log("MongoDB connected");
-  // Seed Defaults if needed (Optional, better to run seed script manually)
-})
-  .catch(err => {
-    console.error("❌ MongoDB Connection Error:", err.message);
-    if (err.message.includes('bad auth') || err.message.includes('Authentication failed')) {
-      console.error("   -> Check your MONGO_URI, username, and password.");
-    } else if (err.codeName === 'AtlasError' || err.message.includes('whitelist')) {
-      console.error("   -> Your IP address might not be whitelisted in MongoDB Atlas.");
-      console.error("   -> Go to Atlas > Network Access > Add IP Address > Add Current IP Address.");
+  if (process.env.NODE_ENV !== 'production') console.log("MongoDB connected");
+
+  const PORT = process.env.PORT || 5000;
+  // Create HTTP server and attach socket.io so controllers can emit events
+  const http = require('http');
+  const server = http.createServer(app);
+  const { Server } = require('socket.io');
+  const io = new Server(server, {
+    cors: {
+      origin: allowedOrigins,
+      methods: ['GET', 'POST']
     }
   });
+
+  // Expose io on app for controllers to emit
+  const socketUtil = require('./utils/socket');
+  app.set('io', io);
+  socketUtil.setIO(io);
+
+  server.listen(PORT, () => {
+    if (process.env.NODE_ENV !== 'production') console.log(`Server running on port ${PORT}`);
+  });
+}).catch(err => {
+  console.error("❌ MongoDB Connection Error:", err.message);
+  if (err.message.includes('bad auth') || err.message.includes('Authentication failed')) {
+    console.error("   -> Check your MONGO_URI, username, and password.");
+  } else if (err.codeName === 'AtlasError' || err.message.includes('whitelist')) {
+    console.error("   -> Your IP address might not be whitelisted in MongoDB Atlas.");
+    console.error("   -> Go to Atlas > Network Access > Add IP Address > Add Current IP Address.");
+  }
+  process.exit(1);
+});
 
 // Routes
 app.use("/api/auth", require("./routes/authRoutes"));
@@ -95,18 +118,33 @@ app.use("/api/config", require("./routes/configRoutes"));
 app.use("/api/analytics", require("./routes/analyticsRoutes"));
 app.use("/api/audit-logs", require("./routes/auditLogsRoutes"));
 app.use("/api/dashboard", require("./routes/dashboardRoutes"));
+app.use("/api/complaints", require("./routes/complaintsRoutes"));
+
+// 404 handler for unknown API routes
+app.use(/\/api\/.*/, (req, res) => {
+  res.status(404).json({ success: false, message: `Route ${req.method} ${req.originalUrl} not found` });
+});
 
 // Health Check
-app.get("/", (req, res) => res.json({ status: "OK", message: "API Running" }));
+app.get('/', (req, res) => res.json({ status: 'OK', message: 'API Running', port: process.env.PORT }));
 
 // Cron Jobs
 const startDailyReportJob = require('./cron/dailyReport');
+const startEscalationJob = require('./cron/escalation');
 startDailyReportJob();
+startEscalationJob();
 
-// Error Handler (Must be last)
+// Global Error Handler (Must be last)
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// ── Process-level safety nets ──────────────────────────────────────────────
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Process] Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't crash — just log
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Process] Uncaught Exception:', err);
+  // Give the server a moment to log, then exit gracefully
+  process.exit(1);
 });

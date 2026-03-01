@@ -258,11 +258,32 @@ const googleLogin = asyncHandler(async (req, res) => {
 // @desc    Logout user
 // @route   POST /api/auth/logout
 // @access  Private
-const logout = (req, res) => {
-  res.clearCookie('accessToken');
-  res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+const logout = asyncHandler(async (req, res) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // If authenticated, mark lastLogoutAt to invalidate tokens
+  try {
+    if (req.user && req.user.id) {
+      await User.findByIdAndUpdate(req.user.id, { lastLogoutAt: new Date() });
+    }
+  } catch (e) {
+    // proceed to clear cookies even if DB write fails
+    console.error('Failed to set lastLogoutAt during logout:', e.message);
+  }
+
+  res.clearCookie('accessToken', {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax'
+  });
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/api/auth/refresh'
+  });
   res.status(200).json({ success: true, message: "Logged out successfully" });
-};
+});
 
 // @desc    Refresh access token
 // @route   POST /api/auth/refresh
@@ -309,7 +330,7 @@ const refresh = asyncHandler(async (req, res) => {
       maxAge: 15 * 60 * 1000
     });
 
-    res.json({ success: true, message: 'Refreshed' });
+    res.json({ success: true, message: 'Refreshed', token: accessToken });
   } catch (err) {
     // Clear cookies on any error to prevent infinite retry loops
     res.clearCookie('accessToken');

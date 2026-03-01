@@ -1,46 +1,74 @@
+/**
+ * routes/alertsRoutes.js
+ * Clean, validated routes for Alerts module
+ */
 const express = require('express');
 const router = express.Router();
-const authMiddleware = require('../middleware/authMiddleware');
+const auth = require('../middleware/authMiddleware');
+const { authorizeRoles: authorize } = require('../middleware/roleMiddleware');
+const { ROLES } = require('../config/roles');
+const { param, body, query } = require('express-validator');
+const runValidations = require('../middleware/validate');
+const { auditMiddleware } = require('../utils/auditLogger');
+
 const {
-    getAlerts,
-    reviewAlert,
-    resolveAlert,
-    dismissAlert,
-    createAlert,
-    getAlertRules,
-    getSystemAlerts,
-    updateAlertRule,
-    deleteAlertRule
+  getAlerts,
+  getAlert,
+  getAlertCount,
+  createAlert,
+  investigateAlert,
+  reviewAlert,
+  resolveAlert,
+  dismissAlert,
+  acknowledgeAlert,
+  addComment,
+  getAlertStats,
+  getAlertAnalytics,
+  getSystemAlerts,
+  getAlertRules,
+  updateAlertRule,
+  deleteAlertRule,
 } = require('../controllers/alertsController');
 
 // All routes require authentication
-router.use(authMiddleware);
+router.use(auth);
 
-// GET /api/alerts - List alerts with filters
+// READ
 router.get('/', getAlerts);
-
-// GET /api/alerts/rules - Get configured alert rules
-router.get('/rules', getAlertRules);
-
-// GET /api/alerts/system - Get system alerts/logs
 router.get('/system', getSystemAlerts);
+router.get('/count', getAlertCount);
+router.get('/stats', authorize(ROLES.ADMIN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.WARDEN), getAlertStats);
+router.get('/analytics', authorize(ROLES.ADMIN, ROLES.DEAN, ROLES.PRINCIPAL), getAlertAnalytics);
+router.get('/rules', getAlertRules);
+router.get('/:id', [param('id').isMongoId().withMessage('Invalid id')], runValidations, getAlert);
 
-// POST /api/alerts - Create manual alert (Admin, Warden)
-router.post('/', createAlert);
+// CREATE
+router.post('/',
+  authorize(ROLES.ADMIN, ROLES.WARDEN),
+  [body('resourceType').notEmpty().withMessage('resourceType is required'), body('message').notEmpty().withMessage('message is required')],
+  runValidations,
+  auditMiddleware('CREATE', 'Alert'),
+  createAlert
+);
 
-// PATCH /api/alerts/:id - Update alert rule (Active/Inactive)
-router.patch('/:id', updateAlertRule);
+// COMMENTS
+router.post('/:id/comment',
+  authorize(ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
+  [param('id').isMongoId().withMessage('Invalid id'), body('comment').notEmpty().withMessage('comment is required')],
+  runValidations,
+  auditMiddleware('ADD_COMMENT', 'Alert'),
+  addComment
+);
 
-// DELETE /api/alerts/:id - Delete alert rule
-router.delete('/:id', deleteAlertRule);
+// LIFECYCLE
+router.put('/:id/investigate', authorize(ROLES.WARDEN, ROLES.ADMIN), [param('id').isMongoId().withMessage('Invalid id')], runValidations, auditMiddleware('REVIEW_ALERT', 'Alert'), investigateAlert);
+router.put('/:id/acknowledge', authorize(ROLES.WARDEN, ROLES.ADMIN, ROLES.DEAN, ROLES.PRINCIPAL), [param('id').isMongoId().withMessage('Invalid id')], runValidations, auditMiddleware('REVIEW_ALERT', 'Alert'), acknowledgeAlert);
+router.put('/:id/review', authorize(ROLES.WARDEN, ROLES.ADMIN, ROLES.DEAN, ROLES.PRINCIPAL), [param('id').isMongoId().withMessage('Invalid id')], runValidations, auditMiddleware('REVIEW_ALERT', 'Alert'), reviewAlert);
+router.put('/:id/resolve', authorize(ROLES.WARDEN, ROLES.ADMIN, ROLES.DEAN, ROLES.PRINCIPAL), [param('id').isMongoId().withMessage('Invalid id')], runValidations, auditMiddleware('RESOLVE_ALERT', 'Alert'), resolveAlert);
+router.put('/:id/dismiss', authorize(ROLES.ADMIN, ROLES.WARDEN), [param('id').isMongoId().withMessage('Invalid id'), body('reason').optional().isString()], runValidations, auditMiddleware('DISMISS_ALERT', 'Alert'), dismissAlert);
 
-// PUT /api/alerts/:id/review - Mark as reviewed
-router.put('/:id/review', reviewAlert);
-
-// PUT /api/alerts/:id/resolve - Resolve with comment
-router.put('/:id/resolve', resolveAlert);
-
-// PUT /api/alerts/:id/dismiss - Dismiss alert
-router.put('/:id/dismiss', dismissAlert);
+// RULE MANAGEMENT
+router.patch('/:id', [param('id').isMongoId().withMessage('Invalid id')], runValidations, auditMiddleware('UPDATE', 'Alert'), updateAlertRule);
+router.delete('/:id', [param('id').isMongoId().withMessage('Invalid id')], runValidations, auditMiddleware('DELETE', 'Alert'), deleteAlertRule);
 
 module.exports = router;

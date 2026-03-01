@@ -5,14 +5,19 @@ const auditLogSchema = new mongoose.Schema({
     action: {
         type: String,
         required: true,
-        enum: ['CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT', 'EXPORT', 'RESOLVE_ALERT', 'REVIEW_ALERT', 'UPDATE_THRESHOLD']
+        enum: [
+                'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT', 'EXPORT',
+                'RESOLVE_ALERT', 'REVIEW_ALERT', 'ESCALATE_ALERT',
+                'ADD_COMMENT', 'DISMISS_ALERT', 'UPDATE_THRESHOLD',
+                'RESOLVE_COMPLAINT', 'ESCALATE_COMPLAINT', 'COMMENT_COMPLAINT'
+        ]
     },
 
     // Resource being modified
     resourceType: {
         type: String,
         required: true,
-        enum: ['Usage', 'User', 'Block', 'Alert', 'SystemConfig', 'Auth']
+        enum: ['Usage', 'User', 'Block', 'Alert', 'SystemConfig', 'Auth', 'Complaint']
     },
     resourceId: { type: mongoose.Schema.Types.ObjectId },
 

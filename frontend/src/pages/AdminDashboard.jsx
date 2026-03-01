@@ -15,6 +15,7 @@ import { Link } from 'react-router-dom';
 import Card, { MetricCard } from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
+import { logger } from '../utils/logger';
 
 export default function AdminDashboard() {
     const [stats, setStats] = useState({
@@ -55,7 +56,7 @@ export default function AdminDashboard() {
                 ]);
 
             } catch (e) {
-                console.error("Failed to fetch admin dashboard data", e);
+                logger.error("Failed to fetch admin dashboard data", e);
             } finally {
                 setLoading(false);
             }

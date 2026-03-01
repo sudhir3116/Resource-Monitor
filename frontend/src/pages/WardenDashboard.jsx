@@ -7,19 +7,39 @@ import Button from '../components/common/Button';
 import EmptyState from '../components/common/EmptyState';
 import { exportToCSV } from '../utils/export';
 import { useToast } from '../context/ToastContext';
+import { logger } from '../utils/logger';
 
 export default function WardenDashboard() {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const { addToast } = useToast();
 
+    const [budget, setBudget] = useState(null);
+    const [efficiency, setEfficiency] = useState(null);
+
     useEffect(() => {
         async function fetchStats() {
             try {
-                const response = await api.get('/api/dashboard/warden');
-                setStats(response.data.data || response.data);
+                const [dashboardRes, budgetRes, leaderboardRes] = await Promise.all([
+                    api.get('/api/dashboard/warden'),
+                    api.get('/api/analytics/budget').catch(() => ({ data: { budgets: [] } })),
+                    api.get('/api/analytics/leaderboard').catch(() => ({ data: { leaderboard: [] } }))
+                ]);
+
+                const dashboardData = dashboardRes.data.data || dashboardRes.data;
+                setStats(dashboardData);
+
+                if (budgetRes.data?.budgets?.length > 0) {
+                    setBudget(budgetRes.data.budgets[0]);
+                }
+
+                if (leaderboardRes.data?.leaderboard?.length > 0) {
+                    // Try to find warden's block score in leaderboard
+                    // Usually Warden only manages 1 block, or match by name/id if available.
+                    setEfficiency(leaderboardRes.data.leaderboard[0]);
+                }
             } catch (err) {
-                console.error("Failed to fetch warden dashboard", err);
+                logger.error("Failed to fetch warden dashboard", err);
                 addToast("Failed to load dashboard data", "error");
             } finally {
                 setLoading(false);
@@ -108,6 +128,18 @@ export default function WardenDashboard() {
                     value={<>{water?.current?.toLocaleString() || 0} <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>L</span></>}
                     change={water?.percentageChange}
                 />
+
+                {/* Budget remaining */}
+                {budget && (
+                    <MetricCard
+                        icon={<span className="font-bold text-lg">₹</span>}
+                        label="Remaining Budget"
+                        value={<span style={{ color: budget.percentageUsed > 100 ? 'var(--color-danger)' : budget.percentageUsed > 80 ? 'var(--color-warning)' : 'var(--color-success)' }}>
+                            ₹{budget.remaining >= 0 ? budget.remaining.toLocaleString() : 0}
+                        </span>}
+                        change={budget.budget > 0 ? -budget.percentageUsed : 0}
+                    />
+                )}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -172,36 +204,36 @@ export default function WardenDashboard() {
                                 <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
                                     Overall Efficiency
                                 </span>
-                                <span className="text-sm font-semibold" style={{ color: 'var(--color-success)' }}>
-                                    84%
+                                <span className="text-sm font-semibold" style={{ color: efficiency?.score >= 80 ? 'var(--color-success)' : efficiency?.score >= 60 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
+                                    {efficiency ? Math.round(efficiency.score) : 84}%
                                 </span>
                             </div>
                             <div className="w-full rounded-full h-2 overflow-hidden" style={{ backgroundColor: 'var(--bg-hover)' }}>
                                 <div
                                     className="h-full transition-all duration-500 rounded-full"
-                                    style={{ width: '84%', backgroundColor: 'var(--color-success)' }}
+                                    style={{ width: `${efficiency ? efficiency.score : 84}%`, backgroundColor: efficiency?.score >= 80 ? 'var(--color-success)' : efficiency?.score >= 60 ? 'var(--color-warning)' : 'var(--color-danger)' }}
                                 />
                             </div>
                         </div>
 
                         {/* Sustainability Rating */}
                         <div className="p-4 rounded-lg border" style={{
-                            borderColor: 'var(--color-success)',
-                            backgroundColor: '#DCFCE7'
+                            borderColor: efficiency?.score >= 80 ? 'var(--color-success)' : efficiency?.score >= 60 ? 'var(--color-warning)' : 'var(--color-danger)',
+                            backgroundColor: efficiency?.score >= 80 ? '#DCFCE7' : efficiency?.score >= 60 ? '#FEF3C7' : '#FEE2E2',
                         }}>
                             <div className="flex items-center justify-between">
                                 <div>
                                     <p className="text-xs font-medium uppercase tracking-wider mb-1"
-                                        style={{ color: 'var(--color-success)' }}>
+                                        style={{ color: efficiency?.score >= 80 ? 'var(--color-success)' : efficiency?.score >= 60 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
                                         Sustainability Rating
                                     </p>
-                                    <p className="text-3xl font-bold" style={{ color: 'var(--color-success)' }}>
-                                        A+
+                                    <p className="text-3xl font-bold" style={{ color: efficiency?.score >= 80 ? 'var(--color-success)' : efficiency?.score >= 60 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
+                                        {efficiency ? (efficiency.score >= 90 ? 'A+' : efficiency.score >= 80 ? 'A' : efficiency.score >= 70 ? 'B' : efficiency.score >= 60 ? 'C' : 'F') : 'A+'}
                                     </p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="text-xs" style={{ color: 'var(--color-success)' }}>
-                                        Top tier
+                                    <p className="text-xs" style={{ color: efficiency?.score >= 80 ? 'var(--color-success)' : efficiency?.score >= 60 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
+                                        {efficiency ? (efficiency.score >= 80 ? 'Top tier' : efficiency.score >= 60 ? 'Average' : 'Needs attention') : 'Top tier'}
                                     </p>
                                 </div>
                             </div>
