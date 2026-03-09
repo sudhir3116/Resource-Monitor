@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useContext } from 'react';
 import api from '../services/api';
-import { Link, useNavigate } from 'react-router-dom';
+import { getSocket } from '../utils/socket';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { ROLES } from '../utils/roles';
 import { exportToCSV } from '../utils/export';
@@ -15,7 +16,8 @@ import {
   Flame,
   Wind,
   Utensils,
-  Trash
+  Trash,
+  Filter
 } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -23,33 +25,76 @@ import Badge from '../components/common/Badge';
 import EmptyState from '../components/common/EmptyState';
 import { ConfirmModal } from '../components/common/Modal';
 import { useToast } from '../context/ToastContext';
+import useSortableTable from '../hooks/useSortableTable';
+import SortIcon from '../components/common/SortIcon';
+import TableSkeleton from '../components/common/TableSkeleton';
+import timeAgo from '../utils/timeAgo';
 
 export default function UsageList() {
   const [usages, setUsages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [resourceFilter, setResourceFilter] = useState('All');
+  const [searchParams] = useSearchParams();
+  const [resourceFilter, setResourceFilter] = useState(searchParams.get('resource') || 'All');
+  const [blockFilter, setBlockFilter] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [sortMode, setSortMode] = useState('newest');
+  const [blocks, setBlocks] = useState([]);
   const [deleteId, setDeleteId] = useState(null);
-  const [deleteItem, setDeleteItem] = useState(null); // Track full item for detailed modal
-  const [sortConfig, setSortConfig] = useState({ key: 'usage_date', direction: 'desc' });
+  const [deleteItem, setDeleteItem] = useState(null);
 
   const { user } = useContext(AuthContext);
   const { addToast } = useToast();
   const navigate = useNavigate();
 
   const canEdit = user && [ROLES.ADMIN, ROLES.WARDEN].includes(user.role);
-  const canDelete = user && [ROLES.ADMIN, ROLES.WARDEN].includes(user.role);
+  // Only Admin and General Manager can delete records (Wardens cannot)
+  const canDelete = user && [ROLES.ADMIN, ROLES.GM].includes(user.role);
   const showActions = canEdit || canDelete;
+  // Executive = full campus visibility with block filter access
+  const isExecutive = user && [ROLES.DEAN, ROLES.DEAN, ROLES.ADMIN, ROLES.GM].includes(user.role);
 
   useEffect(() => {
     load();
+
+    // Fetch blocks for Dean/Principal filter
+    if (isExecutive) {
+      api.get('/api/admin/blocks').then(r => setBlocks(r.data.data || [])).catch(() => { });
+    }
+
+    const socket = getSocket();
+    if (socket) {
+      socket.on('usage:refresh', load);
+      socket.on('usage:new', load);
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('usage:refresh', load);
+        socket.off('usage:new', load);
+      }
+    };
   }, []);
+
+  // Re-fetch when executive filters change
+  useEffect(() => {
+    if (isExecutive) load();
+  }, [blockFilter, startDate, endDate, sortMode]);
 
   async function load() {
     setLoading(true);
     try {
-      const res = await api.get('/api/usage');
-      // Handle both old and new response structures for safety during migration
+      const params = new URLSearchParams();
+      if (resourceFilter && resourceFilter !== 'All') params.set('resource', resourceFilter);
+      if (blockFilter) params.set('block', blockFilter);
+      if (startDate) params.set('start', startDate);
+      if (endDate) params.set('end', endDate);
+      if (sortMode === 'highest_consumption') params.set('sort', 'highest_consumption');
+      else if (sortMode === 'block_name') params.set('sort', 'block_name');
+      else if (sortMode === 'oldest') params.set('sort', 'oldest');
+
+      const res = await api.get(`/api/usage?${params.toString()}`);
       setUsages(res.data.usages || (Array.isArray(res.data) ? res.data : []));
     } catch (err) {
       addToast('Failed to load usage records', 'error');
@@ -59,14 +104,6 @@ export default function UsageList() {
     }
   }
 
-  const requestSort = (key) => {
-    let direction = 'ascending';
-    if (sortConfig.key === key && sortConfig.direction === 'ascending') {
-      direction = 'descending';
-    }
-    setSortConfig({ key, direction });
-  };
-
   async function handleDelete() {
     if (!deleteId) return;
     try {
@@ -74,7 +111,7 @@ export default function UsageList() {
       // Re-fetch the list to reflect soft-delete and prevent stale state
       await load();
       // Request alert counts refresh via context if available
-      try { if (window && window.dispatchEvent) window.dispatchEvent(new Event('usage:deleted')); } catch (e) {}
+      try { if (window && window.dispatchEvent) window.dispatchEvent(new Event('usage:deleted')); } catch (e) { }
       addToast('Record deleted successfully');
     } catch (err) {
       addToast(err.response?.data?.message || 'Failed to delete record', 'error');
@@ -89,37 +126,21 @@ export default function UsageList() {
     setDeleteId(item._id);
   };
 
-  const sortedUsages = React.useMemo(() => {
-    let sortableItems = [...usages];
-    if (sortConfig.key !== null) {
-      sortableItems.sort((a, b) => {
-        let aValue = a[sortConfig.key];
-        let bValue = b[sortConfig.key];
+  const filteredUsages = React.useMemo(() => {
+    return usages.filter(u => {
+      const matchesSearch = (u.userId?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (u.notes || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (u.resource_type || '').toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesResource = resourceFilter === 'All' || u.resource_type === resourceFilter;
+      return matchesSearch && matchesResource;
+    });
+  }, [usages, searchTerm, resourceFilter]);
 
-        // Handle nested properties like userId.name
-        if (sortConfig.key === 'user') {
-          aValue = a.userId?.name || '';
-          bValue = b.userId?.name || '';
-        }
-
-        if (aValue < bValue) {
-          return sortConfig.direction === 'ascending' ? -1 : 1;
-        }
-        if (aValue > bValue) {
-          return sortConfig.direction === 'ascending' ? 1 : -1;
-        }
-        return 0;
-      });
-    }
-    return sortableItems;
-  }, [usages, sortConfig]);
-
-  const filteredUsages = sortedUsages.filter(u => {
-    const matchesSearch = (u.userId?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (u.notes || '').toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesResource = resourceFilter === 'All' || u.resource_type === resourceFilter;
-    return matchesSearch && matchesResource;
-  });
+  const { sortedData: finalUsages, sortField, sortDirection, handleSort } = useSortableTable(
+    filteredUsages,
+    'usage_date',
+    [searchTerm, resourceFilter, blockFilter, startDate, endDate, sortMode]
+  );
 
   const getResourceIcon = (type) => {
     switch (type) {
@@ -134,11 +155,11 @@ export default function UsageList() {
   };
 
   const handleExport = () => {
-    if (filteredUsages.length === 0) {
+    if (finalUsages.length === 0) {
       addToast('No records to export', 'warning');
       return;
     }
-    const dataToExport = filteredUsages.map(u => ({
+    const dataToExport = finalUsages.map(u => ({
       Resource: u.resource_type,
       Value: u.usage_value,
       Unit: u.unit || 'units',
@@ -155,9 +176,17 @@ export default function UsageList() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 style={{ color: 'var(--text-primary)' }}>Usage Records</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>
-            View and manage resource consumption logs
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            {resourceFilter !== 'All'
+              ? `${resourceFilter} Usage Details`
+              : 'Usage Records'
+            }
+          </h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+            {resourceFilter !== 'All'
+              ? `Showing all ${resourceFilter} records`
+              : 'View and manage resource consumption logs'
+            }
           </p>
         </div>
         <div className="flex gap-2">
@@ -175,58 +204,149 @@ export default function UsageList() {
       </div>
 
       {/* Filters */}
+      {resourceFilter !== 'All' && (
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            Filtered by:
+          </span>
+          <span className="flex items-center gap-1 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full text-sm font-medium">
+            {resourceFilter}
+            <button
+              onClick={() => {
+                setResourceFilter('All');
+                navigate('/usage/all');
+              }}
+              className="ml-1 hover:text-blue-900 dark:hover:text-blue-200 font-bold text-base leading-none"
+            >
+              ×
+            </button>
+          </span>
+          <span className="text-xs text-gray-400">
+            (click × to show all resources)
+          </span>
+        </div>
+      )}
       <Card>
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-            <input
-              type="text"
-              placeholder="Search records..."
-              className="input pl-10 w-full"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-            />
+        <div className="flex flex-col gap-3">
+          {/* Row 1: Search + Resource (always visible) */}
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+              <input
+                type="text"
+                placeholder="Search records..."
+                className="input pl-10 w-full"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <select
+              className="input w-full md:w-48"
+              value={resourceFilter}
+              onChange={e => { setResourceFilter(e.target.value); load(); }}
+            >
+              <option value="All">All Resources</option>
+              <option value="Electricity">Electricity</option>
+              <option value="Water">Water</option>
+              <option value="Food">Food</option>
+              <option value="LPG">LPG</option>
+              <option value="Diesel">Diesel</option>
+              <option value="Waste">Waste</option>
+            </select>
           </div>
-          <select
-            className="input w-full md:w-48"
-            value={resourceFilter}
-            onChange={e => setResourceFilter(e.target.value)}
-          >
-            <option value="All">All Resources</option>
-            <option value="Electricity">Electricity</option>
-            <option value="Water">Water</option>
-            <option value="Food">Food</option>
-            <option value="LPG">LPG</option>
-            <option value="Diesel">Diesel</option>
-            <option value="Waste">Waste</option>
-          </select>
+
+          {/* Row 2: Executive-only filters (Dean / Principal / Admin) */}
+          {isExecutive && (
+            <div className="flex flex-col md:flex-row gap-3 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+              <div className="flex items-center gap-1 text-xs font-medium" style={{ color: 'var(--text-secondary)', minWidth: 70 }}>
+                <Filter size={13} /> Filters
+              </div>
+              {/* Block filter */}
+              <select
+                className="input text-sm"
+                style={{ minWidth: 150 }}
+                value={blockFilter}
+                onChange={e => setBlockFilter(e.target.value)}
+              >
+                <option value="">All Blocks</option>
+                {blocks.map(b => (
+                  <option key={b._id} value={b._id}>{b.name}</option>
+                ))}
+              </select>
+
+              {/* Date range */}
+              <input
+                type="date"
+                className="input text-sm"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                title="Start date"
+              />
+              <input
+                type="date"
+                className="input text-sm"
+                value={endDate}
+                onChange={e => setEndDate(e.target.value)}
+                title="End date"
+              />
+
+              {/* Sort */}
+              <select
+                className="input text-sm"
+                style={{ minWidth: 180 }}
+                value={sortMode}
+                onChange={e => setSortMode(e.target.value)}
+              >
+                <option value="newest">Sort: Newest First</option>
+                <option value="oldest">Sort: Oldest First</option>
+                <option value="highest_consumption">Sort: Highest Consumption</option>
+                <option value="block_name">Sort: Block Name</option>
+              </select>
+
+              {/* Clear filters */}
+              {(blockFilter || startDate || endDate) && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => { setBlockFilter(''); setStartDate(''); setEndDate(''); setSortMode('newest'); }}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </Card>
 
       {/* Table */}
       <Card>
         {loading ? (
-          <div className="py-20 text-center">
-            <div className="spinner mb-4"></div>
-            <p className="text-slate-500">Loading records...</p>
-          </div>
-        ) : filteredUsages.length === 0 ? (
+          <TableSkeleton rows={5} columns={5} />
+        ) : finalUsages.length === 0 ? (
           <EmptyState title="No Records Found" description="Try adjusting your filters or add a new record." />
         ) : (
           <div className="overflow-x-auto">
             <table className="table">
               <thead>
                 <tr>
-                  <th onClick={() => requestSort('resource_type')} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">Resource</th>
-                  <th onClick={() => requestSort('usage_value')} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">Value</th>
-                  <th onClick={() => requestSort('usage_date')} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">Date</th>
-                  <th onClick={() => requestSort('user')} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">Logged By</th>
+                  <th onClick={() => handleSort('resource_type')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'resource_type' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                    Resource <SortIcon field="resource_type" sortField={sortField} sortDirection={sortDirection} />
+                  </th>
+                  <th onClick={() => handleSort('usage_value')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'usage_value' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                    Value <SortIcon field="usage_value" sortField={sortField} sortDirection={sortDirection} />
+                  </th>
+                  <th onClick={() => handleSort('usage_date')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'usage_date' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                    Date <SortIcon field="usage_date" sortField={sortField} sortDirection={sortDirection} />
+                  </th>
+                  <th onClick={() => handleSort('userId.name')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'userId.name' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                    Logged By <SortIcon field="userId.name" sortField={sortField} sortDirection={sortDirection} />
+                  </th>
                   <th>Notes</th>
                   {showActions && <th className="text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody>
-                {filteredUsages.map(u => (
+                {finalUsages.map(u => (
                   <tr key={u._id}>
                     <td>
                       <div className="flex items-center gap-2">
@@ -238,7 +358,7 @@ export default function UsageList() {
                       <span className="font-bold">{u.usage_value}</span>
                       <span className="text-xs text-slate-500 ml-1">{u.unit || 'units'}</span>
                     </td>
-                    <td>{new Date(u.usage_date).toLocaleDateString()}</td>
+                    <td>{timeAgo(u.usage_date)}</td>
                     <td>
                       <div className="flex items-center gap-2">
                         <div className="h-6 w-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-xs font-bold">

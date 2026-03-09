@@ -60,7 +60,7 @@ async function connect() {
 }
 
 async function ensureRoles() {
-  const roles = ['student','warden','dean','principal','admin'];
+  const roles = ['student','warden','dean','admin'];
   const emails = {
     student: process.env.VALIDATION_STUDENT_EMAIL || 'qa_student@example.com',
     warden: process.env.VALIDATION_WARDEN_EMAIL || 'qa_warden@example.com',

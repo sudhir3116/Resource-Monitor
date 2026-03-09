@@ -20,6 +20,8 @@ import Card, { MetricCard } from '../components/common/Card';
 import EmptyState from '../components/common/EmptyState';
 import Button from '../components/common/Button';
 import { logger } from '../utils/logger';
+import useSortableTable from '../hooks/useSortableTable';
+import SortIcon from '../components/common/SortIcon';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
 
@@ -70,6 +72,11 @@ export default function ExecutiveDashboard() {
         fetchTrend();
     }, [days]);
 
+    const { sortedData: sortedLeaderboard, sortField, sortDirection, handleSort } = useSortableTable(
+        leaderboard?.leaderboard || [],
+        'hostel-leaderboard'
+    );
+
     if (loading) {
         return (
             <div className="space-y-6">
@@ -88,6 +95,7 @@ export default function ExecutiveDashboard() {
     }
 
     const { trends, financial, blockRanking = [] } = stats;
+
 
     const chartOptions = {
         responsive: true,
@@ -292,12 +300,16 @@ export default function ExecutiveDashboard() {
                             <thead>
                                 <tr>
                                     <th>Rank</th>
-                                    <th>Block Name</th>
-                                    <th className="text-center">Efficiency Score</th>
+                                    <th onClick={() => handleSort('blockName')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'blockName' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                        Block Name <SortIcon field="blockName" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
+                                    <th onClick={() => handleSort('score')} className={`text-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'score' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                        Efficiency Score <SortIcon field="score" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {leaderboard?.leaderboard?.map((block, idx) => (
+                                {sortedLeaderboard.map((block, idx) => (
                                     <tr key={idx}>
                                         <td className="w-16">
                                             #{idx + 1}

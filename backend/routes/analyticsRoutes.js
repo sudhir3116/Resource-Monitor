@@ -8,7 +8,8 @@ const {
     getSustainabilityScore,
     getEfficiencyRating,
     getBudgetMonitoring,
-    getHostelLeaderboard
+    getHostelLeaderboard,
+    getBlockAnalytics
 } = require('../controllers/analyticsController');
 const { query } = require('express-validator');
 const runValidations = require('../middleware/validate');
@@ -36,5 +37,8 @@ router.get('/budget', getBudgetMonitoring);
 
 // GET /api/analytics/leaderboard
 router.get('/leaderboard', getHostelLeaderboard);
+
+// GET /api/analytics/block/:blockId - Block-specific analytics for students
+router.get('/block/:blockId', getBlockAnalytics);
 
 module.exports = router;

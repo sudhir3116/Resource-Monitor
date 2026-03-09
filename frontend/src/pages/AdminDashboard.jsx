@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
+import { getSocket } from '../utils/socket';
 import {
     Users,
     AlertTriangle,
@@ -17,6 +18,7 @@ import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import { logger } from '../utils/logger';
 
+
 export default function AdminDashboard() {
     const [stats, setStats] = useState({
         totalUsers: 0,
@@ -24,45 +26,59 @@ export default function AdminDashboard() {
         systemHealth: 'Healthy',
         activeUsers: 0
     });
-    const [recentLogs, setRecentLogs] = useState([]);
+
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         async function fetchData() {
             try {
-                // Fetch summary stats
-                const summaryRes = await api.get('/api/admin/usage/summary');
-                const data = summaryRes.data.data || summaryRes.data;
-
-                // Mock active users if not returned
-                const activeUsers = data.activeUsers || Math.floor(data.totalUsers * 0.8) || 0;
-
-                setStats({
-                    totalUsers: data.totalUsers || 0,
-                    totalAlerts: data.totalAlerts || 0,
-                    systemHealth: 'Healthy',
-                    activeUsers
-                });
-
-                // Fetch recent logs (mock or real)
-                // If endpoint exists: await api.get('/api/admin/logs?limit=5');
-                // Using mock data for now to match the "Audit Stream" replacement
-                setRecentLogs([
-                    { id: 1, action: 'User Login', user: 'admin@example.com', timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(), status: 'success' },
-                    { id: 2, action: 'Update Threshold', user: 'admin@example.com', timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), status: 'success' },
-                    { id: 3, action: 'Failed Login', user: 'unknown@ip', timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString(), status: 'failed' },
-                    { id: 4, action: 'Data Export', user: 'principal@example.com', timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(), status: 'success' },
-                    { id: 5, action: 'System Backup', user: 'System', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(), status: 'success' },
+                // Fetch stats concurrently
+                const [usersRes, blocksRes, alertsRes, complaintsRes] = await Promise.allSettled([
+                    api.get('/api/admin/users'),
+                    api.get('/api/admin/blocks'),
+                    api.get('/api/alerts?limit=5'),
+                    api.get('/api/complaints?limit=5')
                 ]);
 
-            } catch (e) {
-                logger.error("Failed to fetch admin dashboard data", e);
+                const users = usersRes.status === 'fulfilled' ? usersRes.value.data.data || usersRes.value.data : [];
+                const blocks = blocksRes.status === 'fulfilled' ? blocksRes.value.data.data || blocksRes.value.data : [];
+                const alerts = alertsRes.status === 'fulfilled' ? alertsRes.value.data.alerts || alertsRes.value.data : [];
+                const complaints = complaintsRes.status === 'fulfilled' ? complaintsRes.value.data.complaints || complaintsRes.value.data : [];
+
+                const activeAlertsCount = alerts.filter(a => a.status === 'Active' || a.status === 'Pending').length;
+                const pendingComplaintsCount = complaints.filter(c => c.status === 'Pending').length;
+
+                setStats({
+                    totalUsers: users.length || 0,
+                    totalBlocks: blocks.length || 0,
+                    activeAlerts: activeAlertsCount || 0,
+                    pendingComplaints: pendingComplaintsCount || 0,
+                    recentAlerts: alerts.slice(0, 5) || [],
+                    recentComplaints: complaints.slice(0, 5) || []
+                });
+            } catch (err) {
+                logger.error('Failed to load Admin Dashboard stats', err);
             } finally {
                 setLoading(false);
             }
         }
         fetchData();
+
+        const socket = getSocket();
+        if (socket) {
+            socket.on('dashboard:refresh', fetchData);
+            socket.on('users:refresh', fetchData);
+        }
+
+        return () => {
+            if (socket) {
+                socket.off('dashboard:refresh', fetchData);
+                socket.off('users:refresh', fetchData);
+            }
+        };
     }, []);
+
+
 
     if (loading) {
         return (
@@ -87,10 +103,10 @@ export default function AdminDashboard() {
                         Overview of system performance, users, and security logs
                     </p>
                 </div>
-                <Link to="/users/new">
+                <Link to="/users">
                     <Button variant="primary">
                         <UserPlus size={16} className="mr-2" />
-                        Add User
+                        Manage Users
                     </Button>
                 </Link>
             </div>
@@ -100,41 +116,40 @@ export default function AdminDashboard() {
                 <MetricCard
                     icon={<Users size={20} />}
                     label="Total Users"
-                    value={stats.totalUsers}
+                    value={stats.totalUsers || 0}
                     trend="active"
-                    change={0} // Placeholder for trend
                 />
 
                 <MetricCard
                     icon={<Activity size={20} />}
-                    label="Active Sessions"
-                    value={stats.activeUsers}
+                    label="Total Blocks"
+                    value={stats.totalBlocks || 0}
                     trend="positive"
                 />
 
                 <MetricCard
                     icon={<AlertTriangle size={20} />}
-                    label="System Alerts"
-                    value={stats.totalAlerts}
-                    trend={stats.totalAlerts > 0 ? 'negative' : 'neutral'}
+                    label="Active Alerts"
+                    value={stats.activeAlerts || 0}
+                    trend={stats.activeAlerts > 0 ? 'negative' : 'neutral'}
                 />
 
                 <MetricCard
                     icon={<Shield size={20} />}
-                    label="System Status"
-                    value={stats.systemHealth}
-                    trend={stats.systemHealth === 'Healthy' ? 'positive' : 'negative'}
+                    label="Complaints Pending"
+                    value={stats.pendingComplaints || 0}
+                    trend={stats.pendingComplaints > 0 ? 'negative' : 'positive'}
                 />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Recent Activity / Logs */}
-                <div className="lg:col-span-2">
+                {/* Recent Alerts */}
+                <div className="lg:col-span-2 space-y-6">
                     <Card
-                        title="Recent System Activity"
+                        title="Recent Alerts"
                         action={
-                            <Link to="/audit-logs">
-                                <Button variant="secondary" size="sm">View All Logs</Button>
+                            <Link to="/alerts">
+                                <Button variant="secondary" size="sm">View All</Button>
                             </Link>
                         }
                     >
@@ -142,27 +157,73 @@ export default function AdminDashboard() {
                             <table className="table">
                                 <thead>
                                     <tr>
-                                        <th>Action</th>
-                                        <th>User</th>
-                                        <th>Time</th>
-                                        <th className="text-right">Status</th>
+                                        <th>Resource</th>
+                                        <th>Block</th>
+                                        <th>Severity</th>
+                                        <th>Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {recentLogs.map((log) => (
-                                        <tr key={log.id}>
-                                            <td className="font-medium">{log.action}</td>
-                                            <td style={{ color: 'var(--text-secondary)' }}>{log.user}</td>
-                                            <td style={{ color: 'var(--text-secondary)' }}>
-                                                {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    {(stats.recentAlerts || []).map((alert) => (
+                                        <tr key={alert._id}>
+                                            <td className="font-medium capitalize">{alert.resource}</td>
+                                            <td style={{ color: 'var(--text-secondary)' }}>{alert.block?.name || 'Unknown'}</td>
+                                            <td>
+                                                <Badge variant={alert.severity === 'Critical' ? 'danger' : alert.severity === 'Warning' ? 'warning' : 'primary'}>
+                                                    {alert.severity}
+                                                </Badge>
                                             </td>
-                                            <td className="text-right">
-                                                <Badge variant={log.status === 'success' ? 'success' : 'danger'}>
-                                                    {log.status === 'success' ? 'Success' : 'Failed'}
+                                            <td>
+                                                <Badge variant={alert.status === 'Active' || alert.status === 'Pending' ? 'danger' : 'success'}>
+                                                    {alert.status}
                                                 </Badge>
                                             </td>
                                         </tr>
                                     ))}
+                                    {(!stats.recentAlerts || stats.recentAlerts.length === 0) && (
+                                        <tr>
+                                            <td colSpan="4" className="text-center py-4 text-gray-500">No alerts found</td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+
+                    <Card
+                        title="Recent Complaints"
+                        action={
+                            <Link to="/complaints">
+                                <Button variant="secondary" size="sm">View All</Button>
+                            </Link>
+                        }
+                    >
+                        <div className="overflow-x-auto">
+                            <table className="table">
+                                <thead>
+                                    <tr>
+                                        <th>Subject</th>
+                                        <th>Category</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(stats.recentComplaints || []).map((complaint) => (
+                                        <tr key={complaint._id}>
+                                            <td className="font-medium">{complaint.subject}</td>
+                                            <td style={{ color: 'var(--text-secondary)' }}>{complaint.category}</td>
+                                            <td>
+                                                <Badge variant={complaint.status === 'Pending' ? 'warning' : 'success'}>
+                                                    {complaint.status}
+                                                </Badge>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {(!stats.recentComplaints || stats.recentComplaints.length === 0) && (
+                                        <tr>
+                                            <td colSpan="3" className="text-center py-4 text-gray-500">No complaints found</td>
+                                        </tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
@@ -173,63 +234,30 @@ export default function AdminDashboard() {
                 <div className="space-y-6">
                     <Card title="Quick Actions">
                         <div className="space-y-3">
-                            <Link to="/users" className="block">
+                            <Link to="/reports" className="block">
                                 <Button variant="secondary" className="w-full justify-start">
-                                    <Users size={16} className="mr-3 text-blue-500" />
-                                    Manage Users
+                                    <FileText size={16} className="mr-3 text-blue-500" />
+                                    Generate Reports
                                 </Button>
                             </Link>
-                            <Link to="/alerts/rules" className="block">
+                            <Link to="/resource-config" className="block">
                                 <Button variant="secondary" className="w-full justify-start">
                                     <AlertTriangle size={16} className="mr-3 text-amber-500" />
                                     Configure Thresholds
                                 </Button>
                             </Link>
-                            <Link to="/reports" className="block">
+                            <Link to="/analytics" className="block">
                                 <Button variant="secondary" className="w-full justify-start">
-                                    <FileText size={16} className="mr-3 text-green-500" />
-                                    System Reports
+                                    <Activity size={16} className="mr-3 text-green-500" />
+                                    System Analytics
                                 </Button>
                             </Link>
-                            <Link to="/settings" className="block">
+                            <Link to="/profile" className="block">
                                 <Button variant="secondary" className="w-full justify-start">
                                     <Settings size={16} className="mr-3 text-slate-500" />
                                     System Settings
                                 </Button>
                             </Link>
-                        </div>
-                    </Card>
-
-                    <Card title="System Health Checks">
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-sm">
-                                    <CheckCircle size={16} style={{ color: 'var(--color-success)' }} />
-                                    <span>Database Connection</span>
-                                </div>
-                                <span className="text-xs" style={{ color: 'var(--color-success)' }}>Stable</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-sm">
-                                    <CheckCircle size={16} style={{ color: 'var(--color-success)' }} />
-                                    <span>API Gateway</span>
-                                </div>
-                                <span className="text-xs" style={{ color: 'var(--color-success)' }}>Operational</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-sm">
-                                    <CheckCircle size={16} style={{ color: 'var(--color-success)' }} />
-                                    <span>Email Service</span>
-                                </div>
-                                <span className="text-xs" style={{ color: 'var(--color-success)' }}>Active</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-sm">
-                                    <CheckCircle size={16} style={{ color: 'var(--color-success)' }} />
-                                    <span>Backup Job</span>
-                                </div>
-                                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Last run: 2h ago</span>
-                            </div>
                         </div>
                     </Card>
                 </div>

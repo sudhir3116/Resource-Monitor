@@ -25,7 +25,7 @@ router.post('/', [body('title').notEmpty().withMessage('title is required'), bod
 
 // ── Stats: Admin, Warden, Dean, Principal ─────────────────────────────────
 router.get('/stats',
-    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
+    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN),
     getComplaintStatistics
 );
 
@@ -49,7 +49,7 @@ router.put('/:id/resolve',
 
 // ── Escalate: Dean, Principal, Admin only ─────────────────────────────────
 router.put('/:id/escalate',
-    authorizeRoles(ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN),
+    authorizeRoles(ROLES.DEAN, ROLES.ADMIN),
     [param('id').isMongoId().withMessage('Invalid id')],
     runValidations,
     auditMiddleware('ESCALATE_COMPLAINT', 'Complaint'),
@@ -58,7 +58,7 @@ router.put('/:id/escalate',
 
 // ── Generic status update: Admin, Warden, Dean, Principal ─────────────────
 router.put('/:id/status',
-    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
+    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN),
     [param('id').isMongoId().withMessage('Invalid id')],
     runValidations,
     auditMiddleware('UPDATE', 'Complaint'),

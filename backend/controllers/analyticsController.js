@@ -72,10 +72,8 @@ const getAnalyticsSummary = async (req, res) => {
 
         // Filter by user role
         let filter = {};
-        if (req.user.role === ROLES.STUDENT) {
-            filter.userId = new mongoose.Types.ObjectId(req.user.id);
-        } else if (req.user.role === ROLES.WARDEN) {
-            // Get user's assigned block(s)
+        if (req.user.role === ROLES.STUDENT || req.user.role === ROLES.WARDEN) {
+            // Students and Wardens see their assigned block's data
             const user = await require('../models/User').findById(req.user.id);
             if (user.block) {
                 filter.blockId = user.block;
@@ -88,6 +86,7 @@ const getAnalyticsSummary = async (req, res) => {
             {
                 $match: {
                     ...filter,
+                    deleted: { $ne: true },
                     usage_date: {
                         $gte: ranges.current.start,
                         $lte: ranges.current.end
@@ -110,6 +109,7 @@ const getAnalyticsSummary = async (req, res) => {
             {
                 $match: {
                     ...filter,
+                    deleted: { $ne: true },
                     usage_date: {
                         $gte: ranges.previous.start,
                         $lte: ranges.previous.end
@@ -161,6 +161,13 @@ const getAnalyticsSummary = async (req, res) => {
  * @route   GET /api/analytics/trends?days=7&resource=Electricity
  * @access  Private
  */
+/**
+ * @desc    Get resource usage trends for time period
+ * @route   GET /api/analytics/trends?days=7&resource=Electricity
+ * @access  Private
+ * @param   days - Number of days to look back (default: 7)
+ * @param   resource - Optional specific resource type to filter by
+ */
 const getResourceTrends = async (req, res) => {
     try {
         const { days = 7, resource } = req.query;
@@ -169,23 +176,23 @@ const getResourceTrends = async (req, res) => {
         const endDate = new Date();
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - daysInt);
+        startDate.setHours(0, 0, 0, 0); // Start from beginning of that day
 
         let filter = { usage_date: { $gte: startDate, $lte: endDate } };
 
         // Role-based filtering
-        if (req.user.role === ROLES.STUDENT) {
-            filter.userId = new mongoose.Types.ObjectId(req.user.id);
-        } else if (req.user.role === ROLES.WARDEN) {
+        if (req.user.role === ROLES.STUDENT || req.user.role === ROLES.WARDEN) {
             const user = await require('../models/User').findById(req.user.id);
             if (user.block) filter.blockId = user.block;
         }
+
 
         if (resource) {
             filter.resource_type = resource;
         }
 
         const trends = await Usage.aggregate([
-            { $match: filter },
+            { $match: { ...filter, deleted: { $ne: true } } },
             {
                 $group: {
                     _id: {
@@ -252,7 +259,8 @@ const detectAnomalies = async (req, res) => {
         const todayUsage = await Usage.aggregate([
             {
                 $match: {
-                    usage_date: { $gte: today }
+                    usage_date: { $gte: today },
+                    deleted: { $ne: true }
                 }
             },
             {
@@ -267,7 +275,8 @@ const detectAnomalies = async (req, res) => {
         const weeklyAvg = await Usage.aggregate([
             {
                 $match: {
-                    usage_date: { $gte: sevenDaysAgo, $lt: today }
+                    usage_date: { $gte: sevenDaysAgo, $lt: today },
+                    deleted: { $ne: true }
                 }
             },
             {
@@ -341,18 +350,17 @@ const getSustainabilityScore = async (req, res) => {
         let filter = { usage_date: { $gte: startOfMonth } };
 
         // Role-based filtering
-        if (req.user.role === ROLES.STUDENT) {
-            filter.userId = new mongoose.Types.ObjectId(req.user.id);
-        } else if (blockId) {
-            filter.blockId = blockId;
-        } else if (req.user.role === ROLES.WARDEN) {
+        if (req.user.role === ROLES.STUDENT || req.user.role === ROLES.WARDEN) {
             const user = await require('../models/User').findById(req.user.id);
             if (user.block) filter.blockId = user.block;
+        } else if (blockId) {
+            filter.blockId = blockId;
         }
+
 
         // Get actual usage by resource
         const actualUsage = await Usage.aggregate([
-            { $match: filter },
+            { $match: { ...filter, deleted: { $ne: true } } },
             {
                 $group: {
                     _id: '$resource_type',
@@ -424,15 +432,14 @@ const getEfficiencyRating = async (req, res) => {
         let filter = { usage_date: { $gte: startOfMonth } };
 
         // Role-based filtering
-        if (req.user.role === ROLES.STUDENT) {
-            filter.userId = new mongoose.Types.ObjectId(req.user.id);
-        } else if (req.user.role === ROLES.WARDEN) {
+        if (req.user.role === ROLES.STUDENT || req.user.role === ROLES.WARDEN) {
             const user = await require('../models/User').findById(req.user.id);
             if (user.block) filter.blockId = user.block;
         }
 
+
         const usage = await Usage.aggregate([
-            { $match: filter },
+            { $match: { ...filter, deleted: { $ne: true } } },
             {
                 $group: {
                     _id: '$resource_type',
@@ -499,9 +506,9 @@ const getBudgetMonitoring = async (req, res) => {
         const blocks = await Block.find({});
         const configs = await SystemConfig.find({});
 
-        // Calculate usage cost per block
+        // Calculate usage cost per block (exclude soft-deleted records)
         const usageAgg = await Usage.aggregate([
-            { $match: { usage_date: { $gte: startOfMonth } } },
+            { $match: { usage_date: { $gte: startOfMonth }, deleted: { $ne: true } } },
             {
                 $group: {
                     _id: { blockId: '$blockId', resource: '$resource_type' },
@@ -584,7 +591,7 @@ const getHostelLeaderboard = async (req, res) => {
         const rankings = [];
         for (const block of blocks) {
             const actualUsage = await Usage.aggregate([
-                { $match: { blockId: block._id, usage_date: { $gte: startOfMonth } } },
+                { $match: { blockId: block._id, usage_date: { $gte: startOfMonth }, deleted: { $ne: true } } },
                 { $group: { _id: '$resource_type', total: { $sum: '$usage_value' } } }
             ]);
 
@@ -632,6 +639,127 @@ const getHostelLeaderboard = async (req, res) => {
     }
 };
 
+/**
+ * Get block-specific analytics for student dashboard
+ * GET /api/analytics/block/:blockId
+ */
+const getBlockAnalytics = async (req, res) => {
+    try {
+        const { blockId } = req.params;
+        const { days = 30 } = req.query;
+        const user = req.user;
+
+        // Validate block ID
+        if (!mongoose.Types.ObjectId.isValid(blockId)) {
+            return res.status(400).json({ success: false, message: 'Invalid block ID' });
+        }
+
+        // Students can only see their own block analytics
+        if (user.role === 'student' && user.block !== blockId) {
+            return res.status(403).json({ success: false, message: 'Access denied' });
+        }
+
+        const block = await Block.findById(blockId);
+        if (!block) {
+            return res.status(404).json({ success: false, message: 'Block not found' });
+        }
+
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - parseInt(days));
+
+        // Fetch usage data for the block
+        const usageData = await Usage.find({
+            blockId,
+            createdAt: { $gte: startDate }
+        }).sort({ createdAt: -1 });
+
+        // Group data by resource type
+        const resourceStats = {};
+        const resources = ['Electricity', 'Water', 'LPG', 'Diesel', 'Food', 'Waste'];
+
+        resources.forEach(resource => {
+            const resourceUsage = usageData.filter(u => u.resource_type === resource);
+            if (resourceUsage.length > 0) {
+                const values = resourceUsage.map(u => parseFloat(u.usage_value) || 0);
+                resourceStats[resource] = {
+                    total: values.reduce((a, b) => a + b, 0),
+                    average: values.reduce((a, b) => a + b, 0) / values.length,
+                    max: Math.max(...values),
+                    min: Math.min(...values),
+                    current: values[0],
+                    trend: values.slice(0, 7).reverse() // Last 7 days for chart
+                };
+            } else {
+                resourceStats[resource] = {
+                    total: 0,
+                    average: 0,
+                    max: 0,
+                    min: 0,
+                    current: 0,
+                    trend: []
+                };
+            }
+        });
+
+        // Calculate carbon footprint (kg CO2)
+        // Formula: electricity_kwh × 0.82
+        const electricityKwh = resourceStats.Electricity?.total || 0;
+        const carbonFootprint = electricityKwh * 0.82;
+
+        // Calculate sustainability score (0-100)
+        const maxThreshold = 10000; // Max acceptable usage
+        const usageTotal = Object.values(resourceStats).reduce((sum, r) => sum + r.total, 0);
+        const sustainabilityScore = Math.max(0, 100 - (usageTotal / maxThreshold) * 100);
+
+        res.json({
+            success: true,
+            data: {
+                block: {
+                    id: block._id,
+                    name: block.name,
+                    capacity: block.capacity
+                },
+                period: { days: parseInt(days) },
+                resources: resourceStats,
+                carbonFootprint: Math.round(carbonFootprint * 100) / 100,
+                sustainabilityScore: Math.round(sustainabilityScore),
+                lastUpdated: new Date()
+            }
+        });
+    } catch (error) {
+        console.error('Block analytics error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Get student-specific usage analytics for their assigned block
+ * GET /api/students/usage-analytics
+ */
+const getStudentUsageAnalytics = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await require('../models/User').findById(userId);
+
+        if (!user || (!user.block && user.role === 'student')) {
+            return res.status(400).json({ success: false, message: 'Student block not assigned' });
+        }
+
+        // Mock block ID if not found for admins/other testing, but students MUST have a block
+        const blockId = user.block;
+
+        // Re-use logic or call getBlockAnalytics logic internally
+        // To avoid code duplication, we can manually call getBlockAnalytics logic here
+        // or refactor getBlockAnalytics. For now, let's keep it clean as requested.
+
+        req.params.blockId = blockId.toString(); // Map for the implementation below
+        return getBlockAnalytics(req, res);
+    } catch (error) {
+        console.error('Student usage analytics error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 module.exports = {
     getAnalyticsSummary,
     getResourceTrends,
@@ -639,5 +767,7 @@ module.exports = {
     getSustainabilityScore,
     getEfficiencyRating,
     getBudgetMonitoring,
-    getHostelLeaderboard
+    getHostelLeaderboard,
+    getBlockAnalytics,
+    getStudentUsageAnalytics
 };

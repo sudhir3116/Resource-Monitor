@@ -12,7 +12,13 @@ import {
     User,
     MessageSquare,
     SlidersHorizontal,
-    ScrollText
+    ScrollText,
+    Building2,
+    Database,
+    Megaphone,
+    FileText,
+    TrendingUp,
+    ClipboardList
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -29,31 +35,49 @@ export default function Sidebar() {
             label: 'Dashboard',
             icon: LayoutDashboard,
             path: '/dashboard',
-            roles: [ROLES.STUDENT, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN]
+            roles: [ROLES.STUDENT, ROLES.WARDEN, ROLES.DEAN, ROLES.GM, ROLES.ADMIN]
         },
         {
             label: 'Usage',
             icon: Activity,
             path: '/usage',
-            roles: [ROLES.STUDENT, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN]
+            roles: [ROLES.WARDEN, ROLES.DEAN, ROLES.GM, ROLES.ADMIN]
         },
         {
             label: 'Analytics',
             icon: BarChart3,
             path: '/analytics',
-            roles: [ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN]
+            roles: [ROLES.WARDEN, ROLES.DEAN, ROLES.GM, ROLES.ADMIN]
         },
         {
             label: 'Alerts',
             icon: AlertTriangle,
             path: '/alerts',
-            roles: [ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN]
+            roles: [ROLES.WARDEN, ROLES.DEAN, ROLES.GM, ROLES.ADMIN]
         },
         {
             label: 'Complaints',
             icon: MessageSquare,
             path: '/complaints',
-            roles: [ROLES.STUDENT, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN]
+            roles: [ROLES.STUDENT, ROLES.WARDEN, ROLES.DEAN, ROLES.GM, ROLES.ADMIN]
+        },
+        {
+            label: 'Notice Board',
+            icon: Megaphone,
+            path: '/announcements',
+            roles: [ROLES.STUDENT, ROLES.WARDEN, ROLES.DEAN, ROLES.GM, ROLES.ADMIN]
+        },
+        {
+            label: 'Daily Report',
+            icon: ClipboardList,
+            path: '/warden/daily-report',
+            roles: [ROLES.WARDEN]
+        },
+        {
+            label: 'Executive Summary',
+            icon: TrendingUp,
+            path: '/dean/dashboard',
+            roles: [ROLES.DEAN, ROLES.ADMIN, ROLES.GM]
         },
         {
             label: 'Resource Config',
@@ -68,10 +92,28 @@ export default function Sidebar() {
             roles: [ROLES.ADMIN]
         },
         {
+            label: 'Blocks',
+            icon: Building2,
+            path: '/blocks',
+            roles: [ROLES.ADMIN]
+        },
+        {
             label: 'Audit Logs',
             icon: ScrollText,
             path: '/audit-logs',
-            roles: [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL]
+            roles: [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.GM]
+        },
+        {
+            label: 'Reports',
+            icon: FileText,
+            path: '/reports',
+            roles: [ROLES.ADMIN, ROLES.GM, ROLES.DEAN]
+        },
+        {
+            label: 'Database Viewer',
+            icon: Database,
+            path: '/admin/database',
+            roles: [ROLES.ADMIN]
         }
     ];
 

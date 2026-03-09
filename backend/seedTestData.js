@@ -70,7 +70,7 @@ const seedTestData = async () => {
                 name: 'Dr. Principal',
                 email: 'principal@college.com',
                 password: 'principal123',
-                role: ROLES.PRINCIPAL
+                role: ROLES.DEAN
             },
             // Additional students for testing
             {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
+import { getSocket } from '../utils/socket';
 import { Zap, Droplets, AlertTriangle, Plus, Download } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Card, { MetricCard } from '../components/common/Card';
@@ -46,6 +47,23 @@ export default function WardenDashboard() {
             }
         }
         fetchStats();
+
+        const socket = getSocket();
+        if (socket) {
+            socket.on('dashboard:refresh', fetchStats);
+            socket.on('dashboard:usage_added', fetchStats);
+            socket.on('dashboard:alert_created', fetchStats);
+            socket.on('dashboard:alert_resolved', fetchStats);
+        }
+
+        return () => {
+            if (socket) {
+                socket.off('dashboard:refresh', fetchStats);
+                socket.off('dashboard:usage_added', fetchStats);
+                socket.off('dashboard:alert_created', fetchStats);
+                socket.off('dashboard:alert_resolved', fetchStats);
+            }
+        };
     }, []);
 
     const handleExportCSV = () => {
@@ -241,7 +259,7 @@ export default function WardenDashboard() {
 
                         {/* Quick Action */}
                         <div className="pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
-                            <Link to="/reports">
+                            <Link to="/analytics">
                                 <Button variant="secondary" className="w-full justify-center">
                                     View Detailed Reports
                                 </Button>

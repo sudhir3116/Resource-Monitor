@@ -3,7 +3,8 @@ const ROLES = {
     ADMIN: 'admin',
     WARDEN: 'warden',
     DEAN: 'dean',
-    PRINCIPAL: 'principal'
+    PRINCIPAL: 'principal',
+    GM: 'gm'
 };
 
 const ACCESS_LEVELS = {
@@ -11,7 +12,8 @@ const ACCESS_LEVELS = {
     [ROLES.WARDEN]: { read: ['hostel'], write: ['hostel'] },
     [ROLES.ADMIN]: { read: ['all'], write: ['all'] },
     [ROLES.DEAN]: { read: ['campus'], write: ['none'] },
-    [ROLES.PRINCIPAL]: { read: ['all'], write: ['none'] } // Read-only full overview
+    [ROLES.PRINCIPAL]: { read: ['campus'], write: ['none'] },
+    [ROLES.GM]: { read: ['all'], write: ['alerts'] }
 };
 
 module.exports = {

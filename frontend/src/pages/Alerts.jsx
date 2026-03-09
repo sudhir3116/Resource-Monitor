@@ -4,6 +4,8 @@ import { AuthContext } from '../context/AuthContext';
 import { AlertCountContext } from '../context/AlertCountContext';
 import { ROLES } from '../utils/roles';
 import { useToast } from '../context/ToastContext';
+import { getSocket } from '../utils/socket';
+import timeAgo from '../utils/timeAgo';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
@@ -11,7 +13,7 @@ import EmptyState from '../components/common/EmptyState';
 import {
     AlertCircle, AlertTriangle, Info, CheckCircle,
     Search, Filter, RefreshCw, Eye, ShieldCheck,
-    Clock, XCircle, MapPin, Activity
+    Clock, XCircle, MapPin, Activity, TrendingUp, RotateCcw
 } from 'lucide-react';
 
 const SEVERITY_CONFIG = {
@@ -38,12 +40,14 @@ export default function Alerts() {
     const { user } = useContext(AuthContext);
     const { addToast } = useToast();
     const alertCountCtx = useContext(AlertCountContext);
-    const refreshCounts = alertCountCtx?.refreshCounts || (() => {});
+    const refreshCounts = alertCountCtx?.refreshCounts || (() => { });
 
     const [alerts, setAlerts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('all');
     const [severityFilter, setSeverityFilter] = useState('all');
+    const [blockFilter, setBlockFilter] = useState('');
+    const [blocks, setBlocks] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [actioning, setActioning] = useState(new Set()); // ids being processed
 
@@ -51,15 +55,25 @@ export default function Alerts() {
     const isWarden = user?.role === ROLES.WARDEN;
     const isAdmin = user?.role === ROLES.ADMIN;
     const isDean = user?.role === ROLES.DEAN;
-    const isPrincipal = user?.role === ROLES.PRINCIPAL;
-    const canResolve = isWarden || isAdmin;
-    const canInvestigate = isWarden || isAdmin;
-    const canAcknowledge = !isStudent;
+    const isPrincipal = user?.role === ROLES.DEAN;
+    const isGM = user?.role === ROLES.GM;
+    // Executive = roles with full campus view AND authority to manage alerts
+    const isExecutive = isAdmin || isDean || isPrincipal || isGM;
+    // Only Admin and GM can resolve, dismiss, escalate, or reopen alerts.
+    // Wardens can ONLY investigate (flag for review) — they cannot close alerts.
+    const canResolve = isAdmin || isGM;
+    const canDismiss = isAdmin || isGM;
+    const canEscalate = isAdmin || isGM;
+    const canReopen = isAdmin || isGM;
+    const canInvestigate = isWarden || isAdmin || isGM;
+    const canAcknowledge = isDean || isPrincipal || isAdmin || isGM;
 
     const fetchAlerts = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await api.get('/api/alerts');
+            const params = new URLSearchParams();
+            if (blockFilter) params.set('blockId', blockFilter);
+            const response = await api.get(`/api/alerts?${params.toString()}`);
             setAlerts(response.data.alerts || []);
         } catch (err) {
             if (err.message?.includes('403')) {
@@ -70,9 +84,30 @@ export default function Alerts() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [blockFilter]);
 
     useEffect(() => { fetchAlerts(); }, [fetchAlerts]);
+
+    useEffect(() => {
+        if (isExecutive) {
+            api.get('/api/admin/blocks').then(r => setBlocks(r.data.data || [])).catch(() => { });
+        }
+    }, [isExecutive]);
+
+    useEffect(() => {
+        const socket = getSocket();
+        if (socket) {
+            socket.on('alert:new', fetchAlerts);
+            socket.on('alert:updated', fetchAlerts);
+        }
+
+        return () => {
+            if (socket) {
+                socket.off('alert:new', fetchAlerts);
+                socket.off('alert:updated', fetchAlerts);
+            }
+        };
+    }, [fetchAlerts]);
 
     const setActioning_ = (id, val) => {
         setActioning(prev => {
@@ -112,9 +147,9 @@ export default function Alerts() {
 
     const handleReview = async (alertId) => {
         setActioning_(alertId, true);
-            refreshCounts();
         try {
             await api.put(`/api/alerts/${alertId}/review`);
+            refreshCounts(); // after API call completes
             addToast('Alert marked as Reviewed', 'success');
             setAlerts(prev => prev.map(a => a._id === alertId ? { ...a, status: 'Reviewed', isRead: true } : a));
         } catch (err) {
@@ -125,10 +160,10 @@ export default function Alerts() {
     };
 
     const handleResolve = async (alertId) => {
-            refreshCounts();
         setActioning_(alertId, true);
         try {
             await api.put(`/api/alerts/${alertId}/resolve`, { comment: 'Resolved via dashboard' });
+            refreshCounts(); // after API call completes
             addToast('Alert resolved', 'success');
             setAlerts(prev => prev.map(a => a._id === alertId ? { ...a, status: 'Resolved', isRead: true } : a));
         } catch (err) {
@@ -151,8 +186,37 @@ export default function Alerts() {
         }
     };
 
-    // Derived filter
-    const activeStatuses = ['Pending', 'Investigating', 'Active'];
+    const handleEscalate = async (alertId) => {
+        setActioning_(alertId, true);
+        try {
+            await api.put(`/api/alerts/${alertId}/escalate`);
+            refreshCounts();
+            addToast('Alert escalated', 'warning');
+            setAlerts(prev => prev.map(a => a._id === alertId ? { ...a, status: 'Escalated' } : a));
+        } catch (err) {
+            addToast(err.message || 'Failed to escalate', 'error');
+        } finally {
+            setActioning_(alertId, false);
+        }
+    };
+
+    const handleReopen = async (alertId) => {
+        setActioning_(alertId, true);
+        try {
+            await api.put(`/api/alerts/${alertId}/reopen`);
+            refreshCounts();
+            addToast('Alert reopened', 'success');
+            setAlerts(prev => prev.map(a => a._id === alertId ? { ...a, status: 'Active', isRead: false } : a));
+        } catch (err) {
+            addToast(err.message || 'Failed to reopen alert', 'error');
+        } finally {
+            setActioning_(alertId, false);
+        }
+    };
+
+    // Derived filter — include all non-terminal statuses
+    // 'Active' is the DB value (ALERT_STATUS.PENDING is aliased to 'Active')
+    const activeStatuses = ['Active', 'Investigating', 'Escalated'];
     const filteredAlerts = alerts.filter(a => {
         if (filter === 'active' && !activeStatuses.includes(a.status)) return false;
         if (filter === 'reviewed' && a.status !== 'Reviewed') return false;
@@ -164,8 +228,8 @@ export default function Alerts() {
         return true;
     });
 
-    // Counts
-    const pendingCount = alerts.filter(a => a.status === 'Pending').length;
+    // Counts — 'Active' is what the DB stores (not 'Pending')
+    const pendingCount = alerts.filter(a => a.status === 'Active').length;
     const investigatingCnt = alerts.filter(a => a.status === 'Investigating').length;
     const criticalCount = alerts.filter(a => getSeverityKey(a.severity) === 'critical').length;
     const resolvedCount = alerts.filter(a => a.status === 'Resolved').length;
@@ -241,6 +305,21 @@ export default function Alerts() {
                     <option value="low">Low</option>
                 </select>
 
+                {/* Block filter for Dean / Principal / Admin / General Manager */}
+                {isExecutive && (
+                    <select
+                        className="input text-sm py-1.5 px-3"
+                        style={{ width: 160 }}
+                        value={blockFilter}
+                        onChange={e => setBlockFilter(e.target.value)}
+                    >
+                        <option value="">All Blocks</option>
+                        {blocks.map(b => (
+                            <option key={b._id} value={b._id}>{b.name}</option>
+                        ))}
+                    </select>
+                )}
+
                 {/* Search */}
                 <div className="relative flex-1" style={{ minWidth: 200 }}>
                     <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
@@ -302,7 +381,7 @@ export default function Alerts() {
                                                 {alert.amount != null && (
                                                     <span>Usage: {alert.amount} / Limit: {alert.threshold}</span>
                                                 )}
-                                                <span>{new Date(alert.createdAt).toLocaleString()}</span>
+                                                <span>{timeAgo(alert.createdAt)}</span>
                                             </div>
                                             {/* Resolution / investigation info */}
                                             {alert.status === 'Resolved' && alert.resolvedBy && (
@@ -321,7 +400,7 @@ export default function Alerts() {
                                     {/* Right: Role-scoped actions */}
                                     {!isStudent && (
                                         <div className="flex flex-wrap gap-2 flex-shrink-0">
-                                            {/* Warden/Admin: Investigate */}
+                                            {/* Warden / Admin / GM: Investigate (flag alert for review) */}
                                             {canInvestigate && !isResolved && alert.status !== 'Investigating' && (
                                                 <Button size="sm" variant="secondary"
                                                     disabled={isActioning}
@@ -331,8 +410,8 @@ export default function Alerts() {
                                                 </Button>
                                             )}
 
-                                            {/* Dean / Principal: Acknowledge */}
-                                            {(isDean || isPrincipal) && !alert.acknowledgedAt && (
+                                            {/* Dean / Principal / Admin / GM: Acknowledge */}
+                                            {canAcknowledge && !alert.acknowledgedAt && (
                                                 <Button size="sm" variant="secondary"
                                                     disabled={isActioning}
                                                     onClick={() => handleAcknowledge(alert._id)}>
@@ -341,17 +420,7 @@ export default function Alerts() {
                                                 </Button>
                                             )}
 
-                                            {/* All non-student: Review */}
-                                            {!isResolved && alert.status === 'Pending' && (
-                                                <Button size="sm" variant="secondary"
-                                                    disabled={isActioning}
-                                                    onClick={() => handleReview(alert._id)}>
-                                                    <ShieldCheck size={13} className="mr-1" />
-                                                    Mark Reviewed
-                                                </Button>
-                                            )}
-
-                                            {/* Warden / Admin: Resolve */}
+                                            {/* Admin / GM ONLY: Resolve — Wardens cannot resolve */}
                                             {canResolve && !isResolved && (
                                                 <Button size="sm" variant="primary"
                                                     disabled={isActioning}
@@ -361,13 +430,33 @@ export default function Alerts() {
                                                 </Button>
                                             )}
 
-                                            {/* Admin / Warden: Dismiss */}
-                                            {(isAdmin || isWarden) && !isResolved && (
+                                            {/* Admin / GM ONLY: Dismiss */}
+                                            {canDismiss && !isResolved && (
                                                 <Button size="sm" variant="danger"
                                                     disabled={isActioning}
                                                     onClick={() => handleDismiss(alert._id)}>
                                                     <XCircle size={13} className="mr-1" />
                                                     Dismiss
+                                                </Button>
+                                            )}
+
+                                            {/* Admin / GM: Escalate */}
+                                            {canEscalate && !isResolved && alert.status !== 'Escalated' && (
+                                                <Button size="sm" variant="warning"
+                                                    disabled={isActioning}
+                                                    onClick={() => handleEscalate(alert._id)}>
+                                                    <TrendingUp size={13} className="mr-1" />
+                                                    Escalate
+                                                </Button>
+                                            )}
+
+                                            {/* Admin / GM: Reopen resolved or dismissed alert */}
+                                            {canReopen && (alert.status === 'Resolved' || alert.status === 'Dismissed') && (
+                                                <Button size="sm" variant="secondary"
+                                                    disabled={isActioning}
+                                                    onClick={() => handleReopen(alert._id)}>
+                                                    <RotateCcw size={13} className="mr-1" />
+                                                    Reopen
                                                 </Button>
                                             )}
                                         </div>

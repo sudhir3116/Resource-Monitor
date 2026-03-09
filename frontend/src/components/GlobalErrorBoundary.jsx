@@ -17,7 +17,6 @@ class GlobalErrorBoundary extends Component {
     }
 
     handleReset = () => {
-        localStorage.clear();
         window.location.href = '/login';
     }
 
@@ -62,7 +61,7 @@ class GlobalErrorBoundary extends Component {
                             marginBottom: '2rem',
                             lineHeight: '1.6'
                         }}>
-                            The application encountered an unexpected error and had to stop. 
+                            The application encountered an unexpected error and had to stop.
                             Try reloading or clearing your browser cache and trying again.
                         </p>
 

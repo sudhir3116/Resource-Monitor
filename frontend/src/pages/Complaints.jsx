@@ -8,6 +8,8 @@ import Badge from '../components/common/Badge';
 import EmptyState from '../components/common/EmptyState';
 import { ConfirmModal } from '../components/common/Modal';
 import { useToast } from '../context/ToastContext';
+import { getSocket } from '../utils/socket';
+import timeAgo from '../utils/timeAgo';
 import {
     MessageSquare, Plus, CheckCircle, Clock, AlertCircle,
     ArrowUpCircle, Eye, RefreshCw, X, ChevronDown, ChevronUp,
@@ -47,7 +49,8 @@ function EscalateModal({ isOpen, onClose, complaint, onEscalate }) {
             onClose();
             setReason('');
         } catch (e) {
-            setError(e.message || 'Failed to escalate');
+            // Backend returns { success: false, error: '...' } — read .error before .message
+            setError(e.response?.data?.error || e.message || 'Failed to escalate');
         } finally {
             setSaving(false);
         }
@@ -103,7 +106,7 @@ function ComplaintRow({ complaint, user, onReview, onResolve, onEscalate, action
 
     const canResolve = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role) && !isResolved;
     const canReview = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role) && complaint.status === 'open';
-    const canEscalate = [ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN].includes(user?.role) && !isResolved && !isEscalated;
+    const canEscalate = [ROLES.DEAN, ROLES.DEAN, ROLES.ADMIN].includes(user?.role) && !isResolved && !isEscalated;
 
     return (
         <div className="rounded-lg border p-4 transition-all" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
@@ -123,7 +126,7 @@ function ComplaintRow({ complaint, user, onReview, onResolve, onEscalate, action
                     {/* Meta */}
                     <div className="flex flex-wrap gap-4 text-xs" style={{ color: 'var(--text-secondary)' }}>
                         <span>By {complaint.user?.name || 'Unknown'} ({complaint.user?.role})</span>
-                        <span>{new Date(complaint.createdAt).toLocaleDateString()}</span>
+                        <span>{timeAgo(complaint.createdAt)}</span>
                         {complaint.assignedTo && <span>Assigned: {complaint.assignedTo.name}</span>}
                         {isResolved && complaint.resolvedBy && (
                             <span className="text-green-600 dark:text-green-400">
@@ -222,7 +225,7 @@ export default function Complaints() {
 
     const canSubmit = true; // All roles can submit
     const isAdminOrWarden = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role);
-    const canSeeStats = [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL].includes(user?.role);
+    const canSeeStats = [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.DEAN].includes(user?.role);
 
     const setActioning = (id, val) => setActioningIds(prev => {
         const s = new Set(prev); val ? s.add(id) : s.delete(id); return s;
@@ -238,9 +241,22 @@ export default function Complaints() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [addToast]);
 
-    useEffect(() => { fetchComplaints(); }, [fetchComplaints]);
+    useEffect(() => {
+        fetchComplaints();
+
+        const socket = getSocket();
+        if (socket) {
+            socket.on('complaint:updated', fetchComplaints);
+        }
+
+        return () => {
+            if (socket) {
+                socket.off('complaint:updated', fetchComplaints);
+            }
+        };
+    }, [fetchComplaints]);
 
     // ── Form logic ──────────────────────────────────────────────────────────
     const validateForm = () => {
@@ -265,7 +281,8 @@ export default function Complaints() {
             setFormData({ title: '', description: '', category: 'plumbing', priority: 'medium' });
             setFormErrors({});
         } catch (err) {
-            addToast(err.message || 'Failed to submit complaint', 'error');
+            // Backend returns { success: false, error: '...' } — read .error before .message
+            addToast(err.response?.data?.error || err.message || 'Failed to submit complaint', 'error');
         } finally {
             setSubmitLoading(false);
         }
@@ -279,7 +296,7 @@ export default function Complaints() {
             setComplaints(prev => prev.map(c => c._id === id ? res.data.data : c));
             addToast('Complaint marked as Under Review', 'success');
         } catch (err) {
-            addToast(err.message || 'Failed to update', 'error');
+            addToast(err.response?.data?.error || err.message || 'Failed to update', 'error');
         } finally {
             setActioning(id, false);
         }
@@ -297,7 +314,7 @@ export default function Complaints() {
             addToast('Complaint resolved', 'success');
             setResolveTarget(null);
         } catch (err) {
-            addToast(err.message || 'Failed to resolve', 'error');
+            addToast(err.response?.data?.error || err.message || 'Failed to resolve', 'error');
         } finally {
             setResolveLoading(false);
         }
@@ -311,7 +328,7 @@ export default function Complaints() {
             setComplaints(prev => prev.map(c => c._id === id ? res.data.data : c));
             addToast('Complaint escalated', 'success');
         } catch (err) {
-            addToast(err.message || 'Failed to escalate', 'error');
+            addToast(err.response?.data?.error || err.message || 'Failed to escalate', 'error');
             throw err;
         } finally {
             setActioning(id, false);

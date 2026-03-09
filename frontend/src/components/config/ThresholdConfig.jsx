@@ -3,6 +3,8 @@ import api from '../../services/api';
 import { AuthContext } from '../../context/AuthContext';
 import Loading from '../Loading';
 import { toast } from 'react-hot-toast';
+import useSortableTable from '../../hooks/useSortableTable';
+import SortIcon from '../common/SortIcon';
 
 export default function ThresholdConfig() {
     const { user } = useContext(AuthContext);
@@ -12,6 +14,12 @@ export default function ThresholdConfig() {
     const [editingResource, setEditingResource] = useState(null);
     const [formData, setFormData] = useState({});
     const [saving, setSaving] = useState(false);
+
+    const { sortedData: sortedThresholds, sortField, sortDirection, handleSort } = useSortableTable(
+        thresholds,
+        'resource',
+        [thresholds]
+    );
 
     useEffect(() => {
         fetchThresholds();
@@ -132,18 +140,32 @@ export default function ThresholdConfig() {
                             <table className="table">
                                 <thead>
                                     <tr>
-                                        <th>Resource</th>
-                                        <th>Unit</th>
-                                        <th>Daily/Person</th>
-                                        <th>Daily/Block</th>
-                                        <th>Monthly/Person</th>
-                                        <th>Monthly/Block</th>
-                                        <th>Cost/Unit</th>
+                                        <th onClick={() => handleSort('resource')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'resource' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                            Resource <SortIcon field="resource" sortField={sortField} sortDirection={sortDirection} />
+                                        </th>
+                                        <th onClick={() => handleSort('unit')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'unit' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                            Unit <SortIcon field="unit" sortField={sortField} sortDirection={sortDirection} />
+                                        </th>
+                                        <th onClick={() => handleSort('dailyLimitPerPerson')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'dailyLimitPerPerson' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                            Daily/Person <SortIcon field="dailyLimitPerPerson" sortField={sortField} sortDirection={sortDirection} />
+                                        </th>
+                                        <th onClick={() => handleSort('dailyLimitPerBlock')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'dailyLimitPerBlock' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                            Daily/Block <SortIcon field="dailyLimitPerBlock" sortField={sortField} sortDirection={sortDirection} />
+                                        </th>
+                                        <th onClick={() => handleSort('monthlyLimitPerPerson')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'monthlyLimitPerPerson' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                            Monthly/Person <SortIcon field="monthlyLimitPerPerson" sortField={sortField} sortDirection={sortDirection} />
+                                        </th>
+                                        <th onClick={() => handleSort('monthlyLimitPerBlock')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'monthlyLimitPerBlock' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                            Monthly/Block <SortIcon field="monthlyLimitPerBlock" sortField={sortField} sortDirection={sortDirection} />
+                                        </th>
+                                        <th onClick={() => handleSort('rate')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'rate' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                            Cost/Unit <SortIcon field="rate" sortField={sortField} sortDirection={sortDirection} />
+                                        </th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {thresholds.map(threshold => (
+                                    {sortedThresholds.map(threshold => (
                                         <tr key={threshold._id}>
                                             <td>
                                                 <strong>{threshold.resource}</strong>

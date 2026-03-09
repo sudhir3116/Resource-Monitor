@@ -16,7 +16,8 @@ import {
   Calendar,
   MapPin,
   AlignLeft,
-  ShieldOff
+  ShieldOff,
+  Lock
 } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -30,14 +31,22 @@ export default function UsageForm() {
 
   const [loading, setLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [blocks, setBlocks] = useState([]);
+
   const getLocalISOString = () => {
     const tzOffset = new Date().getTimezoneOffset() * 60000;
     return new Date(Date.now() - tzOffset).toISOString().slice(0, 16);
   };
 
+  // Determine warden's block info from user session
+  // user.block is populated as { _id, name } by /api/auth/me
+  const isWarden = user?.role === ROLES.WARDEN;
+  const wardenBlockId = user?.block?._id || user?.block || null;
+  const wardenBlockName = user?.block?.name || null;
+
   const [form, setForm] = useState({
     resource_type: 'Electricity',
-    category: 'Hostel Block A',
+    category: wardenBlockName || 'Hostel Block A',
     usage_value: '',
     usage_date: getLocalISOString(),
     notes: ''
@@ -66,6 +75,10 @@ export default function UsageForm() {
 
   useEffect(() => {
     if (id) load();
+    // Admin fetches block list for the dropdown; wardens don't need it (auto-assigned)
+    if (!isWarden) {
+      api.get('/api/admin/blocks').then(r => setBlocks(r.data.data || [])).catch(() => { });
+    }
   }, [id]);
 
   async function load() {
@@ -93,6 +106,8 @@ export default function UsageForm() {
     if (!form.usage_value || form.usage_value <= 0) newErrors.usage_value = 'Value must be positive.';
     if (!form.usage_date) newErrors.usage_date = 'Date is required.';
     else if (new Date(form.usage_date) > new Date()) newErrors.usage_date = 'Date cannot be in the future.';
+    // Warden must have a block assigned
+    if (isWarden && !wardenBlockId) newErrors.block = 'You are not assigned to a block. Contact Admin.';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -103,7 +118,23 @@ export default function UsageForm() {
 
     setIsSubmitting(true);
     try {
-      const payload = { ...form, usage_date: new Date(form.usage_date) };
+      // Map form state fields to the API-expected field names:
+      // route validator requires: resourceType, amount, date
+      const payload = {
+        resourceType: form.resource_type,
+        amount: form.usage_value,
+        date: new Date(form.usage_date),
+        category: form.category,
+        notes: form.notes,
+      };
+
+      // For wardens: the backend enforces blockId from their profile.
+      // We also send it explicitly in the payload so it's clear in the request.
+      // The backend will reject it if it doesn't match the warden's assigned block.
+      if (isWarden && wardenBlockId) {
+        payload.blockId = wardenBlockId;
+      }
+
       if (id) await api.put(`/api/usage/${id}`, payload);
       else await api.post('/api/usage', payload);
 
@@ -185,7 +216,7 @@ export default function UsageForm() {
 
             {/* Date */}
             <div>
-              <label className="label">Date & Time</label>
+              <label className="label">Date &amp; Time</label>
               <div className="relative">
                 <Calendar size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -199,25 +230,62 @@ export default function UsageForm() {
             </div>
           </div>
 
-          {/* Location */}
+          {/* Location / Block */}
           <div>
-            <label className="label">Location / Category</label>
-            <div className="relative">
-              <MapPin size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <select
-                className="input pl-10"
-                value={form.category}
-                onChange={e => setForm({ ...form, category: e.target.value })}
-              >
-                <option>Hostel Block A</option>
-                <option>Hostel Block B</option>
-                <option>Hostel Block C</option>
-                <option>Mess Hall</option>
-                <option>Common Area</option>
-                <option>Kitchen Facility</option>
-                <option>Generator Complex</option>
-              </select>
-            </div>
+            <label className="label">Location / Block</label>
+
+            {isWarden ? (
+              // ── WARDEN: Block is auto-assigned from their profile — cannot be changed ──
+              <div>
+                {errors.block && <p className="text-red-500 text-xs mb-1">{errors.block}</p>}
+                <div
+                  className="input pl-10 flex items-center gap-2 cursor-not-allowed opacity-75"
+                  style={{ position: 'relative', backgroundColor: 'var(--bg-secondary)' }}
+                  title="Your block is automatically assigned from your profile"
+                >
+                  <MapPin size={18} className="absolute left-3 text-slate-400" />
+                  <Lock size={14} className="text-slate-400 mr-1 flex-shrink-0" style={{ marginLeft: '1.5rem' }} />
+                  <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {wardenBlockName || 'Block not assigned — contact Admin'}
+                  </span>
+                </div>
+                <p className="text-xs mt-1.5 flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
+                  <Lock size={11} />
+                  Usage is automatically logged for your assigned block. Contact Admin to change your block assignment.
+                </p>
+              </div>
+            ) : (
+              // ── ADMIN: Can select any block from the list ──
+              <div className="relative">
+                <MapPin size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                {blocks.length > 0 ? (
+                  <select
+                    className="input pl-10"
+                    value={form.category}
+                    onChange={e => setForm({ ...form, category: e.target.value })}
+                  >
+                    {blocks.map(b => (
+                      <option key={b._id} value={b.name}>{b.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  // Fallback static list if blocks API fails
+                  <select
+                    className="input pl-10"
+                    value={form.category}
+                    onChange={e => setForm({ ...form, category: e.target.value })}
+                  >
+                    <option>Hostel Block A</option>
+                    <option>Hostel Block B</option>
+                    <option>Hostel Block C</option>
+                    <option>Mess Hall</option>
+                    <option>Common Area</option>
+                    <option>Kitchen Facility</option>
+                    <option>Generator Complex</option>
+                  </select>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Notes */}
@@ -239,7 +307,7 @@ export default function UsageForm() {
             <Button type="button" variant="secondary" onClick={() => navigate('/usage/all')}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" disabled={isSubmitting}>
+            <Button type="submit" variant="primary" disabled={isSubmitting || (isWarden && !wardenBlockId)}>
               {isSubmitting ? 'Saving...' : 'Save Record'}
             </Button>
           </div>

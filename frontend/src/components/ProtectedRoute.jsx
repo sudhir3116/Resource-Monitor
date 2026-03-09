@@ -1,42 +1,92 @@
 import React, { useContext } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { AuthContext } from '../context/AuthContext'
-import Loading from './Loading'
+import { hasRouteAccess, getDashboardRoute } from '../utils/roleRoutes'
 
-export default function ProtectedRoute({ children, role, roles }) {
+const ProtectedRoute = ({
+  children,
+  allowedRoles = []
+}) => {
   const { user, loading } = useContext(AuthContext)
   const location = useLocation()
 
+  // STEP 1: Wait — never redirect while loading
   if (loading) {
-    return <Loading />
-  }
-
-  if (!user) {
-    // Redirect to login while saving the attempted location
-    return <Navigate to="/login" state={{ from: location }} replace />
-  }
-
-  if (role) {
-    if (user.role !== role) {
-      return (
-        <div className="container" style={{ textAlign: 'center', padding: '40px' }}>
-          <h2>Access Denied</h2>
-          <p>Please contact an administrator if you believe this is an error.</p>
-          <a href="/dashboard" className="btn btn-primary" style={{ marginTop: 20 }}>Go to Dashboard</a>
-        </div>
-      )
-    }
-  }
-
-  if (roles && !roles.includes(user.role)) {
     return (
-      <div className="container" style={{ textAlign: 'center', padding: '40px' }}>
-        <h2>Access Denied</h2>
-        <p>You do not have permission to view this page.</p>
-        <a href="/dashboard" className="btn btn-primary" style={{ marginTop: 20 }}>Go to Dashboard</a>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: '#030712',
+        flexDirection: 'column',
+        gap: '12px'
+      }}>
+        <div style={{
+          width: '36px',
+          height: '36px',
+          border: '3px solid #1F2937',
+          borderTop: '3px solid #3B82F6',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite'
+        }} />
+        <p style={{
+          color: '#6B7280',
+          fontSize: '13px',
+          fontFamily: 'system-ui'
+        }}>
+          Verifying session...
+        </p>
+        <style>{`@keyframes spin { 
+          to { transform: rotate(360deg); } 
+        }`}</style>
       </div>
     )
   }
 
+  // STEP 2: Not logged in
+  if (!user) {
+    return (
+      <Navigate
+        to="/login"
+        state={{ from: location.pathname }}
+        replace
+      />
+    )
+  }
+
+  // STEP 3: Check explicit allowedRoles if provided
+  if (allowedRoles.length > 0 &&
+    !allowedRoles.includes(user.role)) {
+    // User doesn't have permission for this specific route
+    const dashboardRoute = getDashboardRoute(user.role)
+    return (
+      <Navigate
+        to={dashboardRoute}
+        replace
+      />
+    )
+  }
+
+  // STEP 4: Check role-based URL access
+  // If route contains a role prefix, verify user has that role
+  const pathMatch = location.pathname.match(/^\/([a-z]+)/)
+  if (pathMatch && ['admin', 'gm', 'warden', 'dean', 'principal', 'student'].includes(pathMatch[1])) {
+    const routeRole = pathMatch[1]
+    // User's role must match or be allowed
+    if (user.role !== routeRole) {
+      const dashboardRoute = getDashboardRoute(user.role)
+      return (
+        <Navigate
+          to={dashboardRoute}
+          replace
+        />
+      )
+    }
+  }
+
+  // STEP 5: All permissions granted
   return children
 }
+
+export default ProtectedRoute

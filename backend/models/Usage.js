@@ -8,6 +8,9 @@ const usageSchema = new mongoose.Schema({
   usage_value: { type: Number, required: true },
   unit: { type: String }, // e.g., 'kWh', 'Liters', 'kg'
   usage_date: { type: Date, required: true, default: Date.now },
+  // Cost tracking
+  cost: { type: Number, default: 0 },
+  currency: { type: String, default: '₹' },
   notes: { type: String },
 
   // Audit fields
@@ -33,6 +36,8 @@ usageSchema.index({ usage_date: -1 }); // Optimized for date-range reports
 usageSchema.index({ resource_type: 1 });
 usageSchema.index({ createdAt: -1 });
 usageSchema.index({ lastUpdatedBy: 1 });
+// Compound index for block+resource+date queries (reports & analytics)
+usageSchema.index({ blockId: 1, resource_type: 1, usage_date: -1 });
 
 // Pre-save hook to set createdBy if not set
 usageSchema.pre('save', function (next) {

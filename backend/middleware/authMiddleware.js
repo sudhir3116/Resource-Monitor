@@ -6,16 +6,17 @@ module.exports = async function (req, res, next) {
   try {
     let token = null;
 
-    // Check cookie first (HTTP-only)
-    if (req.cookies && req.cookies.accessToken) {
-      token = req.cookies.accessToken;
-    }
-    // Fallback to Header (Legacy / Testing)
-    else if (req.headers['authorization']) {
+    // Check Header first (SessionStorage isolation priority)
+    if (req.headers['authorization']) {
       const authHeader = req.headers['authorization'];
       if (authHeader.startsWith('Bearer ')) {
         token = authHeader.split(' ')[1];
       }
+    }
+
+    // Fallback to cookie (Legacy / Refresh flows)
+    if (!token && req.cookies && req.cookies.accessToken) {
+      token = req.cookies.accessToken;
     }
 
     if (!token) return res.status(401).json({ message: 'No token provided' });
@@ -29,14 +30,16 @@ module.exports = async function (req, res, next) {
       return res.status(401).json({ message: 'Session expired (server restart)' });
     }
 
-    // Attach decoded token (id and role) to req.user
-    req.user = decoded
+    // Attach decoded token
+    req.user = { id: decoded.id, role: decoded.role }
     req.userId = decoded.id
-    // also attach full user object as req.userObj for convenience (optional)
+
+    // Fetch full user object from DB for fresh role 
     try {
       const userObj = await User.findById(decoded.id).select('-password')
       if (userObj) {
         req.userObj = userObj
+        req.user.role = userObj.role // Guarantee role is not overridden and is fresh from DB
 
         // Invalidate tokens issued before user's last logout
         if (userObj.lastLogoutAt && decoded.iat) {
@@ -49,6 +52,18 @@ module.exports = async function (req, res, next) {
       }
     } catch (e) {
       // ignore user attach errors, continue with req.userId
+    }
+
+    // ── Area 1: Token Blacklist Check ──────────────────────────────────────
+    try {
+      const TokenBlacklist = require('../models/TokenBlacklist');
+      const blacklisted = await TokenBlacklist.findOne({ token }).lean();
+      if (blacklisted) {
+        return res.status(401).json({ message: 'Token has been invalidated. Please log in again.' });
+      }
+    } catch (e) {
+      // fail open if db check fails temporarily
+      console.error('[Blacklist] DB error:', e.message);
     }
 
     return next()

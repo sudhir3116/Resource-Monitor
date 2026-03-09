@@ -1,39 +1,27 @@
 import React, { useEffect, useState, useContext } from 'react';
 import {
-    Chart as ChartJS,
-    CategoryScale,
-    LinearScale,
-    PointElement,
-    LineElement,
-    BarElement,
-    Title,
+    LineChart,
+    Line,
+    XAxis,
+    YAxis,
+    CartesianGrid,
     Tooltip,
     Legend,
-    Filler,
-} from 'chart.js';
-import { Line, Bar } from 'react-chartjs-2';
+    ResponsiveContainer
+} from 'recharts';
 import api from '../services/api';
-import { Download, Calendar, Activity, Database, Zap, Droplets } from 'lucide-react';
+import { Activity, Database, Leaf } from 'lucide-react';
 import { ThemeContext } from '../context/ThemeContext';
 import Card, { MetricCard } from '../components/common/Card';
-import Button from '../components/common/Button';
-import EmptyState from '../components/common/EmptyState';
 import { logger } from '../utils/logger';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
-
-// Format date label for display
-const formatDateLabel = (dateStr) =>
-    new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-
 export default function AnalyticsPage() {
-    const [period, setPeriod] = useState('daily');
-    const [range, setRange] = useState('7days');
+    const [period, setPeriod] = useState('monthly');
+    const [range, setRange] = useState('monthly');
     const [loading, setLoading] = useState(true);
     const [chartsLoading, setChartsLoading] = useState(false);
     const [summary, setSummary] = useState(null);
-    const [electricityTrend, setElectricityTrend] = useState([]);
-    const [waterTrend, setWaterTrend] = useState([]);
+    const [resourceData, setResourceData] = useState({});
     const [error, setError] = useState(null);
     const { theme } = useContext(ThemeContext);
     const isDark = theme === 'dark';
@@ -52,22 +40,53 @@ export default function AnalyticsPage() {
     }, [period]);
 
     // Fetch trend chart data (range-dependent)
+    // Maps UI range labels to the integer `days` param the analytics controller expects
+    const rangeToDays = { '7days': 7, '30days': 30, 'monthly': 30, 'all': 3650 };
+
     useEffect(() => {
         const fetchTrends = async () => {
             try {
                 setChartsLoading(true);
                 setError(null);
-                const [elecRes, waterRes] = await Promise.all([
-                    api.get(`/api/usage/trends?resource=Electricity&range=${range}`),
-                    api.get(`/api/usage/trends?resource=Water&range=${range}`)
-                ]);
-                setElectricityTrend(elecRes.data?.data || []);
-                setWaterTrend(waterRes.data?.data || []);
+
+                // Call the trends endpoint with correct days parameter
+                const days = rangeToDays[range] || 7;
+                const url = `/api/analytics/trends?days=${days}`;
+
+                const res = await api.get(url);
+                const responseData = res.data;
+
+                // Parse response from /api/analytics/trends which returns:
+                // { success: true, trends: [{ resource: "Electricity", data: [{date, value, count}] }], period: {...} }
+                const trends = responseData.trends || [];
+
+                console.log('[Analytics] Trends from API:', trends);
+
+                // Transform the trends array into grouped format
+                const grouped = {};
+                Object.keys(RESOURCE_COLORS).forEach(r => { grouped[r] = []; });
+
+                // Process each resource's trend data
+                trends.forEach(trendItem => {
+                    const resource = trendItem.resource; // e.g., "Electricity"
+                    if (grouped[resource] !== undefined && Array.isArray(trendItem.data)) {
+                        grouped[resource] = trendItem.data.map(item => ({
+                            date: item.date,
+                            value: Number(item.value || 0)
+                        }));
+                    }
+                });
+
+                // Sort each resource's data by date
+                Object.keys(grouped).forEach(key => {
+                    grouped[key].sort((a, b) => new Date(a.date) - new Date(b.date));
+                });
+
+                setResourceData(grouped);
             } catch (err) {
                 logger.error('Trends fetch error:', err);
                 setError('Failed to load trend data.');
-                setElectricityTrend([]);
-                setWaterTrend([]);
+                setResourceData({});
             } finally {
                 setChartsLoading(false);
                 setLoading(false);
@@ -76,114 +95,45 @@ export default function AnalyticsPage() {
         fetchTrends();
     }, [range]);
 
-    const chartOptions = (maxVal = 0) => ({
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: {
-                position: 'top',
-                labels: {
-                    color: isDark ? '#94a3b8' : '#64748b',
-                    font: { family: 'Inter', size: 12 }
-                }
-            },
-            tooltip: {
-                backgroundColor: isDark ? '#1e293b' : '#ffffff',
-                titleColor: isDark ? '#f1f5f9' : '#0f172a',
-                bodyColor: isDark ? '#cbd5e1' : '#475569',
-                borderColor: isDark ? '#334155' : '#e2e8f0',
-                borderWidth: 1,
-                padding: 12,
-                cornerRadius: 8,
-                callbacks: {
-                    label: (ctx) => ` ${ctx.parsed.y.toLocaleString()} ${ctx.dataset.unit || ''}`
-                }
-            }
-        },
-        scales: {
-            y: {
-                beginAtZero: true,
-                suggestedMax: maxVal > 0 ? maxVal * 1.15 : 10,
-                grid: {
-                    color: isDark ? '#334155' : '#e2e8f0',
-                    drawBorder: false,
-                },
-                ticks: {
-                    color: isDark ? '#94a3b8' : '#64748b',
-                }
-            },
-            x: {
-                grid: { display: false },
-                ticks: {
-                    color: isDark ? '#94a3b8' : '#64748b',
-                }
-            }
-        }
-    });
+    const RESOURCE_COLORS = {
+        Electricity: '#F59E0B',  // amber
+        Water: '#3B82F6',  // blue
+        LPG: '#EF4444',  // red
+        Diesel: '#6B7280',  // gray
+        Solar: '#10B981',  // green
+        Waste: '#8B5CF6',  // purple
+    };
 
-    if (loading) {
-        return (
-            <div className="space-y-6">
-                <div className="h-8 rounded" style={{ backgroundColor: 'var(--bg-hover)', width: '200px' }}></div>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    {[1, 2, 3, 4].map(i => (
-                        <div key={i} className="h-32 rounded-lg animate-pulse" style={{ backgroundColor: 'var(--bg-hover)' }}></div>
-                    ))}
-                </div>
-                <div className="h-96 rounded-lg animate-pulse" style={{ backgroundColor: 'var(--bg-hover)' }}></div>
+    const RESOURCE_UNITS = {
+        Electricity: 'kWh',
+        Water: 'L',
+        LPG: 'kg',
+        Diesel: 'L',
+        Solar: 'kWh',
+        Waste: 'kg',
+    };
+
+    if (loading) return (
+        <div className="space-y-6">
+            <div className="h-8 rounded" style={{ backgroundColor: 'var(--bg-hover)', width: '200px' }}></div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="h-32 rounded-lg animate-pulse" style={{ backgroundColor: 'var(--bg-hover)' }}></div>
+                ))}
             </div>
-        );
-    }
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                    <div key={i} className="bg-white dark:bg-gray-800 rounded-xl p-6 h-72 animate-pulse border border-gray-200 dark:border-gray-700">
+                        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-2" />
+                        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-6" />
+                        <div className="h-48 bg-gray-100 dark:bg-gray-750 rounded" />
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
 
-    // Build chart datasets from API response: [{date, total}]
-    const elecLabels = electricityTrend.map(d => formatDateLabel(d.date));
-    const elecValues = electricityTrend.map(d => d.total);
-    const elecMax = Math.max(...elecValues, 0);
-
-    const waterLabels = waterTrend.map(d => formatDateLabel(d.date));
-    const waterValues = waterTrend.map(d => d.total);
-    const waterMax = Math.max(...waterValues, 0);
-
-    const electricityChartData = {
-        labels: elecLabels,
-        datasets: [{
-            label: 'Electricity (kWh)',
-            unit: 'kWh',
-            data: elecValues,
-            borderColor: '#2563EB',
-            backgroundColor: 'rgba(37, 99, 235, 0.1)',
-            fill: true,
-            tension: 0.4,
-            pointRadius: 4,
-            pointBackgroundColor: isDark ? '#0f172a' : '#ffffff',
-            pointBorderColor: '#2563EB',
-            pointBorderWidth: 2,
-            borderWidth: 2,
-        }]
-    };
-
-    const waterChartData = {
-        labels: waterLabels,
-        datasets: [{
-            label: 'Water (L)',
-            unit: 'L',
-            data: waterValues,
-            backgroundColor: 'rgba(59, 130, 246, 0.7)',
-            borderColor: '#3B82F6',
-            borderRadius: 4,
-            borderWidth: 1,
-        }]
-    };
-
-    // Avg values for metric cards (computed from trend data)
-    const avgElec = elecValues.length > 0
-        ? Math.round(elecValues.reduce((s, v) => s + v, 0) / elecValues.length)
-        : 0;
-    const avgWater = waterValues.length > 0
-        ? Math.round(waterValues.reduce((s, v) => s + v, 0) / waterValues.length)
-        : 0;
-
-    const rangeLabels = { '7days': '7 Days', '30days': '30 Days', 'monthly': 'This Month' };
+    const rangeLabels = { '7days': '7 Days', '30days': '30 Days', 'monthly': 'This Month', 'all': 'All Time' };
 
     return (
         <div className="space-y-6">
@@ -226,23 +176,42 @@ export default function AnalyticsPage() {
                     label="Records"
                     value={summary?.current?.records?.toLocaleString() || 0}
                 />
-                <MetricCard
-                    icon={<Zap size={20} />}
-                    label={`Avg Electricity (${rangeLabels[range]})`}
-                    value={<>{avgElec} <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>kWh</span></>}
-                />
-                <MetricCard
-                    icon={<Droplets size={20} />}
-                    label={`Avg Water (${rangeLabels[range]})`}
-                    value={<>{avgWater} <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>L</span></>}
-                />
+                {
+                    // Calculate averages for ALL resources
+                    Object.entries(resourceData)
+                        .map(([resource, data]) => {
+                            const values = data.map(d => d.value || 0);
+                            const avg = values.length > 0 ? (values.reduce((s, v) => s + v, 0) / values.length) : 0;
+                            return { resource, avg };
+                        })
+                        // Sort by average descending
+                        .sort((a, b) => b.avg - a.avg)
+                        // Take top 2 that have data > 0, fallback to first 2 if none
+                        .filter(item => item.avg > 0)
+                        .slice(0, 2)
+                        .concat(Object.entries(resourceData).map(([r]) => ({ resource: r, avg: 0 })).slice(0, 2))
+                        // Remove duplicates from fallback
+                        .filter((v, i, a) => a.findIndex(t => (t.resource === v.resource)) === i)
+                        .slice(0, 2)
+                        .map(({ resource, avg }) => {
+                            const unit = RESOURCE_UNITS[resource] || 'units';
+                            return (
+                                <MetricCard
+                                    key={resource}
+                                    icon={<Leaf size={20} />}
+                                    label={`Avg ${resource} (${rangeLabels[range]})`}
+                                    value={<>{avg.toFixed(1)} <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{unit}</span></>}
+                                />
+                            );
+                        })
+                }
             </div>
 
             {/* Range selector for charts */}
             <div className="flex items-center gap-3">
                 <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Chart Range:</span>
                 <div className="flex gap-2">
-                    {[['7days', '7 Days'], ['30days', '30 Days'], ['monthly', 'This Month']].map(([val, label]) => (
+                    {[['7days', '7 Days'], ['30days', '30 Days'], ['monthly', 'This Month'], ['all', 'All Time']].map(([val, label]) => (
                         <button
                             key={val}
                             onClick={() => setRange(val)}
@@ -272,39 +241,80 @@ export default function AnalyticsPage() {
 
             {/* Main Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Card
-                    title="Electricity Consumption Trend"
-                    description={`${rangeLabels[range]} usage pattern`}
-                >
-                    <div className="h-[350px]">
-                        {chartsLoading ? (
-                            <div className="h-full flex items-center justify-center">
-                                <div className="animate-spin h-8 w-8 rounded-full border-2 border-blue-500 border-t-transparent" />
+                {chartsLoading ? (
+                    [1, 2, 3, 4, 5, 6].map(i => (
+                        <div key={i} className="bg-white dark:bg-gray-800 rounded-xl p-6 h-72 animate-pulse border border-gray-200 dark:border-gray-700">
+                            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-2" />
+                            <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-6" />
+                            <div className="h-48 bg-gray-100 dark:bg-gray-750 rounded" />
+                        </div>
+                    ))
+                ) : (
+                    Object.entries(resourceData).map(([resource, data]) => (
+                        <div key={resource} className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+                            {/* Chart Header */}
+                            <div className="flex items-center justify-between mb-4">
+                                <div>
+                                    <h3 className="font-semibold text-gray-900 dark:text-white">
+                                        {resource} Trend
+                                    </h3>
+                                    <p className="text-xs text-gray-500 mt-0.5">
+                                        {rangeLabels[range]} · {data.length} records · Unit: {RESOURCE_UNITS[resource] || 'units'}
+                                    </p>
+                                </div>
+                                <span className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                                    {data.length > 0
+                                        ? `${data.reduce((s, d) => s + d.value, 0).toFixed(1)} ${RESOURCE_UNITS[resource] || ''}`
+                                        : 'No data'
+                                    }
+                                </span>
                             </div>
-                        ) : electricityTrend.length === 0 ? (
-                            <EmptyState title="No data available" description="No electricity usage recorded in this period" />
-                        ) : (
-                            <Line data={electricityChartData} options={chartOptions(elecMax)} />
-                        )}
-                    </div>
-                </Card>
 
-                <Card
-                    title="Water Usage Analysis"
-                    description={`${rangeLabels[range]} volume comparison`}
-                >
-                    <div className="h-[350px]">
-                        {chartsLoading ? (
-                            <div className="h-full flex items-center justify-center">
-                                <div className="animate-spin h-8 w-8 rounded-full border-2 border-blue-500 border-t-transparent" />
-                            </div>
-                        ) : waterTrend.length === 0 ? (
-                            <EmptyState title="No data available" description="No water usage recorded in this period" />
-                        ) : (
-                            <Bar data={waterChartData} options={chartOptions(waterMax)} />
-                        )}
-                    </div>
-                </Card>
+                            {/* Chart or Empty State */}
+                            {data.length > 0 ? (
+                                <ResponsiveContainer width="100%" height={200}>
+                                    <LineChart data={data}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
+                                        <XAxis
+                                            dataKey="date"
+                                            tickFormatter={(d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                                            stroke="#9CA3AF"
+                                            tick={{ fontSize: 10 }}
+                                        />
+                                        <YAxis stroke="#9CA3AF" tick={{ fontSize: 10 }} unit={` ${RESOURCE_UNITS[resource] || ''}`} />
+                                        <Tooltip
+                                            contentStyle={{
+                                                backgroundColor: '#1F2937',
+                                                border: 'none',
+                                                borderRadius: '8px',
+                                                color: '#F9FAFB',
+                                                fontSize: '12px'
+                                            }}
+                                            formatter={(val) => [`${val} ${RESOURCE_UNITS[resource] || ''}`, resource]}
+                                            labelFormatter={(l) => new Date(l).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                        />
+                                        <Line
+                                            type="monotone"
+                                            dataKey="value"
+                                            stroke={RESOURCE_COLORS[resource] || '#3B82F6'}
+                                            strokeWidth={2}
+                                            dot={{ r: 3 }}
+                                            activeDot={{ r: 5 }}
+                                        />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center h-48 text-gray-400 dark:text-gray-600">
+                                    <svg className="w-10 h-10 mb-2 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                    <p className="text-sm font-medium">No data yet</p>
+                                    <p className="text-xs mt-1 text-center">Log {resource} usage to see chart</p>
+                                </div>
+                            )}
+                        </div>
+                    ))
+                )}
             </div>
         </div>
     );

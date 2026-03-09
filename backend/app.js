@@ -5,8 +5,8 @@ const cors = require("cors");
 const passport = require("passport");
 const helmet = require("helmet");
 const compression = require("compression");
-const rateLimit = require("express-rate-limit");
 const cookieParser = require("cookie-parser");
+const { apiLimiter } = require('./middleware/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
 
 dotenv.config();
@@ -34,15 +34,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Rate Limiting (500 requests per 15 minutes)
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 500,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: 'Too many requests, please try again after 15 minutes.' }
-});
-app.use('/api', limiter);
+// Rate Limiting (100 requests per 15 minutes on all /api routes)
+app.use('/api', apiLimiter);
 
 // CORS Configuration
 const allowedOrigins = [
@@ -90,12 +83,50 @@ mongoose.connect(process.env.MONGO_URI, {
 
   // Expose io on app for controllers to emit
   const socketUtil = require('./utils/socket');
+  const socketManager = require('./socket/socketManager');
+
   app.set('io', io);
   socketUtil.setIO(io);
+  socketManager(io);
+
+  // ── Graceful Shutdown ───────────────────────────────────────────────────────
+  const shutdown = (signal) => {
+    console.log(`\n[Server] ${signal} received — shutting down gracefully...`);
+    server.close(() => {
+      console.log('[Server] HTTP server closed.');
+      mongoose.connection.close(false).then(() => {
+        console.log('[Server] MongoDB connection closed.');
+        process.exit(0);
+      }).catch(() => process.exit(1));
+    });
+    // Force exit after 10s if connections linger
+    setTimeout(() => { console.error('[Server] Forced exit after timeout.'); process.exit(1); }, 10000).unref();
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 
   server.listen(PORT, () => {
     if (process.env.NODE_ENV !== 'production') console.log(`Server running on port ${PORT}`);
   });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`❌ Port ${PORT} is already in use. Please stop the other process or change PORT.`);
+      process.exit(1);
+    } else {
+      throw err;
+    }
+  });
+
+  // Start Cron Jobs after DB is ready
+  const startDailyReportJob = require('./cron/dailyReport');
+  const startEscalationJob = require('./cron/escalation');
+  const startComplaintSLACheckJob = require('./cron/complaintSLA');
+  startDailyReportJob();
+  startEscalationJob();
+  startComplaintSLACheckJob();
+
 }).catch(err => {
   console.error("❌ MongoDB Connection Error:", err.message);
   if (err.message.includes('bad auth') || err.message.includes('Authentication failed')) {
@@ -111,6 +142,7 @@ mongoose.connect(process.env.MONGO_URI, {
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/profile", require("./routes/profileRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));
+app.use("/api/admin/db", require("./routes/dbviewer.routes"));
 app.use("/api/usage", require("./routes/usageRoutes"));
 app.use("/api/alerts", require("./routes/alertsRoutes"));
 app.use("/api/reports", require("./routes/reportsRoutes"));
@@ -119,20 +151,23 @@ app.use("/api/analytics", require("./routes/analyticsRoutes"));
 app.use("/api/audit-logs", require("./routes/auditLogsRoutes"));
 app.use("/api/dashboard", require("./routes/dashboardRoutes"));
 app.use("/api/complaints", require("./routes/complaintsRoutes"));
+app.use("/api/blocks", require("./routes/blockRoutes"));
+app.use("/api/users", require("./routes/userManagementRoutes"));
+app.use("/api/costs", require("./routes/costRoutes"));
+app.use("/api/dean", require("./routes/deanRoutes"));
+app.use("/api/predictions", require("./routes/predictionRoutes"));
+app.use("/api/announcements", require("./routes/announcementRoutes"));
+app.use("/api/daily-reports", require("./routes/dailyReportRoutes"));
+app.use("/api/student", require("./routes/studentRoutes"));
+app.use("/api/students", require("./routes/studentRoutes"));
+
+// Health Check — must be before the 404 catch-all
+app.get('/', (req, res) => res.json({ status: 'OK', message: 'API Running', port: process.env.PORT }));
 
 // 404 handler for unknown API routes
 app.use(/\/api\/.*/, (req, res) => {
   res.status(404).json({ success: false, message: `Route ${req.method} ${req.originalUrl} not found` });
 });
-
-// Health Check
-app.get('/', (req, res) => res.json({ status: 'OK', message: 'API Running', port: process.env.PORT }));
-
-// Cron Jobs
-const startDailyReportJob = require('./cron/dailyReport');
-const startEscalationJob = require('./cron/escalation');
-startDailyReportJob();
-startEscalationJob();
 
 // Global Error Handler (Must be last)
 app.use(errorHandler);

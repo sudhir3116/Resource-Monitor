@@ -47,4 +47,53 @@ const sendReportEmail = async (emails, subject, htmlContent) => {
     }
 };
 
-module.exports = { sendAlertEmail, sendReportEmail };
+const sendCriticalAlertEmail = async (recipients, alertData) => {
+    try {
+        if (process.env.DISABLE_EMAILS === 'true') return;
+        if (!process.env.EMAIL_HOST || !recipients || recipients.length === 0) {
+            console.log('[EmailService] Email skipped: no configuration or empty recipients.');
+            return;
+        }
+
+        const subject = `🚨 CRITICAL Alert — ${alertData.block} ${alertData.resource} Exceeded`;
+        const htmlContent = `
+            <h2>EcoMonitor Critical Alert</h2>
+            <p>A critical resource limit has been exceeded.</p>
+            <table border="1" cellpadding="10" cellspacing="0" style="border-collapse: collapse; width: 100%; max-width: 600px;">
+                <tr>
+                    <td style="background-color: #f1f5f9; font-weight: bold;">Block</td>
+                    <td>${alertData.block}</td>
+                </tr>
+                <tr>
+                    <td style="background-color: #f1f5f9; font-weight: bold;">Resource</td>
+                    <td>${alertData.resource}</td>
+                </tr>
+                <tr>
+                    <td style="background-color: #f1f5f9; font-weight: bold;">Usage Value</td>
+                    <td style="color: #dc2626; font-weight: bold;">${alertData.value}</td>
+                </tr>
+                <tr>
+                    <td style="background-color: #f1f5f9; font-weight: bold;">Limit</td>
+                    <td>${alertData.limit}</td>
+                </tr>
+                <tr>
+                    <td style="background-color: #f1f5f9; font-weight: bold;">Severity</td>
+                    <td style="color: #dc2626; font-weight: bold;">CRITICAL</td>
+                </tr>
+            </table>
+            <p>Please investigate this alert in the EcoMonitor dashboard immediately.</p>
+        `;
+
+        await mailer.sendMail({
+            to: recipients.join(', '),
+            subject,
+            html: htmlContent
+        });
+
+        console.log(`[EmailService] Critical alert email sent to ${recipients.length} recipients`);
+    } catch (error) {
+        console.error('[EmailService] Failed to send email:', error.message);
+    }
+};
+
+module.exports = { sendAlertEmail, sendReportEmail, sendCriticalAlertEmail };

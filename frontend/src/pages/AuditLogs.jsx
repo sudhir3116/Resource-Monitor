@@ -19,6 +19,8 @@ import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import EmptyState from '../components/common/EmptyState';
 import { logger } from '../utils/logger';
+import useSortableTable from '../hooks/useSortableTable';
+import SortIcon from '../components/common/SortIcon';
 
 export default function AuditLogs() {
     const [logs, setLogs] = useState([]);
@@ -52,6 +54,12 @@ export default function AuditLogs() {
             setLoading(false);
         }
     };
+
+    const { sortedData: finalLogs, sortField, sortDirection, handleSort } = useSortableTable(
+        logs,
+        'createdAt',
+        [filters]
+    );
 
     const getActionIcon = (action) => {
         switch (action) {
@@ -133,15 +141,25 @@ export default function AuditLogs() {
                         <table className="table">
                             <thead>
                                 <tr>
-                                    <th>Action</th>
-                                    <th>User</th>
-                                    <th>Resource</th>
-                                    <th>Description</th>
-                                    <th className="text-right">Time</th>
+                                    <th onClick={() => handleSort('action')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'action' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                        Action <SortIcon field="action" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
+                                    <th onClick={() => handleSort('userId.name')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'userId.name' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                        User <SortIcon field="userId.name" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
+                                    <th onClick={() => handleSort('resourceType')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'resourceType' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                        Resource <SortIcon field="resourceType" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
+                                    <th onClick={() => handleSort('description')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'description' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                        Description <SortIcon field="description" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
+                                    <th onClick={() => handleSort('createdAt')} className={`text-right cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'createdAt' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                        Time <SortIcon field="createdAt" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {logs.map(log => (
+                                {finalLogs.map(log => (
                                     <tr key={log._id}>
                                         <td>
                                             <div className="flex items-center gap-2">

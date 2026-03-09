@@ -30,8 +30,18 @@ const complaintSchema = new mongoose.Schema({
     },
     priority: {
         type: String,
-        enum: ['low', 'medium', 'high'],
+        enum: ['low', 'medium', 'high', 'urgent'],
         default: 'medium'
+    },
+    // SLA (Service Level Agreement) fields
+    expectedResolutionDate: {
+        type: Date,
+        default: function() {
+            const now = new Date();
+            const dayMap = { 'urgent': 1, 'high': 3, 'medium': 7, 'low': 14 };
+            const days = dayMap[this.priority] || 7;
+            return new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+        }
     },
     assignedTo: {
         type: mongoose.Schema.Types.ObjectId,
@@ -82,6 +92,16 @@ const complaintSchema = new mongoose.Schema({
 
 complaintSchema.index({ user: 1, createdAt: -1 });
 complaintSchema.index({ status: 1, createdAt: -1 });
+complaintSchema.index({ status: 1 });
 complaintSchema.index({ assignedTo: 1 });
+complaintSchema.index({ category: 1 });
+complaintSchema.index({ priority: 1 });
+complaintSchema.index({ escalatedBy: 1 });
+complaintSchema.index({ createdAt: -1 });
+complaintSchema.index({ expectedResolutionDate: 1 });
+complaintSchema.index({ status: 1, expectedResolutionDate: 1 }); // For SLA breach checks
+
+// Area 5 requested index:
+complaintSchema.index({ status: 1, createdAt: 1 });
 
 module.exports = mongoose.model('Complaint', complaintSchema);

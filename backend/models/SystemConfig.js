@@ -4,7 +4,9 @@ const systemConfigSchema = new mongoose.Schema({
     resource: {
         type: String,
         required: true,
-        trim: true
+        trim: true,
+        unique: true,
+        index: true
     },
 
     // — Primary fields used by UI ——————————————————————————————————
@@ -75,6 +77,3 @@ systemConfigSchema.pre('findOneAndUpdate', function (next) {
 });
 
 module.exports = mongoose.model('SystemConfig', systemConfigSchema);
-
-// Ensure a unique index on resource for fast lookups and to prevent duplicates
-systemConfigSchema.index({ resource: 1 }, { unique: true, background: true });

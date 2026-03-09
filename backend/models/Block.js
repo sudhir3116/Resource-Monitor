@@ -45,4 +45,10 @@ const blockSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+// Performance indexes
+blockSchema.index({ name: 1 });
+blockSchema.index({ warden: 1 });
+blockSchema.index({ status: 1 });
+blockSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model('Block', blockSchema);

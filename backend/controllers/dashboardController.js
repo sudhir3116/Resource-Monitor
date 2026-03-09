@@ -35,7 +35,7 @@ async function getMonthlyTrend(matchBase, resourceType) {
     const prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
     const prevEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
 
-    const filter = { ...matchBase, resource_type: resourceType };
+    const filter = { ...matchBase, resource_type: resourceType, deleted: { $ne: true } };
 
     const [curAgg, prevAgg] = await Promise.all([
         Usage.aggregate([
@@ -74,7 +74,7 @@ async function getDailyTrend(matchBase, resourceType, days = 7) {
     const startDate = daysAgo(days - 1);
     const endDate = new Date(); endDate.setHours(23, 59, 59, 999);
 
-    const filter = { ...matchBase, resource_type: resourceType, usage_date: { $gte: startDate, $lte: endDate } };
+    const filter = { ...matchBase, resource_type: resourceType, usage_date: { $gte: startDate, $lte: endDate }, deleted: { $ne: true } };
 
     const agg = await Usage.aggregate([
         { $match: filter },
@@ -186,7 +186,7 @@ exports.getWardenStats = async (req, res) => {
         // ──  Today's usage by resource
         const { start: todayStart } = todayRange();
         const todayUsage = await Usage.aggregate([
-            { $match: { ...matchBase, usage_date: { $gte: todayStart } } },
+            { $match: { ...matchBase, usage_date: { $gte: todayStart }, deleted: { $ne: true } } },
             { $group: { _id: '$resource_type', total: { $sum: '$usage_value' } } }
         ]);
 
@@ -233,7 +233,7 @@ exports.getExecutiveStats = async (req, res) => {
         // ──  Block-level electricity usage this month (single aggregation, not N+1)
         const { start: monthStart } = currentMonthRange();
         const blockUsageAgg = await Usage.aggregate([
-            { $match: { resource_type: 'Electricity', usage_date: { $gte: monthStart } } },
+            { $match: { resource_type: 'Electricity', usage_date: { $gte: monthStart }, deleted: { $ne: true } } },
             { $group: { _id: '$blockId', total: { $sum: '$usage_value' } } }
         ]);
 

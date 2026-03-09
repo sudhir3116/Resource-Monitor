@@ -9,7 +9,7 @@ const { ROLES } = require('../config/roles');
 exports.getAuditLogs = async (req, res) => {
     try {
         // Only admins, deans, and principals can view audit logs
-        if (![ROLES.ADMIN, ROLES.DEAN, ROLES.PRINCIPAL].includes(req.user.role)) {
+        if (![ROLES.ADMIN, ROLES.DEAN].includes(req.user.role)) {
             return res.status(403).json({
                 success: false,
                 error: 'Access denied. Audit logs are restricted to administrators.'
@@ -73,7 +73,7 @@ exports.getAuditLogs = async (req, res) => {
  */
 exports.getResourceAuditHistory = async (req, res) => {
     try {
-        if (![ROLES.ADMIN, ROLES.DEAN, ROLES.PRINCIPAL].includes(req.user.role)) {
+        if (![ROLES.ADMIN, ROLES.DEAN].includes(req.user.role)) {
             return res.status(403).json({
                 success: false,
                 error: 'Access denied'

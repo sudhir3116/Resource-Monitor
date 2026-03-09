@@ -1,10 +1,7 @@
 const { authorizeRoles } = require('./roleMiddleware');
 const { ROLES } = require('../config/roles');
 
-// Authorize all administrative roles
-module.exports = authorizeRoles(
-    ROLES.ADMIN,
-    ROLES.WARDEN,
-    ROLES.DEAN,
-    ROLES.PRINCIPAL
-);
+// Only full Administrators can access admin management routes
+// (user deletion, role assignment, usage summaries)
+// Wardens, Deans and Principals use their own scoped dashboards.
+module.exports = authorizeRoles(ROLES.ADMIN);

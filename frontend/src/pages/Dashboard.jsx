@@ -2,7 +2,7 @@
 import React, { useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { ROLES } from '../utils/roles';
-import StudentDashboard from './StudentDashboard';
+import StudentDashboard from './student/StudentDashboard';
 import WardenDashboard from './WardenDashboard';
 import ExecutiveDashboard from './ExecutiveDashboard';
 import AdminDashboard from './AdminDashboard';

@@ -83,7 +83,7 @@ const ESCALATION_WINDOWS = Object.freeze({
 const ESCALATION_ROLES = Object.freeze({
     1: 'warden',
     2: 'dean',
-    3: 'principal',
+    3: 'dean',
 });
 
 // ── Date utilities ────────────────────────────────────────────────────────────

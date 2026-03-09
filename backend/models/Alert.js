@@ -71,6 +71,10 @@ const alertSchema = new mongoose.Schema({
   // ── Escalation chain ──────────────────────────────────────────────────────
   escalationLevel: { type: Number, default: 0 }, // 0=none, 1=Warden, 2=Dean, 3=Principal
   escalatedAt: { type: Date },                // timestamp of latest escalation
+  escalationReason: { type: String, default: null }, // set by auto-escalation cron
+
+  // ── Activity tracking ─────────────────────────────────────────────────────
+  lastActionAt: { type: Date, default: null }, // updated on every status change
 
   // ── Actor tracking (who did what) ─────────────────────────────────────────
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -100,19 +104,28 @@ const alertSchema = new mongoose.Schema({
 }, { timestamps: true });  // adds createdAt + updatedAt automatically
 
 // ── Indexes for performance ───────────────────────────────────────────────────
-// Dedup: one alert per resource × block × day × type
-alertSchema.index({ block: 1, resourceType: 1, alertDate: 1, alertType: 1 }, { sparse: true });
-// Compound unique index to prevent duplicate alerts under concurrency
-// (applies when resourceType + alertType + alertDate are present)
-alertSchema.index({ resourceType: 1, alertType: 1, alertDate: 1 }, { unique: true, sparse: true, background: true });
-alertSchema.index({ user: 1, resourceType: 1, alertDate: 1, alertType: 1 }, { sparse: true });
+// Dedup: one alert per resource × block × day × type (block-scoped)
+// Prevents duplicate alerts per (block, resourceType, date, type) combination
+alertSchema.index(
+  { block: 1, resourceType: 1, alertDate: 1, alertType: 1 },
+  { unique: true, sparse: true, background: true, name: 'block_alert_dedup' }
+);
+
+// Secondary dedup for user-scoped alerts (when no block)
+// Prevents duplicate alerts per (user, resourceType, date, type) combination
+alertSchema.index(
+  { user: 1, resourceType: 1, alertDate: 1, alertType: 1 },
+  { unique: true, sparse: true, background: true, name: 'user_alert_dedup' }
+);
 
 // Query patterns
 alertSchema.index({ block: 1, status: 1, createdAt: -1 });
 alertSchema.index({ status: 1, createdAt: -1 });
 alertSchema.index({ severity: 1, status: 1 });
+alertSchema.index({ severity: 1 });  // single-field for severity-only queries
 alertSchema.index({ escalationLevel: 1, status: 1 });
 alertSchema.index({ resourceType: 1, createdAt: -1 });
 alertSchema.index({ isRead: 1, user: 1 });
+alertSchema.index({ createdAt: -1 }); // createdAt for range queries
 
 module.exports = mongoose.model('Alert', alertSchema);

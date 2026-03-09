@@ -16,6 +16,8 @@ import {
     Building2, ToggleLeft, ToggleRight, Edit3, Clock,
     DollarSign, TrendingUp, Activity,
 } from 'lucide-react';
+import useSortableTable from '../hooks/useSortableTable';
+import SortIcon from '../components/common/SortIcon';
 
 /* ─── Resource meta ──────────────────────────────────────────────────────────── */
 const RESOURCE_META = {
@@ -622,6 +624,12 @@ export default function ResourceConfig() {
     const isWarden = user?.role === ROLES.WARDEN;
     const canView = isAdmin || isWarden;
 
+    const { sortedData: sortedConfigs, sortField, sortDirection, handleSort } = useSortableTable(
+        configs,
+        'resource',
+        [configs]
+    );
+
     /* ── Fetch configs ──────────────────────────────────────────────────── */
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -778,56 +786,63 @@ export default function ResourceConfig() {
                     <table className="table w-full" style={{ minWidth: 800 }}>
                         <thead>
                             <tr style={{ borderBottom: '2px solid var(--border)' }}>
-                                <th style={{ width: 160 }}>Resource</th>
-                                <th style={{ width: 110 }}>Unit</th>
-                                <th style={{ width: 130 }}>
+                                <th style={{ width: 160 }} onClick={() => handleSort('resource')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'resource' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                    Resource <SortIcon field="resource" sortField={sortField} sortDirection={sortDirection} />
+                                </th>
+                                <th style={{ width: 110 }} onClick={() => handleSort('unit')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'unit' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                    Unit <SortIcon field="unit" sortField={sortField} sortDirection={sortDirection} />
+                                </th>
+                                <th style={{ width: 130 }} onClick={() => handleSort('costPerUnit')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'costPerUnit' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
                                     <span className="flex items-center gap-1">
                                         <DollarSign size={13} />
-                                        Cost / Unit
+                                        Cost / Unit <SortIcon field="costPerUnit" sortField={sortField} sortDirection={sortDirection} />
                                     </span>
                                 </th>
-                                <th style={{ width: 130 }}>
+                                <th style={{ width: 130 }} onClick={() => handleSort('dailyThreshold')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'dailyThreshold' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
                                     <span className="flex items-center gap-1">
                                         <TrendingUp size={13} />
-                                        Daily Limit
+                                        Daily Limit <SortIcon field="dailyThreshold" sortField={sortField} sortDirection={sortDirection} />
                                     </span>
                                 </th>
-                                <th style={{ width: 140 }}>
+                                <th style={{ width: 140 }} onClick={() => handleSort('monthlyThreshold')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'monthlyThreshold' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
                                     <span className="flex items-center gap-1">
                                         <Activity size={13} />
-                                        Monthly Limit
+                                        Monthly Limit <SortIcon field="monthlyThreshold" sortField={sortField} sortDirection={sortDirection} />
                                     </span>
                                 </th>
-                                <th style={{ width: 90 }}>Status</th>
-                                <th style={{ width: 120 }}>Updated By</th>
-                                <th style={{ width: 140 }}>Actions</th>
+                                <th style={{ width: 100 }} onClick={() => handleSort('isActive')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'isActive' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                    Status <SortIcon field="isActive" sortField={sortField} sortDirection={sortDirection} />
+                                </th>
+                                <th style={{ width: 120 }} onClick={() => handleSort('updatedBy.name')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'updatedBy.name' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                    Updated By <SortIcon field="updatedBy.name" sortField={sortField} sortDirection={sortDirection} />
+                                </th>
+                                <th style={{ width: 120 }}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {loading ? (
-                                <SkeletonRows />
-                            ) : configs.length === 0 ? (
-                                <tr>
-                                    <td colSpan={8} className="text-center py-10">
-                                        <EmptyState
-                                            title="No resource configurations"
-                                            description={isAdmin
-                                                ? "Click 'Add Resource' to create the first configuration."
-                                                : "No configurations have been set up yet."}
+                            {loading && configs.length === 0 ? <SkeletonRows /> :
+                                sortedConfigs.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="8" className="py-10">
+                                            <EmptyState
+                                                title="No resource configurations"
+                                                description={isAdmin
+                                                    ? "Click 'Add Resource' to create the first configuration."
+                                                    : "No configurations have been set up yet."}
+                                            />
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    sortedConfigs.map(config => (
+                                        <ResourceRow
+                                            key={config.resource}
+                                            config={config}
+                                            isAdmin={isAdmin}
+                                            onSave={handleSaveResource}
+                                            onToggle={handleToggle}
                                         />
-                                    </td>
-                                </tr>
-                            ) : (
-                                configs.map(config => (
-                                    <ResourceRow
-                                        key={config.resource}
-                                        config={config}
-                                        isAdmin={isAdmin}
-                                        onSave={handleSaveResource}
-                                        onToggle={handleToggle}
-                                    />
-                                ))
-                            )}
+                                    ))
+                                )}
                         </tbody>
                     </table>
                 </div>

@@ -6,10 +6,11 @@ const auditLogSchema = new mongoose.Schema({
         type: String,
         required: true,
         enum: [
-                'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT', 'EXPORT',
-                'RESOLVE_ALERT', 'REVIEW_ALERT', 'ESCALATE_ALERT',
-                'ADD_COMMENT', 'DISMISS_ALERT', 'UPDATE_THRESHOLD',
-                'RESOLVE_COMPLAINT', 'ESCALATE_COMPLAINT', 'COMMENT_COMPLAINT'
+            'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT', 'EXPORT',
+            'RESOLVE_ALERT', 'REVIEW_ALERT', 'ESCALATE_ALERT',
+            'ADD_COMMENT', 'DISMISS_ALERT', 'UPDATE_THRESHOLD',
+            'RESOLVE_COMPLAINT', 'ESCALATE_COMPLAINT', 'COMMENT_COMPLAINT',
+            'BULK_DELETE', 'BULK_UPDATE'
         ]
     },
 
@@ -50,5 +51,9 @@ auditLogSchema.index({ userId: 1, createdAt: -1 });
 auditLogSchema.index({ resourceType: 1, resourceId: 1 });
 auditLogSchema.index({ action: 1, createdAt: -1 });
 auditLogSchema.index({ createdAt: -1 });
+
+// Area 5 requested indexes:
+auditLogSchema.index({ createdAt: 1 });
+auditLogSchema.index({ action: 1 });
 
 module.exports = mongoose.model('AuditLog', auditLogSchema);

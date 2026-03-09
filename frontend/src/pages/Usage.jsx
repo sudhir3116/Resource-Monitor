@@ -181,7 +181,7 @@ export default function Resources() {
                                     <Button
                                         variant="secondary"
                                         className="w-full justify-center"
-                                        onClick={() => navigate('/usage/all')}
+                                        onClick={() => navigate(`/usage/all?resource=${encodeURIComponent(res.name)}`)}
                                     >
                                         View Details <ArrowRight size={16} className="ml-2" />
                                     </Button>

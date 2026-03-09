@@ -2,6 +2,7 @@ const { SERVER_INSTANCE_ID } = require('../config/runtime');
 const { ROLES } = require('../config/roles');
 const User = require("../models/User");
 const PasswordResetToken = require('../models/PasswordResetToken');
+const TokenBlacklist = require('../models/TokenBlacklist');
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require('crypto');
@@ -22,7 +23,7 @@ const GENERATE_TOKENS = (user) => {
   const accessToken = jwt.sign(
     payload,
     process.env.JWT_SECRET,
-    { expiresIn: '15m' }
+    { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
   );
 
   const refreshToken = jwt.sign(
@@ -60,6 +61,9 @@ const formatUserResponse = (user) => {
     name: user.name,
     email: user.email,
     role: user.role,
+    block: user.block || null,  // populated Block object {_id, name} or raw ObjectId
+    room: user.room || null,
+    department: user.department || null,
     avatar: user.avatar || null,
     provider: user.provider || 'local'
   };
@@ -100,10 +104,12 @@ const register = asyncHandler(async (req, res) => {
   const { accessToken, refreshToken } = GENERATE_TOKENS(user);
   SET_COOKIES(res, accessToken, refreshToken);
 
+  // Return full formatted user object for consistency
   res.status(201).json({
     success: true,
     message: "Registered successfully",
     token: accessToken,
+    user: formatUserResponse(user),
     data: formatUserResponse(user)
   });
 });
@@ -128,6 +134,13 @@ const login = asyncHandler(async (req, res) => {
     throw new Error("Invalid credentials");
   }
 
+  // Validate password field exists before comparison
+  if (!user.password) {
+    console.log(`❌ Login failed: No password set for user ${email}`);
+    res.status(401);
+    throw new Error("Invalid credentials");
+  }
+
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
     console.log(`❌ Login failed: Password mismatch for user ${email}`);
@@ -140,10 +153,12 @@ const login = asyncHandler(async (req, res) => {
 
   console.log('✅ Email/password login successful for:', user.email);
 
+  // Return full formatted user object for consistency
   res.status(200).json({
     success: true,
     message: "Login successful",
     token: accessToken,
+    user: formatUserResponse(user),
     data: formatUserResponse(user)
   });
 });
@@ -226,10 +241,12 @@ const googleLogin = asyncHandler(async (req, res) => {
 
     console.log('✅ Google login successful for:', user.email, '- Role:', user.role);
 
-    // Return consistent user object structure
+    // Return full formatted user object for consistency with email/password login
     res.status(200).json({
       success: true,
       message: "Google login successful",
+      token: accessToken,
+      user: formatUserResponse(user),
       data: formatUserResponse(user)
     });
   } catch (error) {
@@ -261,14 +278,35 @@ const googleLogin = asyncHandler(async (req, res) => {
 const logout = asyncHandler(async (req, res) => {
   const isProduction = process.env.NODE_ENV === 'production';
 
-  // If authenticated, mark lastLogoutAt to invalidate tokens
+  // If authenticated, mark lastLogoutAt and blacklist the token
   try {
     if (req.user && req.user.id) {
       await User.findByIdAndUpdate(req.user.id, { lastLogoutAt: new Date() });
     }
+
+    // Blacklist the current access token so it cannot be reused even within its TTL
+    let token = null;
+    if (req.headers['authorization']?.startsWith('Bearer ')) {
+      token = req.headers['authorization'].split(' ')[1];
+    } else if (req.cookies?.accessToken) {
+      token = req.cookies.accessToken;
+    }
+    if (token) {
+      try {
+        const decoded = jwt.decode(token);
+        const expiresAt = decoded?.exp ? new Date(decoded.exp * 1000) : new Date(Date.now() + 15 * 60 * 1000);
+        await TokenBlacklist.findOneAndUpdate(
+          { token },
+          { token, expiresAt },
+          { upsert: true, new: true }
+        );
+      } catch (blacklistErr) {
+        console.error('Failed to blacklist token on logout:', blacklistErr.message);
+      }
+    }
   } catch (e) {
     // proceed to clear cookies even if DB write fails
-    console.error('Failed to set lastLogoutAt during logout:', e.message);
+    console.error('Failed to process logout cleanup:', e.message);
   }
 
   res.clearCookie('accessToken', {
@@ -320,7 +358,7 @@ const refresh = asyncHandler(async (req, res) => {
     const accessToken = jwt.sign(
       { id: user._id, role: user.role, instanceId: SERVER_INSTANCE_ID },
       process.env.JWT_SECRET,
-      { expiresIn: '15m' }
+      { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
     );
 
     res.cookie('accessToken', accessToken, {
@@ -363,16 +401,21 @@ const verifyToken = asyncHandler(async (req, res) => {
     throw new Error('Not authenticated');
   }
 
-  const user = await User.findById(req.user.id).select("-password");
+  // Populate block so wardens get { _id, name } in the user object
+  const user = await User.findById(req.user.id)
+    .select("-password")
+    .populate('block', 'name');
+
   if (!user) {
     res.status(401);
     throw new Error("User not found");
   }
 
-  // Return consistent user object
+  // Return full user object including block assignment for session restore
   res.status(200).json({
     success: true,
-    data: formatUserResponse(user)
+    user: formatUserResponse(user),
+    data: formatUserResponse(user)  // Include 'data' for consistency
   });
 });
 

@@ -2,21 +2,32 @@ const Complaint = require('../models/Complaint');
 const AuditLog = require('../models/AuditLog');
 const { ROLES } = require('../config/roles');
 const mongoose = require('mongoose');
+const { parsePagination } = require('../utils/queryBuilder');
 
 const VALID_CATEGORIES = ['plumbing', 'electrical', 'internet', 'cleanliness', 'security', 'other'];
 const ALL_STATUSES = ['open', 'under_review', 'in_progress', 'escalated', 'resolved'];
 
+// ─── Status Transition Rules (State Machine) ──────────────────────────────────
+// Defines valid transitions from each status
+const VALID_TRANSITIONS = {
+    'open': ['under_review', 'in_progress', 'escalated', 'resolved'],
+    'under_review': ['in_progress', 'escalated', 'resolved', 'open'],
+    'in_progress': ['escalated', 'resolved', 'open'],
+    'escalated': ['resolved', 'in_progress', 'open'],
+    'resolved': []  // Terminal state: cannot transition out
+};
+
 // Role permission sets
 const CAN_RESOLVE = [ROLES.ADMIN, ROLES.WARDEN];
 const CAN_REVIEW = [ROLES.ADMIN, ROLES.WARDEN];
-const CAN_ESCALATE = [ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN];
-const CAN_SEE_ALL = [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL];
+const CAN_ESCALATE = [ROLES.DEAN, ROLES.ADMIN];
+const CAN_SEE_ALL = [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN];
 
 const logAction = async (req, complaintId, action, desc) => {
     try {
         const mappedAction = (action === 'RESOLVE') ? 'RESOLVE_COMPLAINT' :
             (action === 'ESCALATE') ? 'ESCALATE_COMPLAINT' :
-            (action === 'COMMENT') ? 'COMMENT_COMPLAINT' : 'UPDATE';
+                (action === 'COMMENT') ? 'COMMENT_COMPLAINT' : 'UPDATE';
 
         await AuditLog.create({
             action: mappedAction,
@@ -35,26 +46,52 @@ const getComplaints = async (req, res) => {
         let filter = {};
         const userRole = req.user.role;
         const userId = req.user.id || req.userId;
+        const { page = 1, limit = 20, status, category, priority } = req.query;
+        const { skip, limit: pageLimit } = parsePagination({ page, limit });
 
         if (userRole === ROLES.STUDENT) {
             filter.user = userId;
+        } else if (userRole === ROLES.WARDEN) {
+            const User = require('../models/User');
+            const currentUser = await User.findById(userId);
+            if (currentUser && currentUser.block) {
+                const usersInBlock = await User.find({ block: currentUser.block }).select('_id');
+                filter.user = { $in: usersInBlock.map(u => u._id) };
+            } else {
+                filter._id = null; // Warden without a block sees nothing
+            }
         }
-        // Warden, Dean, Principal, Admin see all
+        // Admin, Dean, Principal see all
 
-        const { status, category, priority } = req.query;
         if (status) filter.status = status;
         if (category) filter.category = category;
         if (priority) filter.priority = priority;
 
-        const complaints = await Complaint.find(filter)
-            .populate('user', 'name email role')
-            .populate('assignedTo', 'name email')
-            .populate('resolvedBy', 'name email')
-            .populate('escalatedBy', 'name email')
-            .populate('history.performedBy', 'name email role')
-            .sort({ createdAt: -1 });
+        const [complaints, total] = await Promise.all([
+            Complaint.find(filter)
+                .populate('user', 'name email role')
+                .populate('assignedTo', 'name email')
+                .populate('resolvedBy', 'name email')
+                .populate('escalatedBy', 'name email')
+                .populate('history.performedBy', 'name email role')
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(pageLimit)
+                .lean(),
+            Complaint.countDocuments(filter)
+        ]);
 
-        res.json({ success: true, count: complaints.length, data: complaints });
+        res.json({ 
+            success: true, 
+            count: complaints.length, 
+            data: complaints,
+            pagination: {
+                page: parseInt(page),
+                limit: pageLimit,
+                total,
+                pages: Math.ceil(total / pageLimit)
+            }
+        });
     } catch (error) {
         console.error('Get complaints error:', error);
         res.status(500).json({ success: false, error: 'Internal server error' });
@@ -88,7 +125,19 @@ const createComplaint = async (req, res) => {
         });
 
         const populated = await Complaint.findById(complaint._id)
-            .populate('user', 'name email role');
+            .populate('user', 'name email role')
+            .populate('history.performedBy', 'name email role');
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const socketManager = require('../socket/socketManager');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                socketManager.emitToRole(io, 'admin', 'dashboard:complaint_added', { complaintId: complaint._id });
+                socketManager.emitToRole(io, 'gm', 'dashboard:complaint_added', { complaintId: complaint._id });
+                socketManager.emitToRole(io, 'warden', 'dashboard:complaint_added', { complaintId: complaint._id });
+            }
+        } catch (e) { /* non-fatal */ }
 
         res.status(201).json({ success: true, data: populated });
     } catch (error) {
@@ -133,9 +182,19 @@ const reviewComplaint = async (req, res) => {
             .populate('user', 'name email role')
             .populate('assignedTo', 'name email')
             .populate('resolvedBy', 'name email')
-            .populate('escalatedBy', 'name email');
+            .populate('escalatedBy', 'name email')
+            .populate('history.performedBy', 'name email role');
 
         await logAction(req, id, 'STATUS_CHANGED', `Complaint "${complaint.title}" marked Under Review by ${req.user.role}`);
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const socketManager = require('../socket/socketManager');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                socketManager.emitToUser(io, complaint.user.toString(), 'complaint:updated', { complaintId: id, status: 'under_review' });
+            }
+        } catch (e) { /* non-fatal */ }
 
         res.json({ success: true, message: 'Complaint marked as Under Review', data: updated });
     } catch (error) {
@@ -184,9 +243,19 @@ const resolveComplaint = async (req, res) => {
             .populate('user', 'name email role')
             .populate('assignedTo', 'name email')
             .populate('resolvedBy', 'name email')
-            .populate('escalatedBy', 'name email');
+            .populate('escalatedBy', 'name email')
+            .populate('history.performedBy', 'name email role');
 
         await logAction(req, id, 'RESOLVE', `Complaint "${complaint.title}" resolved by ${req.user.role}`);
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const socketManager = require('../socket/socketManager');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                socketManager.emitToUser(io, complaint.user.toString(), 'complaint:updated', { complaintId: id, status: 'resolved' });
+            }
+        } catch (e) { /* non-fatal */ }
 
         res.json({ success: true, message: 'Complaint resolved successfully', data: updated });
     } catch (error) {
@@ -237,9 +306,19 @@ const escalateComplaint = async (req, res) => {
             .populate('user', 'name email role')
             .populate('assignedTo', 'name email')
             .populate('resolvedBy', 'name email')
-            .populate('escalatedBy', 'name email');
+            .populate('escalatedBy', 'name email')
+            .populate('history.performedBy', 'name email role');
 
         await logAction(req, id, 'ESCALATE', `Complaint "${complaint.title}" escalated by ${req.user.role}: ${reason}`);
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const socketManager = require('../socket/socketManager');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                socketManager.emitToUser(io, complaint.user.toString(), 'complaint:updated', { complaintId: id, status: 'escalated' });
+            }
+        } catch (e) { /* non-fatal */ }
 
         res.json({ success: true, message: 'Complaint escalated', data: updated });
     } catch (error) {
@@ -265,6 +344,15 @@ const updateComplaintStatus = async (req, res) => {
 
         const complaint = await Complaint.findById(id);
         if (!complaint) return res.status(404).json({ success: false, error: 'Complaint not found' });
+
+        // Validate status transition (state machine)
+        const validTransitions = VALID_TRANSITIONS[complaint.status] || [];
+        if (!validTransitions.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                error: `Cannot transition from '${complaint.status}' to '${status}'. Valid transitions: ${validTransitions.join(', ')}`
+            });
+        }
 
         const userId = req.user.id || req.userId;
         const fromStatus = complaint.status;
@@ -294,6 +382,15 @@ const updateComplaintStatus = async (req, res) => {
             .populate('resolvedBy', 'name email')
             .populate('escalatedBy', 'name email');
 
+        try {
+            const socketUtil = require('../utils/socket');
+            const socketManager = require('../socket/socketManager');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                socketManager.emitToUser(io, complaint.user.toString(), 'complaint:updated', { complaintId: id, status });
+            }
+        } catch (e) { /* non-fatal */ }
+
         res.json({ success: true, message: 'Status updated', data: updated });
     } catch (error) {
         console.error('Update complaint status error:', error);
@@ -304,15 +401,32 @@ const updateComplaintStatus = async (req, res) => {
 // ─── GET /api/complaints/stats ────────────────────────────────────────────────
 const getComplaintStatistics = async (req, res) => {
     try {
-        if (!CAN_SEE_ALL.includes(req.user.role)) {
-            return res.status(403).json({ success: false, error: 'Access denied' });
+        let filter = {};
+        if (req.user.role === ROLES.WARDEN) {
+            const User = require('../models/User');
+            const currentUser = await User.findById(req.user.id || req.userId);
+            if (currentUser && currentUser.block) {
+                const usersInBlock = await User.find({ block: currentUser.block }).select('_id');
+                filter.user = { $in: usersInBlock.map(u => u._id) };
+            } else {
+                filter._id = null;
+            }
         }
 
         const [byStatus, byCategory, byPriority, recentCount] = await Promise.all([
-            Complaint.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
-            Complaint.aggregate([{ $group: { _id: '$category', count: { $sum: 1 } } }]),
-            Complaint.aggregate([{ $group: { _id: '$priority', count: { $sum: 1 } } }]),
-            Complaint.countDocuments({ createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } })
+            Complaint.aggregate([
+                { $match: filter },
+                { $group: { _id: '$status', count: { $sum: 1 } } }
+            ]),
+            Complaint.aggregate([
+                { $match: filter },
+                { $group: { _id: '$category', count: { $sum: 1 } } }
+            ]),
+            Complaint.aggregate([
+                { $match: filter },
+                { $group: { _id: '$priority', count: { $sum: 1 } } }
+            ]),
+            Complaint.countDocuments({ ...filter, createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } })
         ]);
 
         const total = byStatus.reduce((acc, s) => acc + s.count, 0);

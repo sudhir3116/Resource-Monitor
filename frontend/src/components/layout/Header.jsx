@@ -4,6 +4,7 @@ import { AuthContext } from '../../context/AuthContext';
 import { AlertCountContext } from '../../context/AlertCountContext';
 import { ThemeContext } from '../../context/ThemeContext';
 import { Bell, Moon, Sun, LogOut, ChevronDown } from 'lucide-react';
+import NotificationBell from '../NotificationBell';
 import api from '../../services/api';
 
 export default function Header() {
@@ -39,31 +40,8 @@ export default function Header() {
 
             {/* Right Side Actions */}
             <div className="flex items-center gap-4">
-                {/* Alert Bell — only shown to non-students */}
-                {user?.role !== 'student' && (
-                    <Link
-                        to="/alerts"
-                        className="relative p-2 rounded-lg transition-colors"
-                        style={{ color: 'var(--text-secondary)' }}
-                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                    >
-                        <Bell size={20} />
-                        <span
-                            role="status"
-                            aria-live="polite"
-                            className={
-                                `alert-bell-badge absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 rounded-full flex items-center justify-center text-white text-xs font-bold ` +
-                                (badgeVisible ? 'badge-show' : 'badge-hide') +
-                                (counts.unread > 0 ? ' badge-pulse' : '') +
-                                (bounce ? ' badge-bounce' : '')
-                            }
-                            style={{ backgroundColor: 'var(--color-danger)', fontSize: 10 }}
-                        >
-                            {counts.unread > 99 ? '99+' : counts.unread}
-                        </span>
-                    </Link>
-                )}
+                {/* Notification Bell */}
+                <NotificationBell />
 
                 {/* Theme Toggle */}
                 <button

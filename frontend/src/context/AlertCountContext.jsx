@@ -1,7 +1,7 @@
 import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import api from '../services/api';
 import { AuthContext } from './AuthContext';
-import { io } from 'socket.io-client';
+import { getSocket } from '../utils/socket';
 
 export const AlertCountContext = createContext();
 
@@ -26,47 +26,22 @@ export function AlertCountProvider({ children }) {
 
   useEffect(() => {
     if (!user || user.role === 'student') return;
-    let socket;
-    let id = null;
-    const startPolling = () => { if (!id) id = setInterval(fetchCounts, 15000); };
 
-    // Start with one immediate fetch
     fetchCounts();
 
-    try {
-      const backendPort = import.meta.env.VITE_BACKEND_PORT || '5000';
-      const base = `${window.location.protocol}//${window.location.hostname}:${backendPort}`;
-      socket = io(base, { reconnection: true });
-
-      socket.on('connect', () => {
-        // When socket connects, prefer socket-driven updates and stop polling
-        if (id) { clearInterval(id); id = null; }
-      });
-
-      socket.on('alerts:refresh', () => {
-        // backend asks clients to refresh counts
-        fetchCounts();
-      });
-
-      socket.on('alerts:counts', (payload) => {
-        if (payload) setCounts(payload);
-      });
-
-      socket.on('disconnect', () => {
-        // fallback to polling when disconnected
-        startPolling();
-      });
-    } catch (e) {
-      // if socket fails to initialize, fall back to polling
-      startPolling();
+    const socket = getSocket();
+    if (socket) {
+      socket.on('alerts:refresh', fetchCounts);
+      socket.on('alert:updated', fetchCounts);
+      socket.on('alert:new', fetchCounts);
     }
 
-    // Ensure polling starts if socket didn't
-    if (!socket) startPolling();
-
     return () => {
-      if (id) clearInterval(id);
-      try { if (socket) socket.disconnect(); } catch (e) {}
+      if (socket) {
+        socket.off('alerts:refresh', fetchCounts);
+        socket.off('alert:updated', fetchCounts);
+        socket.off('alert:new', fetchCounts);
+      }
     };
   }, [user, fetchCounts]);
 

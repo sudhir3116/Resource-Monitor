@@ -9,6 +9,10 @@ const { checkThresholds } = require('../services/thresholdService')
 const mongoose = require('mongoose')
 const SystemConfig = require('../models/SystemConfig')
 const { RESOURCE_UNITS } = require('../config/constants')
+const { parseSortParam, buildDateRangeFilter, parsePagination } = require('../utils/queryBuilder')
+const exportService = require('../services/exportService')
+const metricsService = require('../services/metricsService')
+const anomalyService = require('../services/anomalyService')
 
 // Helper: Calculate Sustainability Score (Context-Aware)
 const calculateSustainabilityScore = async (userId, userRole, blockId) => {
@@ -126,7 +130,7 @@ const sendAlertEmail = async (userId, subject, message) => {
 
 exports.createUsage = async (req, res) => {
   try {
-    // ── Role Guard (middleware must run first, but double-check here) ──────────
+    // ── Role Guard ──────────────────────────────────────────────────────────────
     const callerRole = req.user?.role;
     const WRITE_ROLES = ['admin', 'warden'];
     if (!callerRole || !WRITE_ROLES.includes(callerRole)) {
@@ -162,9 +166,66 @@ exports.createUsage = async (req, res) => {
 
     const user = await User.findById(userId);
 
+    // ── Cross-Block Validation for Wardens ───────────────────────────────────
+    // The request may specify a blockId explicitly, or we default to the warden's own block.
+    const requestedBlockId = req.body.blockId || req.body.block_id || null;
+
+    if (callerRole === 'warden') {
+      const wardenBlock = user?.block ? user.block.toString() : null;
+
+      if (!wardenBlock) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied: You are not assigned to any block. Contact the admin.'
+        });
+      }
+
+      if (requestedBlockId && requestedBlockId !== wardenBlock) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied: Cannot add usage for another block. You can only log usage for your assigned block.'
+        });
+      }
+    }
+
+    // Resolve final blockId: warden always uses their own block
+    const resolvedBlockId = callerRole === 'warden'
+      ? user?.block || null
+      : (requestedBlockId || user?.block || null);
+
+    // Calculate cost based on resource configuration
+    let costPerUnit = 0;
+    let currency = '₹';
+    let resourceConfig = null;
+
+    try {
+      // Try to find resource config (could be block-specific or global)
+      if (resolvedBlockId) {
+        resourceConfig = await SystemConfig.findOne({ 
+          resource: resource_type,
+          $or: [
+            { blockOverrides: { $elemMatch: { _id: resolvedBlockId.toString() } } },
+            { blockOverrides: { $size: 0 } } // Or global config if no block overrides
+          ]
+        });
+      } else {
+        resourceConfig = await SystemConfig.findOne({ resource: resource_type });
+      }
+
+      if (resourceConfig) {
+        costPerUnit = resourceConfig.costPerUnit || 0;
+        currency = resourceConfig.currency || '₹';
+      }
+    } catch (configErr) {
+      console.error('Error fetching resource config for cost:', configErr);
+      // Continue without cost - not a fatal error
+    }
+
+    const cost = usage_value * costPerUnit;
+
     const usage = await Usage.create({
       userId,
-      blockId: user?.block || null,
+      blockId: resolvedBlockId,
       resource_type,
       category,
       usage_value,
@@ -176,12 +237,45 @@ exports.createUsage = async (req, res) => {
       })()),
       usage_date,
       notes,
+      cost,
+      currency,
       createdBy: userId
     })
 
-    await checkThresholds(userId, resource_type, usage_date);
+    // ⭐ TRACE: Log usage created
+    console.log(`\n[TRACE:CREATE_USAGE] Usage saved successfully`);
+    console.log(`  ├─ recordId: ${usage._id}`);
+    console.log(`  ├─ userId: ${userId}`);
+    console.log(`  ├─ blockId: ${resolvedBlockId || 'null'}`);
+    console.log(`  ├─ resource: ${resource_type}`);
+    console.log(`  ├─ value: ${usage_value}`);
+    console.log(`  └─ date: ${usage_date}\n`);
+
+    // ⭐ CRITICAL FIX: Pass blockId to trigger block-scoped alert checks
+    console.log(`[TRACE:CALLING_THRESHOLD_CHECK] Starting threshold checks...\n`);
+    await checkThresholds(userId, resource_type, usage_date, resolvedBlockId);
+
+    // ⭐ Emit socket event so UI refreshes immediately
+    try {
+      const socketUtil = require('../utils/socket');
+      const socketManager = require('../socket/socketManager');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) {
+        io.emit('alerts:refresh');
+        io.emit('usage:refresh');
+        io.emit('dashboard:refresh');
+
+        const usageData = { block: resolvedBlockId, resource: resource_type, value: usage_value, timestamp: new Date() };
+        socketManager.emitToRole(io, 'admin', 'usage:new', usage);
+        socketManager.emitToRole(io, 'gm', 'usage:new', usage);
+        if (resolvedBlockId) socketManager.emitToBlock(io, resolvedBlockId, 'usage:new', usage);
+        socketManager.emitToRole(io, 'admin', 'dashboard:usage_added', usageData);
+        socketManager.emitToRole(io, 'gm', 'dashboard:usage_added', usageData);
+      }
+    } catch (e) { /* non-fatal */ }
 
     try {
+      const { ALERT_STATUS } = require('../config/constants');
       const rules = await AlertRule.find({ userId, resource_type, active: true })
       for (const rule of rules) {
         let triggered = false
@@ -196,12 +290,13 @@ exports.createUsage = async (req, res) => {
           })
           await Alert.create({
             user: userId,
-            block: user?.block || null,
+            block: resolvedBlockId,
             resourceType: resource_type,
+            alertType: 'manual',
             amount: usage_value,
             message,
             severity: 'Medium',
-            status: 'Pending'
+            status: ALERT_STATUS.ACTIVE
           });
           await sendAlertEmail(userId, `Custom Alert Rule: ${resource_type}`, message);
         }
@@ -235,50 +330,107 @@ exports.createUsage = async (req, res) => {
 
 exports.getUsages = async (req, res) => {
   try {
-    const { start, end, resource, category, sort, page = 1, limit = 100 } = req.query
+    const { start, end, resource, category, sort, page = 1, limit = 100, block, dateRange, filters } = req.query
     const filter = {}
 
     // Role-based Access Control
-    if (req.user.role === 'student' || !req.user.role || req.user.role === 'user') {
-      filter.userId = req.userId
-    } else if (req.user.role === 'warden') {
+    const callerRole = req.user?.role;
+
+    // Students are NOT allowed to access usage records at all
+    if (!callerRole || callerRole === 'student' || callerRole === 'user') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Students cannot view usage records.'
+      });
+    } else if (callerRole === 'warden') {
       const user = await User.findById(req.userId);
       if (user && user.block) {
+        // Warden sees ONLY records for their assigned block
         filter.blockId = user.block;
       } else {
-        filter.userId = req.userId;
+        // Warden without a block assigned: return empty
+        return res.json({ success: true, usages: [], total: 0, page: Number(page), pages: 0 });
+      }
+    } else if (['dean', 'admin', 'gm'].includes(callerRole)) {
+      // Dean / Principal / Admin / General Manager: optional block filter
+      if (block && mongoose.Types.ObjectId.isValid(block)) {
+        filter.blockId = new mongoose.Types.ObjectId(block);
       }
     }
-    // Admin/Dean/Principal see all
 
+    // Apply timestamp filters (legacy)
+    if (start || end) {
+      filter.usage_date = {}
+      if (start) filter.usage_date.$gte = new Date(start)
+      if (end) filter.usage_date.$lte = new Date(new Date(end).setHours(23, 59, 59, 999))
+    }
+
+    // Apply new comprehensive date range filter (supersedes above)
+    if (dateRange || (start && end)) {
+      const dateFilter = buildDateRangeFilter({ range: dateRange, startDate: start, endDate: end, dateField: 'usage_date' });
+      Object.assign(filter, dateFilter);
+    }
+
+    // Apply resource and category filters
     if (resource && resource !== 'All') filter.resource_type = resource
     if (category) filter.category = category
+
+    // Parse additional filters if provided as JSON
+    if (filters) {
+      try {
+        const parsedFilters = typeof filters === 'string' ? JSON.parse(filters) : filters;
+        Object.assign(filter, parsedFilters);
+      } catch (e) {
+        console.error('Invalid filters JSON:', e.message);
+      }
+    }
 
     // Exclude soft-deleted records
     filter.deleted = { $ne: true };
 
-    if (start || end) {
-      filter.usage_date = {}
-      if (start) filter.usage_date.$gte = new Date(start)
-      if (end) filter.usage_date.$lte = new Date(end)
-    }
+    // Determine sort option - Enhanced with queryBuilder
+    const allowedSortFields = ['date', 'resource', 'usage', 'block', 'user', 'usage_date', 'resource_type', 'usage_value', 'blockId'];
+    let sortOption = { usage_date: -1 };
 
-    let sortOption = { usage_date: -1 }
     if (sort) {
-      const [field, order] = sort.split(':')
-      sortOption = { [field]: order === 'desc' ? -1 : 1 }
+      // Try new format: "date:desc,resource:asc"
+      if (sort.includes(':')) {
+        sortOption = parseSortParam(sort, allowedSortFields);
+      } else {
+        // Legacy format: highest_consumption | block_name | oldest
+        if (sort === 'highest_consumption') {
+          sortOption = { usage_value: -1 };
+        } else if (sort === 'block_name') {
+          sortOption = { blockId: 1, usage_date: -1 };
+        } else if (sort === 'oldest') {
+          sortOption = { usage_date: 1 };
+        } else if (sort === 'newest') {
+          sortOption = { usage_date: -1 };
+        }
+      }
     }
 
-    const skip = (page - 1) * limit;
+    // Pagination
+    const { skip, limit: pageLimit } = parsePagination({ page, limit });
+
     const usages = await Usage.find(filter)
       .sort(sortOption)
       .skip(skip)
-      .limit(Number(limit))
-      .populate('userId', 'name email role block');
+      .limit(pageLimit)
+      .populate('userId', 'name email role block')
+      .populate('blockId', 'name');
 
     const total = await Usage.countDocuments(filter);
 
-    res.json({ success: true, usages, total, page: Number(page), pages: Math.ceil(total / limit) })
+    res.json({
+      success: true,
+      usages,
+      total,
+      page: Number(page),
+      pages: Math.ceil(total / pageLimit),
+      sortBy: sort,
+      filters: { resource, category, dateRange }
+    })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
   }
@@ -299,7 +451,7 @@ exports.getUsage = async (req, res) => {
 
     // Check ownership
     const isOwner = String(usage.userId) === String(req.userId);
-    const isAdmin = ['admin', 'warden', 'dean', 'principal'].includes(req.user.role);
+    const isAdmin = ['admin', 'warden', 'dean'].includes(req.user.role);
 
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ success: false, message: 'Access denied' });
@@ -326,18 +478,19 @@ exports.updateUsage = async (req, res) => {
     const user = req.userObj || await User.findById(req.userId);
     const isAdmin = user.role === 'admin';
     const isCreator = String(existingUsage.createdBy) === String(req.userId) || String(existingUsage.userId) === String(req.userId);
+    const isWardenInBlock = user.role === 'warden' && user.block && existingUsage.blockId && String(user.block) === String(existingUsage.blockId);
 
-    // Admin can edit anything; creator can edit their own
-    if (isAdmin || isCreator) {
+    // Admin can edit anything; creator can edit their own; warden can edit records in their block
+    if (isAdmin || isCreator || isWardenInBlock) {
       // Allowed — proceed to update
     }
-    // Student / Dean / Principal / Warden (non-owners): No write access
+    // Student / Dean / Principal / Warden (non-owners, not in block): No write access
     else {
       const roleMsg = {
         'student': 'Students cannot modify usage records. Please contact your Warden.',
-        'warden': 'Wardens can only modify their own usage records or those in their block.',
+        'warden': 'Wardens can only modify usage records in their assigned block.',
         'dean': 'Deans have read-only access. You cannot modify usage records.',
-        'principal': 'Principals have read-only access. You cannot modify usage records.'
+        'dean': 'Principals have read-only access. You cannot modify usage records.'
       };
       return res.status(403).json({
         success: false,
@@ -345,7 +498,15 @@ exports.updateUsage = async (req, res) => {
       });
     }
 
-    // 3. Perform Update
+    // 3. Prevent Wardens from Changing Block Assignment
+    if (user.role === 'warden' && req.body.blockId && String(req.body.blockId) !== String(existingUsage.blockId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: You cannot change the block assignment of a usage record. The block is locked to your assigned location.'
+      });
+    }
+
+    // 4. Perform Update
     req.body.lastUpdatedBy = req.userId; // Audit trail
     const usage = await Usage.findByIdAndUpdate(id, req.body, { returnDocument: 'after' });
 
@@ -368,10 +529,17 @@ exports.updateUsage = async (req, res) => {
 
     // Re-run threshold checks to recalculate any affected alerts
     try {
-      await checkThresholds(req.userId, usage.resource_type, usage.usage_date);
+      await checkThresholds(req.userId, usage.resource_type, usage.usage_date, usage.blockId);
     } catch (e) {
       console.error('Error re-checking thresholds after update:', e.message);
     }
+
+    // ⭐ CRITICAL FIX: Emit socket event so UI knows to refresh alert counts immediately
+    try {
+      const socketUtil = require('../utils/socket');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) io.emit('alerts:refresh');
+    } catch (e) { /* non-fatal */ }
 
     res.json({ success: true, message: 'Record updated successfully', usage })
   } catch (err) {
@@ -390,26 +558,22 @@ exports.deleteUsage = async (req, res) => {
     const existingUsage = await Usage.findById(id);
     if (!existingUsage) return res.status(404).json({ success: false, message: 'Record not found' });
 
-    // 2. IDOR / Permission Check: Allow if admin OR createdBy matches
+    // 2. Permission Check: ONLY Admin or General Manager can delete usage records.
+    //    Wardens are explicitly prohibited — they log records but cannot remove them.
+    //    This enforces the operational hierarchy: wardens create, managers archive/delete.
     const user = req.userObj || await User.findById(req.userId);
-    const isAdmin = user.role === 'admin';
-    const isCreator = String(existingUsage.createdBy) === String(req.userId) || String(existingUsage.userId) === String(req.userId);
+    const DELETE_ROLES = ['admin', 'gm'];
 
-    // Admin can delete anything; creator can delete their own
-    if (isAdmin || isCreator) {
-      // Allowed — proceed to delete
-    }
-    // Student / Dean / Principal / Warden (non-owners): No write access
-    else {
-      const roleMsg = {
-        'student': 'Students cannot delete usage records. Please contact your Warden.',
-        'warden': 'Wardens can only delete their own usage records or those in their block.',
-        'dean': 'Deans have read-only access. You cannot delete usage records.',
-        'principal': 'Principals have read-only access. You cannot delete usage records.'
+    if (!DELETE_ROLES.includes(user.role)) {
+      const roleMessages = {
+        warden: 'Access denied: Wardens cannot delete usage records. Contact the General Manager or Admin to archive records.',
+        dean: 'Access denied: Deans have read-only access and cannot delete usage records.',
+        principal: 'Access denied: Principals have read-only access and cannot delete usage records.',
+        student: 'Access denied: Students cannot delete usage records.',
       };
       return res.status(403).json({
         success: false,
-        message: roleMsg[user.role] || 'Access denied'
+        message: roleMessages[user.role] || 'Access denied: Insufficient permissions to delete usage records.'
       });
     }
 
@@ -421,7 +585,7 @@ exports.deleteUsage = async (req, res) => {
 
     // Re-run threshold checks for the same date/resource to update/remove alerts
     try {
-      await checkThresholds(req.userId, existingUsage.resource_type, existingUsage.usage_date);
+      await checkThresholds(req.userId, existingUsage.resource_type, existingUsage.usage_date, existingUsage.blockId);
     } catch (e) {
       console.error('Error re-checking thresholds after delete:', e.message);
     }
@@ -467,40 +631,53 @@ exports.getDashboardStats = async (req, res) => {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    let matchStage = { usage_date: { $gte: startOfMonth } };
+    let matchStage = { usage_date: { $gte: startOfMonth }, deleted: { $ne: true } };
 
     try {
       if (userRole === 'student') {
+        // Students see only their own personal usage
         matchStage.userId = new mongoose.Types.ObjectId(userId);
       } else if (userRole === 'warden') {
         const user = await User.findById(userId);
         if (user && user.block) {
-          // If warden has a block, aggregate usage for that block
-          // We can match by blockId directly if Usage has blockId, or by userIds in that block
-          // Usage model has blockId, so let's try that first for efficiency, 
-          // but fallback to userId list if blockId isn't populated on usages.
-          // Since usageController.createUsage adds blockId, we should prioritize blockId.
+          // Warden sees all records for their assigned block
           matchStage.blockId = user.block;
-          delete matchStage.userId; // Remove userId constraint to see all block usage
         } else {
-          // Warden without block sees their own usage
-          matchStage.userId = new mongoose.Types.ObjectId(userId);
+          // Warden not assigned to a block: return empty stats
+          return res.json({
+            role: userRole,
+            stats: {},
+            sustainabilityScore: 0,
+            totalUsage: 0,
+            monthlyUsage: [],
+            recentAlerts: []
+          });
         }
-      } else if (['admin', 'dean', 'principal'].includes(userRole)) {
-        // Admin/Dean/Principal might want to see everything or just their own.
-        // For now, let's show them their own usage here, 
-        // as they have specific dashboards for system-wide stats.
-        matchStage.userId = new mongoose.Types.ObjectId(userId);
       }
+      // Admin / Dean / Principal: no filter — see ALL campus usage records
+      // (matchStage already only has date + deleted filter, which is correct)
     } catch (filterErr) {
       console.error('Filter construction error:', filterErr);
-      matchStage.userId = new mongoose.Types.ObjectId(userId);
+      // On error for admin/dean/principal, proceed with unfiltered (safe default)
+      if (userRole === 'student') {
+        matchStage.userId = new mongoose.Types.ObjectId(userId);
+      }
     }
 
     const usageStats = await Usage.aggregate([
       { $match: matchStage },
       { $group: { _id: '$resource_type', total: { $sum: '$usage_value' } } }
     ]) || [];
+
+    // Load cost rates from SystemConfig (Admin-configured) rather than using hardcoded values
+    const systemConfigs = await SystemConfig.find({}, 'resource costPerUnit unit').lean();
+    const configRateMap = {};
+    systemConfigs.forEach(c => { configRateMap[c.resource] = c.costPerUnit ?? 0; });
+
+    // Fallback rates if SystemConfig hasn't been seeded yet
+    const fallbackRates = {
+      Electricity: 12, Water: 0.5, LPG: 80, Diesel: 95, Food: 150, Waste: 10
+    };
 
     const stats = {};
     let totalUsage = 0;
@@ -509,16 +686,7 @@ exports.getDashboardStats = async (req, res) => {
       usageStats.forEach(item => {
         if (!item || !item._id) return;
 
-        let rate = 0;
-        switch (item._id) {
-          case 'Electricity': rate = 12; break;
-          case 'Water': rate = 0.5; break;
-          case 'LPG': rate = 80; break;
-          case 'Diesel': rate = 95; break;
-          case 'Food': rate = 150; break;
-          default: rate = 10;
-        }
-
+        const rate = configRateMap[item._id] ?? fallbackRates[item._id] ?? 10;
         const val = Number(item.total) || 0;
         stats[item._id] = {
           current: val,
@@ -609,7 +777,11 @@ exports.getUsageTrends = async (req, res) => {
     startDate.setHours(0, 0, 0, 0);
 
     // ── Role-based match filter ──────────────────────────────────
-    let matchFilter = { usage_date: { $gte: startDate, $lte: endDate } };
+    // Always exclude soft-deleted records
+    let matchFilter = {
+      usage_date: { $gte: startDate, $lte: endDate },
+      deleted: { $ne: true }
+    };
 
     if (resource && resource !== 'All') {
       matchFilter.resource_type = resource;
@@ -622,10 +794,11 @@ exports.getUsageTrends = async (req, res) => {
       if (user && user.block) {
         matchFilter.blockId = user.block;
       } else {
-        matchFilter.userId = new mongoose.Types.ObjectId(userId);
+        // Warden without block: return empty trend
+        return res.json({ success: true, data: [], range, resource: resource || 'All' });
       }
     }
-    // admin / dean / principal → no extra filter, see all
+    // admin / dean / principal → no extra filter, see all campus records
 
     // ── Aggregate by date ────────────────────────────────────────
     const aggregated = await Usage.aggregate([
@@ -653,5 +826,215 @@ exports.getUsageTrends = async (req, res) => {
   } catch (err) {
     console.error('getUsageTrends error:', err);
     res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+/**
+ * @desc    Export usage data as CSV
+ * @route   GET /api/usage/export/csv?startDate=&endDate=&resource=&blockId=
+ * @access  Private (not students)
+ */
+exports.exportUsageCSV = async (req, res) => {
+  try {
+    if (req.user?.role === 'student') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const { startDate, endDate, resource, blockId, dateRange } = req.query;
+    let filter = { deleted: { $ne: true } };
+
+    // Apply role-based scoping
+    if (req.user?.role === 'warden') {
+      const user = await User.findById(req.userId);
+      if (user?.block) filter.blockId = user.block;
+    } else if (blockId && mongoose.Types.ObjectId.isValid(blockId)) {
+      filter.blockId = new mongoose.Types.ObjectId(blockId);
+    }
+
+    // Apply date range filter
+    const dateFilter = buildDateRangeFilter({ startDate, endDate, dateRange, dateField: 'usage_date' });
+    Object.assign(filter, dateFilter);
+
+    if (resource && resource !== 'All') {
+      filter.resource_type = resource;
+    }
+
+    const usages = await Usage.find(filter)
+      .sort({ usage_date: -1 })
+      .limit(10000)
+      .populate('userId', 'name email')
+      .populate('blockId', 'name')
+      .lean();
+
+    const csv = exportService.generateUsageCSV(usages);
+    const fileName = `usage_export_${new Date().toISOString().split('T')[0]}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.send(csv);
+
+    // Log export action
+    try {
+      await AuditLog.create({
+        action: 'EXPORT',
+        resourceType: 'Usage',
+        userId: req.userId,
+        description: `Exported ${usages.length} usage records as CSV`,
+        changes: { filters: { dateRange, resource, blockId } }
+      });
+    } catch (e) { /* non-critical */ }
+  } catch (error) {
+    console.error('CSV export error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+/**
+ * @desc    Export usage data as PDF
+ * @route   GET /api/usage/export/pdf?startDate=&endDate=&resource=&blockId=
+ * @access  Private (not students)
+ */
+exports.exportUsagePDF = async (req, res) => {
+  try {
+    if (req.user?.role === 'student') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const { startDate, endDate, resource, blockId, dateRange } = req.query;
+    let filter = { deleted: { $ne: true } };
+
+    // Apply role-based scoping
+    if (req.user?.role === 'warden') {
+      const user = await User.findById(req.userId);
+      if (user?.block) filter.blockId = user.block;
+    } else if (blockId && mongoose.Types.ObjectId.isValid(blockId)) {
+      filter.blockId = new mongoose.Types.ObjectId(blockId);
+    }
+
+    // Apply date range filter
+    const dateFilter = buildDateRangeFilter({ startDate, endDate, dateRange, dateField: 'usage_date' });
+    Object.assign(filter, dateFilter);
+
+    if (resource && resource !== 'All') {
+      filter.resource_type = resource;
+    }
+
+    const usages = await Usage.find(filter)
+      .sort({ usage_date: -1 })
+      .limit(1000) // PDF limit for performance
+      .populate('userId', 'name email')
+      .populate('blockId', 'name')
+      .lean();
+
+    const fileName = `usage_report_${new Date().toISOString().split('T')[0]}.pdf`;
+    const pdfDoc = exportService.generateUsagePDF({
+      title: 'Usage Report',
+      data: usages,
+      startDate,
+      endDate,
+      generatedBy: req.user?.name || 'Administrator'
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+
+    pdfDoc.pipe(res);
+    pdfDoc.end();
+
+    // Log export action
+    try {
+      await AuditLog.create({
+        action: 'EXPORT',
+        resourceType: 'Usage',
+        userId: req.userId,
+        description: `Exported ${usages.length} usage records as PDF`,
+        changes: { filters: { dateRange, resource, blockId } }
+      });
+    } catch (e) { /* non-critical */ }
+  } catch (error) {
+    console.error('PDF export error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+/**
+ * @desc    Get efficiency metrics for usage
+ * @route   GET /api/usage/metrics/efficiency?blockId=&startDate=&endDate=
+ * @access  Private
+ */
+exports.getEfficiencyMetrics = async (req, res) => {
+  try {
+    const { blockId, startDate, endDate } = req.query;
+
+    // Role-based scoping
+    let scopedBlockId = blockId;
+    if (req.user?.role === 'warden') {
+      const user = await User.findById(req.userId);
+      scopedBlockId = user?.block;
+    }
+
+    const efficiency = await metricsService.calculateEfficiencyScore(
+      scopedBlockId ? new mongoose.Types.ObjectId(scopedBlockId) : null,
+      startDate ? new Date(startDate) : null,
+      endDate ? new Date(endDate) : null
+    );
+
+    const costData = await metricsService.calculateResourceCost(
+      scopedBlockId ? new mongoose.Types.ObjectId(scopedBlockId) : null,
+      startDate ? new Date(startDate) : null,
+      endDate ? new Date(endDate) : null
+    );
+
+    const trend = await metricsService.calculateTrend('daily', scopedBlockId ? new mongoose.Types.ObjectId(scopedBlockId) : null);
+    const topResources = await metricsService.getTopConsumingResources(
+      scopedBlockId ? new mongoose.Types.ObjectId(scopedBlockId) : null,
+      5
+    );
+
+    res.json({
+      success: true,
+      efficiency,
+      cost: costData,
+      trend,
+      topResources,
+      period: { startDate, endDate }
+    });
+  } catch (error) {
+    console.error('Efficiency metrics error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+/**
+ * @desc    Get anomalies in usage patterns
+ * @route   GET /api/usage/anomalies?blockId=
+ * @access  Private (Admin/Warden+)
+ */
+exports.getAnomalies = async (req, res) => {
+  try {
+    if (!req.user || !['admin', 'warden', 'gm', 'dean'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const { blockId } = req.query;
+
+    // Role-based scoping
+    let scopedBlockId = blockId;
+    if (req.user?.role === 'warden') {
+      const user = await User.findById(req.userId);
+      scopedBlockId = user?.block;
+    }
+
+    const anomalies = await anomalyService.detectAnomalies(scopedBlockId || null);
+
+    res.json({
+      success: true,
+      anomalies,
+      count: anomalies.length,
+      timestamp: new Date()
+    });
+  } catch (error) {
+    console.error('Anomalies detection error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 }

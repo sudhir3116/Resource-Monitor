@@ -24,6 +24,9 @@ const {
   currentMonthRange, daysAgo, apiSuccess, apiError,
 } = require('../config/constants');
 
+const { parseSortParam, buildDateRangeFilter, parsePagination } = require('../utils/queryBuilder');
+const exportService = require('../services/exportService');
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIVATE HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,23 +46,17 @@ async function _buildScopeFilter(reqUser) {
   const filter = {};
   const role = reqUser.role;
 
-  if (role === ROLES.STUDENT) {
+  // Wardens and Students are scoped to their assigned block only
+  if (role === ROLES.STUDENT || role === ROLES.WARDEN) {
     const user = await User.findById(reqUser.id).lean();
-    if (user?.block) filter.block = user.block;
-    else filter.user = reqUser.id;
-
-  } else if (role === ROLES.WARDEN) {
-    const user = await User.findById(reqUser.id).lean();
-    if (user?.block) filter.block = user.block;
-
-  } else if (role === ROLES.PRINCIPAL) {
-    // Principal sees only Escalated / Severe / Critical
-    filter.$or = [
-      { status: ALERT_STATUS.ESCALATED },
-      { severity: { $in: ['Critical', 'Severe'] } },
-    ];
+    if (user?.block) {
+      filter.block = user.block; // Only their assigned block
+    } else {
+      filter._id = null; // matches nothing if no block assigned
+    }
   }
-  // Admin / Dean → no scope restriction (see all)
+  // Admin, General Manager, Dean, Principal → full campus visibility (no scope restriction)
+  // General Manager monitors all blocks to review and resolve alerts.
   return filter;
 }
 
@@ -73,11 +70,11 @@ exports.getAlerts = async (req, res) => {
 
     let filter = await _buildScopeFilter(req.user);
 
-    // Additional query filters (students cannot override their scope)
+    // Additional query filters
     if (status) filter.status = status;
     if (severity) filter.severity = severity;
     if (alertType) filter.alertType = alertType;
-    if (blockId && req.user.role !== ROLES.STUDENT) filter.block = blockId;
+    if (blockId) filter.block = blockId;
 
     if (startDate || endDate) {
       filter.createdAt = {};
@@ -193,6 +190,21 @@ exports.createAlert = async (req, res) => {
 
     const today = new Date(); today.setHours(0, 0, 0, 0);
 
+    // ── Severity auto-upgrade based on usage vs configured limit ────────────────────
+    // If amount and threshold are provided, upgrade severity automatically:
+    //   > 200% of limit → Critical
+    //   > 150% of limit → High
+    //   otherwise fall back to provided severity or Warning
+    let resolvedSeverity = severity || 'Warning';
+    if (amount && threshold && threshold > 0) {
+      const usagePercent = (amount / threshold) * 100;
+      if (usagePercent >= 200) {
+        resolvedSeverity = 'Critical';
+      } else if (usagePercent >= 150) {
+        resolvedSeverity = 'High';
+      }
+    }
+
     const alertData = {
       block: blockId || null,
       user: req.user.id,
@@ -200,11 +212,12 @@ exports.createAlert = async (req, res) => {
       alertType: ALERT_TYPES.MANUAL,
       alertDate: today,
       message,
-      severity: severity || 'Warning',
+      severity: resolvedSeverity,
       amount: amount || null,
       threshold: threshold || null,
       status: ALERT_STATUS.ACTIVE,
       createdBy: req.user.id,
+      lastActionAt: new Date(),
     };
 
     // Optionally seed the first comment
@@ -222,7 +235,7 @@ exports.createAlert = async (req, res) => {
       .populate('user', 'name email');
 
     await _audit('CREATE', alert._id, req.user.id,
-      `Manual alert created by ${req.user.role}: ${message}`);
+      `Manual alert created by ${req.user.role}: ${message} (severity: ${resolvedSeverity})`);
 
     // Notify connected clients about new manual alert
     try {
@@ -256,6 +269,7 @@ exports.investigateAlert = async (req, res) => {
     alert.investigatedBy = req.user.id;
     alert.investigatedAt = new Date();
     alert.isRead = true;
+    alert.lastActionAt = new Date(); // track last activity for cron escalation
 
     // Optionally add a comment
     const comment = req.body?.comment?.trim();
@@ -271,6 +285,22 @@ exports.investigateAlert = async (req, res) => {
     const updated = await Alert.findById(alert._id)
       .populate('block', 'name')
       .populate('investigatedBy', 'name email');
+
+    try {
+      const socketUtil = require('../utils/socket');
+      const socketManager = require('../socket/socketManager');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) {
+        io.emit('alerts:refresh');
+        socketManager.emitToAll(io, 'alert:updated', {
+          alertId: alert._id,
+          newStatus: alert.status,
+          updatedBy: req.user.id,
+          timestamp: new Date()
+        });
+      }
+    } catch (e) { /* non-fatal */ }
+
     return apiSuccess(res, { message: 'Alert marked as Investigating', alert: updated });
 
   } catch (err) {
@@ -296,6 +326,7 @@ exports.reviewAlert = async (req, res) => {
     alert.reviewedBy = req.user.id;
     alert.reviewedAt = new Date();
     alert.isRead = true;
+    alert.lastActionAt = new Date();
 
     const comment = req.body?.comment?.trim();
     if (comment) {
@@ -310,6 +341,22 @@ exports.reviewAlert = async (req, res) => {
     const updated = await Alert.findById(alert._id)
       .populate('block', 'name')
       .populate('reviewedBy', 'name email');
+
+    try {
+      const socketUtil = require('../utils/socket');
+      const socketManager = require('../socket/socketManager');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) {
+        io.emit('alerts:refresh');
+        socketManager.emitToAll(io, 'alert:updated', {
+          alertId: alert._id,
+          newStatus: alert.status,
+          updatedBy: req.user.id,
+          timestamp: new Date()
+        });
+      }
+    } catch (e) { /* non-fatal */ }
+
     return apiSuccess(res, { message: 'Alert marked as Reviewed', alert: updated });
 
   } catch (err) {
@@ -319,13 +366,17 @@ exports.reviewAlert = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 6. PUT /api/alerts/:id/resolve  — non-students
+// 6. PUT /api/alerts/:id/resolve  — General Manager / Admin only
+// Wardens investigate; only GM or Admin may formally resolve.
 // ─────────────────────────────────────────────────────────────────────────────
 exports.resolveAlert = async (req, res) => {
   try {
-    // Only Warden, Dean, Admin, Principal can resolve alerts
-    if (![ROLES.WARDEN, ROLES.DEAN, ROLES.ADMIN, ROLES.PRINCIPAL].includes(req.user.role)) {
-      return apiError(res, 'Access denied', 403);
+    const RESOLVE_ROLES = [ROLES.ADMIN, ROLES.GM];
+    if (!RESOLVE_ROLES.includes(req.user.role)) {
+      return apiError(res,
+        'Access denied: Only the General Manager or Admin can resolve alerts. Wardens may investigate but not close alerts.',
+        403
+      );
     }
 
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -343,6 +394,7 @@ exports.resolveAlert = async (req, res) => {
     alert.resolvedAt = new Date();
     alert.resolutionComment = comment;
     alert.isRead = true;
+    alert.lastActionAt = new Date();
 
     alert.comments.push({
       comment: `Resolved: ${comment}`,
@@ -359,6 +411,24 @@ exports.resolveAlert = async (req, res) => {
       .populate('block', 'name')
       .populate('resolvedBy', 'name email')
       .populate('reviewedBy', 'name email');
+
+    try {
+      const socketUtil = require('../utils/socket');
+      const socketManager = require('../socket/socketManager');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) {
+        io.emit('alerts:refresh');
+        socketManager.emitToAll(io, 'alert:updated', {
+          alertId: alert._id,
+          newStatus: alert.status,
+          updatedBy: req.user.id,
+          timestamp: new Date()
+        });
+        socketManager.emitToRole(io, 'admin', 'dashboard:alert_resolved', {});
+        socketManager.emitToRole(io, 'gm', 'dashboard:alert_resolved', {});
+      }
+    } catch (e) { /* non-fatal */ }
+
     return apiSuccess(res, { message: 'Alert resolved successfully', alert: updated });
 
   } catch (err) {
@@ -393,6 +463,23 @@ exports.dismissAlert = async (req, res) => {
     await _audit('RESOLVE_ALERT', alert._id, req.user.id,
       `Alert dismissed by ${req.user.role}: ${reason}`);
 
+    try {
+      const socketUtil = require('../utils/socket');
+      const socketManager = require('../socket/socketManager');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) {
+        io.emit('alerts:refresh');
+        socketManager.emitToAll(io, 'alert:updated', {
+          alertId: alert._id,
+          newStatus: alert.status,
+          updatedBy: req.user.id,
+          timestamp: new Date()
+        });
+        socketManager.emitToRole(io, 'admin', 'dashboard:alert_resolved', {});
+        socketManager.emitToRole(io, 'gm', 'dashboard:alert_resolved', {});
+      }
+    } catch (e) { /* non-fatal */ }
+
     return apiSuccess(res, { message: 'Alert dismissed', alert });
 
   } catch (err) {
@@ -412,7 +499,7 @@ exports.acknowledgeAlert = async (req, res) => {
     const alert = await Alert.findById(req.params.id);
     if (!alert) return apiError(res, 'Alert not found', 404);
 
-    if (req.user.role === ROLES.PRINCIPAL) {
+    if (req.user.role === ROLES.DEAN) {
       alert.principalAcknowledgedBy = req.user.id;
       alert.principalAcknowledgedAt = new Date();
     }
@@ -433,10 +520,117 @@ exports.acknowledgeAlert = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 9a. PUT /api/alerts/:id/escalate  — Admin / General Manager: override to Escalated
+// ─────────────────────────────────────────────────────────────────────────────
+exports.escalateAlert = async (req, res) => {
+  try {
+    const ESCALATE_ROLES = [ROLES.ADMIN, ROLES.GM];
+    if (!ESCALATE_ROLES.includes(req.user.role)) {
+      return apiError(res, 'Only Admin or General Manager can escalate alerts', 403);
+    }
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid alert ID' });
+    }
+    const alert = await Alert.findById(req.params.id);
+    if (!alert) return apiError(res, 'Alert not found', 404);
+    if (alert.status === ALERT_STATUS.RESOLVED)
+      return apiError(res, 'Cannot escalate a resolved alert. Reopen it first.', 400);
+    if (alert.status === ALERT_STATUS.ESCALATED)
+      return apiError(res, 'Alert is already escalated', 400);
+
+    const reason = req.body?.reason?.trim() || 'Escalated by Admin';
+    alert.status = ALERT_STATUS.ESCALATED;
+    alert.isRead = true;
+    alert.comments.push({ comment: `Escalated: ${reason}`, addedBy: req.user.id, role: req.user.role, timestamp: new Date() });
+    await alert.save();
+
+    await _audit('RESOLVE_ALERT', alert._id, req.user.id, `Alert escalated by Admin: ${reason}`, { after: { status: 'Escalated' } });
+    const updated = await Alert.findById(alert._id).populate('block', 'name').populate('user', 'name email');
+
+    try {
+      const socketUtil = require('../utils/socket');
+      const socketManager = require('../socket/socketManager');
+      const io = socketUtil.getIO?.();
+      if (io) {
+        io.emit('alerts:refresh');
+        socketManager.emitToAll(io, 'alert:updated', {
+          alertId: alert._id,
+          newStatus: alert.status,
+          updatedBy: req.user.id,
+          timestamp: new Date()
+        });
+      }
+    } catch (e) { }
+
+    return apiSuccess(res, { message: 'Alert escalated', alert: updated });
+  } catch (err) {
+    console.error('[Alerts] escalateAlert error:', err);
+    return apiError(res, err.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9b. PUT /api/alerts/:id/reopen  — Admin / General Manager: reopen resolved/dismissed alert
+// ─────────────────────────────────────────────────────────────────────────────
+exports.reopenAlert = async (req, res) => {
+  try {
+    const REOPEN_ROLES = [ROLES.ADMIN, ROLES.GM];
+    if (!REOPEN_ROLES.includes(req.user.role)) {
+      return apiError(res, 'Only Admin or General Manager can reopen alerts', 403);
+    }
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid alert ID' });
+    }
+    const alert = await Alert.findById(req.params.id);
+    if (!alert) return apiError(res, 'Alert not found', 404);
+
+    const allowedStatuses = [ALERT_STATUS.RESOLVED, ALERT_STATUS.DISMISSED];
+    if (!allowedStatuses.includes(alert.status))
+      return apiError(res, `Alert status is "${alert.status}" — only Resolved or Dismissed alerts can be reopened.`, 400);
+
+    const reason = req.body?.reason?.trim() || 'Reopened by Admin for re-investigation';
+    const previousStatus = alert.status;
+    alert.status = ALERT_STATUS.ACTIVE;
+    alert.resolvedBy = undefined;
+    alert.resolvedAt = undefined;
+    alert.resolutionComment = undefined;
+    alert.isRead = false;
+    alert.comments.push({ comment: `Reopened from ${previousStatus}: ${reason}`, addedBy: req.user.id, role: req.user.role, timestamp: new Date() });
+    await alert.save();
+
+    await _audit('RESOLVE_ALERT', alert._id, req.user.id, `Alert reopened by Admin (was: ${previousStatus})`, { before: { status: previousStatus }, after: { status: 'Active' } });
+    const updated = await Alert.findById(alert._id).populate('block', 'name').populate('user', 'name email');
+
+    try {
+      const socketUtil = require('../utils/socket');
+      const socketManager = require('../socket/socketManager');
+      const io = socketUtil.getIO?.();
+      if (io) {
+        io.emit('alerts:refresh');
+        socketManager.emitToAll(io, 'alert:updated', {
+          alertId: alert._id,
+          newStatus: alert.status,
+          updatedBy: req.user.id,
+          timestamp: new Date()
+        });
+        socketManager.emitToRole(io, 'admin', 'dashboard:alert_created', { severity: alert.severity });
+        socketManager.emitToRole(io, 'gm', 'dashboard:alert_created', { severity: alert.severity });
+      }
+    } catch (e) { }
+
+    return apiSuccess(res, { message: 'Alert reopened successfully', alert: updated });
+  } catch (err) {
+    console.error('[Alerts] reopenAlert error:', err);
+    return apiError(res, err.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 9. POST /api/alerts/:id/comment  — add investigation note to timeline
 //    Students cannot add comments (read-only)
 // ─────────────────────────────────────────────────────────────────────────────
 exports.addComment = async (req, res) => {
+
   try {
     if (req.user.role === ROLES.STUDENT) {
       return apiError(res, 'Students cannot add investigation notes', 403);
@@ -791,6 +985,146 @@ exports.deleteAlertRule = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Export alerts as CSV
+ * @route   GET /api/alerts/export/csv
+ * @access  Private (Admin/GM/Warden+)
+ */
+exports.exportAlertsCSV = async (req, res) => {
+  try {
+    const { status, severity, startDate, endDate, blockId, dateRange } = req.query;
+
+    let filter = await (async () => {
+      const f = {};
+      const role = req.user.role;
+
+      if (role === ROLES.WARDEN || role === ROLES.STUDENT) {
+        const user = await User.findById(req.user.id).lean();
+        if (user?.block) {
+          f.block = user.block;
+        } else {
+          return { _id: null };
+        }
+      }
+
+      if (blockId && mongoose.Types.ObjectId.isValid(blockId)) {
+        f.block = new mongoose.Types.ObjectId(blockId);
+      }
+
+      return f;
+    })();
+
+    if (status) filter.status = status;
+    if (severity) filter.severity = severity;
+
+    const dateFilter = buildDateRangeFilter({ startDate, endDate, dateRange, dateField: 'createdAt' });
+    Object.assign(filter, dateFilter);
+
+    const alerts = await Alert.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(10000)
+      .populate('block', 'name')
+      .populate('user', 'name email')
+      .populate('resolvedBy', 'name email')
+      .lean();
+
+    const csv = exportService.generateAlertsCSV(alerts);
+    const fileName = `alerts_export_${new Date().toISOString().split('T')[0]}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.send(csv);
+
+    // Audit log
+    try {
+      await AuditLog.create({
+        action: 'EXPORT',
+        resourceType: 'Alert',
+        userId: req.user.id,
+        description: `Exported ${alerts.length} alerts as CSV`,
+        changes: { filters: { status, severity, dateRange } }
+      });
+    } catch (e) { /* non-critical */ }
+  } catch (error) {
+    console.error('Alerts CSV export error:', error);
+    return apiError(res, error.message);
+  }
+};
+
+/**
+ * @desc    Export alerts as PDF
+ * @route   GET /api/alerts/export/pdf
+ * @access  Private (Admin/GM/Warden+)
+ */
+exports.exportAlertsPDF = async (req, res) => {
+  try {
+    const { status, severity, startDate, endDate, blockId, dateRange } = req.query;
+
+    let filter = await (async () => {
+      const f = {};
+      const role = req.user.role;
+
+      if (role === ROLES.WARDEN || role === ROLES.STUDENT) {
+        const user = await User.findById(req.user.id).lean();
+        if (user?.block) {
+          f.block = user.block;
+        } else {
+          return { _id: null };
+        }
+      }
+
+      if (blockId && mongoose.Types.ObjectId.isValid(blockId)) {
+        f.block = new mongoose.Types.ObjectId(blockId);
+      }
+
+      return f;
+    })();
+
+    if (status) filter.status = status;
+    if (severity) filter.severity = severity;
+
+    const dateFilter = buildDateRangeFilter({ startDate, endDate, dateRange, dateField: 'createdAt' });
+    Object.assign(filter, dateFilter);
+
+    const alerts = await Alert.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(1000) // PDF limit for performance
+      .populate('block', 'name')
+      .populate('user', 'name email')
+      .populate('resolvedBy', 'name email')
+      .lean();
+
+    const fileName = `alerts_report_${new Date().toISOString().split('T')[0]}.pdf`;
+    const pdfDoc = exportService.generateAlertsPDF({
+      title: 'Alerts Report',
+      data: alerts,
+      startDate,
+      endDate,
+      generatedBy: req.user?.name || 'Administrator'
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+
+    pdfDoc.pipe(res);
+    pdfDoc.end();
+
+    // Audit log
+    try {
+      await AuditLog.create({
+        action: 'EXPORT',
+        resourceType: 'Alert',
+        userId: req.user.id,
+        description: `Exported ${alerts.length} alerts as PDF`,
+        changes: { filters: { status, severity, dateRange } }
+      });
+    } catch (e) { /* non-critical */ }
+  } catch (error) {
+    console.error('Alerts PDF export error:', error);
+    return apiError(res, error.message);
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MODULE EXPORTS  (reference exports.* — they are set with exports.fn = syntax above)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -808,6 +1142,8 @@ module.exports = {
   resolveAlert: exports.resolveAlert,
   dismissAlert: exports.dismissAlert,
   acknowledgeAlert: exports.acknowledgeAlert,
+  escalateAlert: exports.escalateAlert,   // ← was missing
+  reopenAlert: exports.reopenAlert,       // ← was missing
   addComment: exports.addComment,
   getAlertStats: exports.getAlertStats,
   getAlertAnalytics: exports.getAlertAnalytics,
@@ -815,5 +1151,7 @@ module.exports = {
   getAlertRules: exports.getAlertRules,
   updateAlertRule: exports.updateAlertRule,
   deleteAlertRule: exports.deleteAlertRule,
+  exportAlertsCSV: exports.exportAlertsCSV,
+  exportAlertsPDF: exports.exportAlertsPDF,
 };
 

@@ -11,6 +11,19 @@ export default defineConfig({
                 target: 'http://localhost:5001',
                 changeOrigin: true,
                 secure: false,
+                configure: (proxy) => {
+                    proxy.on('error', (err, req, res) => {
+                        console.log('[Proxy] Backend not reachable yet')
+                        res.writeHead(503, { 'Content-Type': 'application/json' })
+                        res.end(JSON.stringify({
+                            message: 'Backend server is not running'
+                        }))
+                    })
+                }
+            },
+            '/socket.io': {
+                target: 'ws://localhost:5001',
+                ws: true,
             }
         }
     }

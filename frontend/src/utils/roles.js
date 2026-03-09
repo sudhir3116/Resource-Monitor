@@ -3,7 +3,8 @@ export const ROLES = {
     ADMIN: 'admin',
     WARDEN: 'warden',
     DEAN: 'dean',
-    PRINCIPAL: 'principal'
+    PRINCIPAL: 'principal',
+    GM: 'gm'
 };
 
 export const hasAccess = (userRole, allowedRoles) => {
