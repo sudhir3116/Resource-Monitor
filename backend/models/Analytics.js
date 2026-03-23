@@ -9,7 +9,7 @@ const analyticsSchema = new mongoose.Schema({
     resourceType: {
         type: String,
         required: true,
-        enum: ['Electricity', 'Water', 'LPG', 'Diesel', 'Food', 'Waste']
+        enum: ['Electricity', 'Water', 'LPG', 'Diesel', 'Solar', 'Waste']
     },
     period: {
         month: { type: Number, required: true }, // 1-12

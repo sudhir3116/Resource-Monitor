@@ -8,6 +8,7 @@ const mailer = require('../utils/mailer')
 const { checkThresholds } = require('../services/thresholdService')
 const mongoose = require('mongoose')
 const SystemConfig = require('../models/SystemConfig')
+const ResourceConfig = require('../models/ResourceConfig')
 const { RESOURCE_UNITS } = require('../config/constants')
 const { parseSortParam, buildDateRangeFilter, parsePagination } = require('../utils/queryBuilder')
 const exportService = require('../services/exportService')
@@ -71,12 +72,12 @@ const calculateSustainabilityScore = async (userId, userRole, blockId) => {
         // SIMPLE FIX: If not student, lenient thresholds (x100)
         let thresholdMultiplier = (userRole === 'student') ? 1 : 50;
 
+        if (type === 'Solar' && total > (100 * thresholdMultiplier)) totalPenalty -= 10;
         if (type === 'Waste' && total > (100 * thresholdMultiplier)) totalPenalty += 30;
         if (type === 'Diesel' && total > (50 * thresholdMultiplier)) totalPenalty += 30;
         if (type === 'Electricity' && total > (1000 * thresholdMultiplier)) totalPenalty += 20;
         if (type === 'LPG' && total > (100 * thresholdMultiplier)) totalPenalty += 20;
         if (type === 'Water' && total > (5000 * thresholdMultiplier)) totalPenalty += 10;
-        if (type === 'Food' && total > (200 * thresholdMultiplier)) totalPenalty += 10;
       });
     }
 
@@ -199,26 +200,16 @@ exports.createUsage = async (req, res) => {
     let resourceConfig = null;
 
     try {
-      // Try to find resource config (could be block-specific or global)
-      if (resolvedBlockId) {
-        resourceConfig = await SystemConfig.findOne({ 
-          resource: resource_type,
-          $or: [
-            { blockOverrides: { $elemMatch: { _id: resolvedBlockId.toString() } } },
-            { blockOverrides: { $size: 0 } } // Or global config if no block overrides
-          ]
-        });
-      } else {
-        resourceConfig = await SystemConfig.findOne({ resource: resource_type });
+      // Validate against new ResourceConfig
+      resourceConfig = await ResourceConfig.findOne({ name: resource_type, isActive: true });
+      if (!resourceConfig) {
+        return res.status(400).json({ success: false, message: `Invalid or inactive resource type: ${resource_type}` });
       }
-
-      if (resourceConfig) {
-        costPerUnit = resourceConfig.costPerUnit || 0;
-        currency = resourceConfig.currency || '₹';
-      }
+      // Assuming a costPerUnit might be added to ResourceConfig later, defaulting to 0
+      costPerUnit = resourceConfig.costPerUnit || 0;
+      currency = resourceConfig.currency || '₹';
     } catch (configErr) {
-      console.error('Error fetching resource config for cost:', configErr);
-      // Continue without cost - not a fatal error
+      console.error('Error fetching resource config:', configErr);
     }
 
     const cost = usage_value * costPerUnit;
@@ -229,12 +220,7 @@ exports.createUsage = async (req, res) => {
       resource_type,
       category,
       usage_value,
-      unit: req.body.unit || (await (async () => {
-        try {
-          const cfg = await SystemConfig.findOne({ resource: resource_type });
-          return cfg?.unit || RESOURCE_UNITS[resource_type] || '';
-        } catch (e) { return RESOURCE_UNITS[resource_type] || ''; }
-      })()),
+      unit: req.body.unit || resourceConfig?.unit || '',
       usage_date,
       notes,
       cost,
@@ -254,6 +240,68 @@ exports.createUsage = async (req, res) => {
     // ⭐ CRITICAL FIX: Pass blockId to trigger block-scoped alert checks
     console.log(`[TRACE:CALLING_THRESHOLD_CHECK] Starting threshold checks...\n`);
     await checkThresholds(userId, resource_type, usage_date, resolvedBlockId);
+
+    // After saving usage record (requested threshold auto-alert check):
+    if (resolvedBlockId) {
+      // config already fetched above as resourceConfig
+      const config = resourceConfig;
+
+      if (config) {
+        const today = new Date(usage_date);
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        // Sum today's usage for this resource + block
+        const todayTotal = await Usage.aggregate([
+          {
+            $match: {
+              blockId: resolvedBlockId,
+              resource_type: resource_type,
+              usage_date: { $gte: today, $lt: tomorrow },
+              deleted: { $ne: true }
+            }
+          },
+          { $group: { _id: null, total: { $sum: '$usage_value' } } }
+        ]);
+
+        const total = todayTotal[0]?.total || 0;
+        const limit = config.dailyLimit || 100;
+        const percentage = (total / limit) * 100;
+
+        if (percentage >= 100) {
+          // Determine severity
+          let severity = 'Medium';
+          if (percentage >= 200) severity = 'Critical';
+          else if (percentage >= 150) severity = 'High';
+          else if (percentage >= 100) severity = 'Medium';
+
+          // Create alert (avoid duplicate for same day)
+          await Alert.findOneAndUpdate(
+            {
+              block: resolvedBlockId,
+              resourceType: resource_type,
+              alertType: 'daily',
+              createdAt: { $gte: today, $lt: tomorrow }
+            },
+            {
+              $setOnInsert: {
+                block: resolvedBlockId,
+                resourceType: resource_type,
+                alertType: 'daily',
+                severity: severity,
+                status: 'OPEN',
+                message: `Daily ${resource_type} limit exceeded. Used: ${total} / Limit: ${limit}`,
+                totalUsage: total,
+                dailyLimit: limit,
+                calculatedPercentage: percentage
+              }
+            },
+            { upsert: true, new: true }
+          );
+        }
+      }
+    }
 
     // ⭐ Emit socket event so UI refreshes immediately
     try {
@@ -343,15 +391,23 @@ exports.getUsages = async (req, res) => {
         message: 'Access denied. Students cannot view usage records.'
       });
     } else if (callerRole === 'warden') {
-      const user = await User.findById(req.userId);
-      if (user && user.block) {
-        // Warden sees ONLY records for their assigned block
-        filter.blockId = user.block;
-      } else {
-        // Warden without a block assigned: return empty
-        return res.json({ success: true, usages: [], total: 0, page: Number(page), pages: 0 });
+      // req.user.block is now populated by authMiddleware (ObjectId or populated doc)
+      const blockId =
+        req.user?.block?._id ||   // populated doc → extract _id
+        req.user?.block ||        // raw ObjectId
+        req.userObj?.block ||     // fallback: full userObj
+        null;
+
+      if (!blockId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Warden is not assigned to any block. Contact the administrator.'
+        });
       }
-    } else if (['dean', 'admin', 'gm'].includes(callerRole)) {
+
+      filter.blockId = blockId;
+      console.log(`[WARDEN FILTER] blockId=${blockId} role=${callerRole}`);
+    } else if (['dean', 'admin', 'gm', 'principal'].includes(callerRole)) {
       // Dean / Principal / Admin / General Manager: optional block filter
       if (block && mongoose.Types.ObjectId.isValid(block)) {
         filter.blockId = new mongoose.Types.ObjectId(block);
@@ -418,6 +474,7 @@ exports.getUsages = async (req, res) => {
       .skip(skip)
       .limit(pageLimit)
       .populate('userId', 'name email role block')
+      .populate('createdBy', 'name email role')
       .populate('blockId', 'name');
 
     const total = await Usage.countDocuments(filter);
@@ -622,129 +679,27 @@ exports.deleteUsage = async (req, res) => {
 
 exports.getDashboardStats = async (req, res) => {
   try {
-    if (!req.user || !req.userId) {
-      return res.status(401).json({ message: 'Unauthorized: User not found' });
-    }
-
-    const userId = req.userId;
-    const userRole = req.user.role || 'student';
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    let matchStage = { usage_date: { $gte: startOfMonth }, deleted: { $ne: true } };
-
-    try {
-      if (userRole === 'student') {
-        // Students see only their own personal usage
-        matchStage.userId = new mongoose.Types.ObjectId(userId);
-      } else if (userRole === 'warden') {
-        const user = await User.findById(userId);
-        if (user && user.block) {
-          // Warden sees all records for their assigned block
-          matchStage.blockId = user.block;
-        } else {
-          // Warden not assigned to a block: return empty stats
-          return res.json({
-            role: userRole,
-            stats: {},
-            sustainabilityScore: 0,
-            totalUsage: 0,
-            monthlyUsage: [],
-            recentAlerts: []
-          });
-        }
-      }
-      // Admin / Dean / Principal: no filter — see ALL campus usage records
-      // (matchStage already only has date + deleted filter, which is correct)
-    } catch (filterErr) {
-      console.error('Filter construction error:', filterErr);
-      // On error for admin/dean/principal, proceed with unfiltered (safe default)
-      if (userRole === 'student') {
-        matchStage.userId = new mongoose.Types.ObjectId(userId);
-      }
-    }
-
-    const usageStats = await Usage.aggregate([
-      { $match: matchStage },
-      { $group: { _id: '$resource_type', total: { $sum: '$usage_value' } } }
-    ]) || [];
-
-    // Load cost rates from SystemConfig (Admin-configured) rather than using hardcoded values
-    const systemConfigs = await SystemConfig.find({}, 'resource costPerUnit unit').lean();
-    const configRateMap = {};
-    systemConfigs.forEach(c => { configRateMap[c.resource] = c.costPerUnit ?? 0; });
-
-    // Fallback rates if SystemConfig hasn't been seeded yet
-    const fallbackRates = {
-      Electricity: 12, Water: 0.5, LPG: 80, Diesel: 95, Food: 150, Waste: 10
-    };
-
-    const stats = {};
-    let totalUsage = 0;
-
-    if (Array.isArray(usageStats)) {
-      usageStats.forEach(item => {
-        if (!item || !item._id) return;
-
-        const rate = configRateMap[item._id] ?? fallbackRates[item._id] ?? 10;
-        const val = Number(item.total) || 0;
-        stats[item._id] = {
-          current: val,
-          cost: (val * rate).toFixed(2)
-        };
-        totalUsage += val;
-      });
-    }
-
-
-
-    // Calculate Sustainability Score with Role Context
-    let blockId = null;
-    if (req.userObj && req.userObj.block) blockId = req.userObj.block;
-    // Fallback if not attached
-    if (!blockId && userRole === 'warden') {
-      const u = await User.findById(userId);
-      if (u) blockId = u.block;
-    }
-
-    const score = await calculateSustainabilityScore(userId, userRole, blockId);
-
-    let alertFilter = {};
-    if (userRole === 'student') {
-      alertFilter.user = userId;
-    } else if (userRole === 'warden') {
-      const user = await User.findById(userId);
-      if (user && user.block) {
-        alertFilter.block = user.block;
-      } else {
-        alertFilter.user = userId;
-      }
-    }
-
-    const recentAlerts = await Alert.find(alertFilter)
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .catch(() => []);
-
-    res.json({
-      role: userRole,
-      stats: stats,
-      sustainabilityScore: score,
-      totalUsage: totalUsage,
-      monthlyUsage: [],
-      recentAlerts: recentAlerts || []
+    const { getUsageSummary } = require('../services/usageService');
+    const u = await User.findById(req.userId);
+    const data = await getUsageSummary({
+      role: req.user.role,
+      blockId: req.user.block || req.user.blockId || u?.block || null
     });
 
+    // Maintain legacy shape for frontend compatibility if needed
+    res.json({
+      success: true,
+      role: req.user.role,
+      stats: data.summary,
+      sustainabilityScore: data.sustainabilityScore || 85,
+      totalUsage: data.grandTotal,
+      value: data.grandTotal, // Phase 2 compliance
+      alertsCount: data.alertsCount,
+      timestamp: new Date()
+    });
   } catch (err) {
-    console.error('getDashboardStats CRITICAL Failure:', err);
-    res.json({
-      role: req.user?.role || 'student',
-      stats: {},
-      sustainabilityScore: 0,
-      totalUsage: 0,
-      monthlyUsage: [],
-      recentAlerts: []
-    });
+    console.error('getDashboardStats error:', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 }
 

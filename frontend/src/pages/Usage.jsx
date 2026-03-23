@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import { AuthContext } from '../context/AuthContext';
+import { useResources } from '../hooks/useResources';
 import {
     Zap,
     Droplets,
     Flame,
     Wind,
     Trash2,
-    Utensils,
+    Sun,
     ArrowRight,
     Activity,
     TrendingUp,
@@ -18,16 +20,72 @@ import Button from '../components/common/Button';
 import EmptyState from '../components/common/EmptyState';
 import { logger } from '../utils/logger';
 
+// ── Resource metadata for display
+const RESOURCE_METADATA = {
+    'Electricity': {
+        icon: <Zap size={24} />,
+        color: 'text-amber-500',
+        bg: 'bg-amber-50',
+        description: 'Grid consumption and phase balancing.'
+    },
+    'Water': {
+        icon: <Droplets size={24} />,
+        color: 'text-blue-500',
+        bg: 'bg-blue-50',
+        description: 'Water flow rates and storage levels.'
+    },
+    'Solar': {
+        icon: <Sun size={24} />,
+        color: 'text-yellow-500',
+        bg: 'bg-yellow-50',
+        description: 'Solar panel energy generation.'
+    },
+    'LPG': {
+        icon: <Flame size={24} />,
+        color: 'text-orange-500',
+        bg: 'bg-orange-50',
+        description: 'Gas cylinder usage monitoring.'
+    },
+    'Diesel': {
+        icon: <Wind size={24} />,
+        color: 'text-slate-500',
+        bg: 'bg-slate-50',
+        description: 'Generator fuel levels.'
+    },
+    'Waste': {
+        icon: <Trash2 size={24} />,
+        color: 'text-rose-500',
+        bg: 'bg-rose-50',
+        description: 'Waste generation and recycling.'
+    }
+};
+
 export default function Resources() {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
+    const { user } = useContext(AuthContext);
+    const { resources: activeResources } = useResources(); // Only active, from hook
+    
+    const usageBasePath = user?.role === 'admin' ? '/admin/usage'
+        : user?.role === 'warden' ? '/warden/usage'
+            : user?.role === 'gm' ? '/gm/usage'
+                : '/usage';
 
     useEffect(() => {
         async function fetchStats() {
             try {
-                const res = await api.get('/api/usage/stats');
-                setStats(res.data.stats || {});
+                const res = await api.get('/api/usage/summary');
+                const summary = res.data?.data?.summary || {};
+                const statsObj = {};
+                Object.entries(summary).forEach(([name, data]) => {
+                    statsObj[name] = {
+                        current: data.total || 0,
+                        unit: data.unit || 'units',
+                        cost: data.total ? Math.round(data.total * 2.5) : 0
+                    };
+                });
+                setStats(statsObj);
             } catch (err) {
                 logger.error('Failed to fetch resource stats', err);
             } finally {
@@ -37,62 +95,20 @@ export default function Resources() {
         fetchStats();
     }, []);
 
-    const resources = [
-        {
-            id: 'electricity',
-            name: 'Electricity',
-            icon: <Zap size={24} />,
-            color: 'text-amber-500',
-            bg: 'bg-amber-50',
-            unit: 'kWh',
-            description: 'Grid consumption and phase balancing.'
-        },
-        {
-            id: 'water',
-            name: 'Water',
-            icon: <Droplets size={24} />,
-            color: 'text-blue-500',
-            bg: 'bg-blue-50',
-            unit: 'Liters',
-            description: 'Water flow rates and storage levels.'
-        },
-        {
-            id: 'food',
-            name: 'Food',
-            icon: <Utensils size={24} />,
-            color: 'text-emerald-500',
-            bg: 'bg-emerald-50',
-            unit: 'kg',
-            description: 'Mess hall consumption tracking.'
-        },
-        {
-            id: 'lpg',
-            name: 'LPG',
-            icon: <Flame size={24} />,
-            color: 'text-orange-500',
-            bg: 'bg-orange-50',
-            unit: 'kg',
-            description: 'Gas cylinder usage monitoring.'
-        },
-        {
-            id: 'diesel',
-            name: 'Diesel',
-            icon: <Wind size={24} />,
-            color: 'text-slate-500',
-            bg: 'bg-slate-50',
-            unit: 'Liters',
-            description: 'Generator fuel levels.'
-        },
-        {
-            id: 'waste',
-            name: 'Waste',
-            icon: <Trash2 size={24} />,
-            color: 'text-rose-500',
-            bg: 'bg-rose-50',
-            unit: 'kg',
-            description: 'Waste generation and recycling.'
-        }
-    ];
+    // ── Build resources with metadata merged for display, filtering only active
+    const resources = useMemo(() => {
+        return activeResources
+            .filter(res => res.isActive !== false)  // Safety: double-check isActive
+            .map(res => ({
+                id: res.name?.toLowerCase().replace(/\s+/g, '-') || res._id,
+                name: res.name,
+                icon: RESOURCE_METADATA[res.name]?.icon || <Activity size={24} />,
+                color: RESOURCE_METADATA[res.name]?.color || 'text-slate-500',
+                bg: RESOURCE_METADATA[res.name]?.bg || 'bg-slate-50',
+                unit: res.unit || 'units',
+                description: RESOURCE_METADATA[res.name]?.description || 'Resource monitoring'
+            }));
+    }, [activeResources]);
 
     return (
         <div className="space-y-6">
@@ -166,7 +182,7 @@ export default function Resources() {
                                     <div>
                                         <p className="text-xs text-slate-500 uppercase font-semibold">Usage</p>
                                         <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                                            {stats?.[res.name]?.current || 0} <span className="text-sm font-normal text-slate-400">{res.unit}</span>
+                                            {stats?.[res.name]?.current > 0 ? `${stats[res.name].current} ${stats[res.name].unit || res.unit}` : 'No data'}
                                         </div>
                                     </div>
                                     <div className="text-right">
@@ -181,7 +197,7 @@ export default function Resources() {
                                     <Button
                                         variant="secondary"
                                         className="w-full justify-center"
-                                        onClick={() => navigate(`/usage/all?resource=${encodeURIComponent(res.name)}`)}
+                                        onClick={() => navigate(`${usageBasePath}/all?resource=${encodeURIComponent(res.name)}`)}
                                     >
                                         View Details <ArrowRight size={16} className="ml-2" />
                                     </Button>

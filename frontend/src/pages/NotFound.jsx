@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Home, ArrowLeft, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 
+
 export default function NotFound() {
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center px-4">

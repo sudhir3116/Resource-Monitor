@@ -3,6 +3,7 @@ import { Plus, Trash2, Edit2, MapPin, Clock, AlertCircle } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
+
 const AnnouncementBoard = () => {
   const { user } = useAuth();
   const [announcements, setAnnouncements] = useState([]);
@@ -27,7 +28,8 @@ const AnnouncementBoard = () => {
     pinned: false
   });
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'gm';
+  const role = (user?.role || '').toLowerCase();
+  const isAdmin = ['admin', 'gm', 'warden'].includes(role);
 
   useEffect(() => {
     fetchAnnouncements();
@@ -49,7 +51,7 @@ const AnnouncementBoard = () => {
 
       // API returns: { success: true, data: { announcements: [...], pagination: {...} } }
       const announcements = res.data?.data?.announcements || [];
-      
+
       console.log('[NoticeBoard] Fetched:', announcements.length, 'announcements');
       setAnnouncements(announcements);
 

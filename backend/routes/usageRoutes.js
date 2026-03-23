@@ -14,8 +14,65 @@ const GM = ROLES.GM;
 // All routes require authentication
 router.use(protect)
 
-// Stats/trends — accessible to all authenticated users (student dashboard uses these)
-router.get('/trends', usageController.getUsageTrends)
+const {
+    getUsageSummary,
+    getUsageTrends
+} = require('../services/usageService')
+
+// Standard summary endpoint — all roles
+router.get('/summary',
+    authorizeRoles(
+        ROLES.ADMIN, GM, ROLES.WARDEN,
+        ROLES.DEAN, ROLES.PRINCIPAL, ROLES.STUDENT
+    ),
+    async (req, res) => {
+        try {
+            const { startDate, endDate, blockId } = req.query;
+            let finalBlockId = blockId || null;
+            if (!finalBlockId && ['warden', 'student'].includes(req.user.role)) {
+                finalBlockId = req.userObj?.block?._id || req.userObj?.block || req.user?.block?._id || req.user?.block || null;
+            }
+            if (finalBlockId && typeof finalBlockId === 'object') finalBlockId = finalBlockId._id || finalBlockId.toString();
+
+            const data = await getUsageSummary({
+                role: req.user.role,
+                blockId: finalBlockId,
+                startDate,
+                endDate
+            });
+            return res.status(200).json({ success: true, data });
+        } catch (err) {
+            return res.status(500).json({ success: false, message: err.message });
+        }
+    }
+)
+
+// Standard trends endpoint — all roles
+router.get('/trends',
+    authorizeRoles(
+        ROLES.ADMIN, GM, ROLES.WARDEN,
+        ROLES.DEAN, ROLES.PRINCIPAL, ROLES.STUDENT
+    ),
+    async (req, res) => {
+        try {
+            const { range = '7d', blockId } = req.query;
+            let finalBlockId = blockId || null;
+            if (!finalBlockId && ['warden', 'student'].includes(req.user.role)) {
+                finalBlockId = req.userObj?.block?._id || req.userObj?.block || req.user?.block?._id || req.user?.block || null;
+            }
+            if (finalBlockId && typeof finalBlockId === 'object') finalBlockId = finalBlockId._id || finalBlockId.toString();
+
+            const data = await getUsageTrends({
+                role: req.user.role,
+                blockId: finalBlockId,
+                range
+            });
+            return res.status(200).json({ success: true, data });
+        } catch (err) {
+            return res.status(500).json({ success: false, message: err.message });
+        }
+    }
+)
 router.get('/stats', usageController.getDashboardStats)
 
 // Usage list and detail — blocked for students (403)
@@ -29,9 +86,19 @@ router.post(
     '/',
     wardenMiddleware,
     [
-        body('resourceType').notEmpty().withMessage('resourceType is required'),
-        body('amount').not().isEmpty().withMessage('amount is required').bail().isFloat({ gt: 0 }).withMessage('amount must be a positive number'),
+        // Accept both aliases — controller normalises them
+        body('resourceType').if(body('resource_type').not().exists())
+            .notEmpty().withMessage('resourceType is required'),
+        body('resource_type').if(body('resourceType').not().exists())
+            .notEmpty().withMessage('resource_type is required'),
+        body('amount').if(body('usage_value').not().exists())
+            .not().isEmpty().withMessage('amount is required').bail()
+            .isFloat({ gt: 0 }).withMessage('amount must be a positive number'),
+        body('usage_value').if(body('amount').not().exists())
+            .not().isEmpty().withMessage('usage_value is required').bail()
+            .isFloat({ gt: 0 }).withMessage('usage_value must be a positive number'),
         body('date').optional().isISO8601().toDate().withMessage('date must be a valid ISO date'),
+        body('usage_date').optional().isISO8601().toDate().withMessage('usage_date must be a valid ISO date'),
     ],
     runValidations,
     auditMiddleware('CREATE', 'Usage'),

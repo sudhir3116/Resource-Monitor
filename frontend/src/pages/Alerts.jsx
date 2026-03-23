@@ -55,9 +55,9 @@ export default function Alerts() {
     const isWarden = user?.role === ROLES.WARDEN;
     const isAdmin = user?.role === ROLES.ADMIN;
     const isDean = user?.role === ROLES.DEAN;
-    const isPrincipal = user?.role === ROLES.DEAN;
+    const isPrincipal = user?.role === ROLES.PRINCIPAL;
     const isGM = user?.role === ROLES.GM;
-    // Executive = roles with full campus view AND authority to manage alerts
+    // Executive = roles with full campus view 
     const isExecutive = isAdmin || isDean || isPrincipal || isGM;
     // Only Admin and GM can resolve, dismiss, escalate, or reopen alerts.
     // Wardens can ONLY investigate (flag for review) — they cannot close alerts.
@@ -250,10 +250,13 @@ export default function Alerts() {
             {/* Page Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 style={{ color: 'var(--text-primary)' }}>Alerts</h1>
+                    <h1 style={{ color: 'var(--text-primary)' }} className="flex items-center gap-3">
+                        Alerts
+                        {isDean && <Badge variant="secondary">View Only</Badge>}
+                    </h1>
                     <p style={{ color: 'var(--text-secondary)' }}>
                         Monitor and respond to resource threshold alerts
-                        {isStudent && ' — read-only view'}
+                        {(isStudent || isDean) && ' — read-only view'}
                     </p>
                 </div>
                 <Button variant="secondary" onClick={fetchAlerts}>

@@ -47,9 +47,9 @@ export const hasRouteAccess = (role, routePath) => {
     admin: ['/admin', '/users', '/blocks', '/resource-config', '/audit-logs', '/database-viewer', '/reports', '/alerts', '/usage', '/analytics'],
     gm: ['/gm', '/alerts', '/analytics', '/reports', '/audit-logs'],
     warden: ['/warden', '/usage', '/alerts', '/complaints', '/warden/daily-report', '/announcements'],
-    dean: ['/dean', '/analytics', '/reports', '/audit-logs'],
-    principal: ['/principal', '/analytics', '/reports'],
-    student: ['/student', '/complaints', '/announcements']
+    dean: ['/dean', '/analytics', '/reports', '/audit-logs', '/alerts', '/announcements', '/profile'],
+    principal: ['/principal', '/analytics', '/reports', '/announcements', '/profile'],
+    student: ['/student', '/complaints', '/announcements', '/profile']
   };
 
   const allowedPaths = roleAccessMap[role] || [];

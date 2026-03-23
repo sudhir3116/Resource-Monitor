@@ -8,7 +8,7 @@ import { getDashboardRoute } from '../utils/roleRoutes'
 
 export const AuthContext = createContext()
 
-export function AuthProvider({ children }) {
+const AuthProvider = ({ children }) => {
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -22,32 +22,33 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const verifyToken = async () => {
       const storedToken = sessionStorage.getItem('token')
-      
+
       if (!storedToken) {
         setUser(null)
         setToken(null)
         setLoading(false)
         return
       }
-      
+
       try {
         // Verify token is still valid with backend
         const res = await api.get('/api/auth/me', {
-          headers: { 
-            Authorization: `Bearer ${storedToken}` 
+          headers: {
+            Authorization: `Bearer ${storedToken}`
           }
         })
-        
-        const userData = res.data.user || res.data.data || res.data
+
+        const rawUserData = res.data.user || res.data.data || res.data
+        const userData = { ...rawUserData, role: (rawUserData?.role || '').toLowerCase() }
         setUser(userData)
         setToken(storedToken)
-        
+
         // Update stored user data
         sessionStorage.setItem('user', JSON.stringify(userData))
-        
+
         // Connect socket
         connectSocket(storedToken)
-        
+
       } catch (err) {
         // Token invalid or expired — clear everything
         sessionStorage.removeItem('token')
@@ -60,14 +61,14 @@ export function AuthProvider({ children }) {
         setLoading(false)
       }
     }
-    
+
     verifyToken()
-    
+
     // Absolute safety timeout — 8 seconds max loading
     const safetyTimer = setTimeout(() => {
       setLoading(false)
     }, 8000)
-    
+
     return () => clearTimeout(safetyTimer)
   }, [])
 
@@ -85,7 +86,8 @@ export function AuthProvider({ children }) {
       const res = await api.get('/api/auth/me', {
         headers: { Authorization: `Bearer ${storedToken}` }
       })
-      const userData = res.data.user || res.data.data || res.data
+      const rawUserData = res.data.user || res.data.data || res.data
+      const userData = { ...rawUserData, role: (rawUserData?.role || '').toLowerCase() }
       setUser(userData)
       setToken(storedToken)
       sessionStorage.setItem('user', JSON.stringify(userData))
@@ -155,7 +157,8 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     try {
       const response = await api.post('/api/auth/login', { email, password })
-      const userData = response.data.data || response.data.user
+      const rawUserData = response.data.data || response.data.user
+      const userData = { ...rawUserData, role: (rawUserData?.role || '').toLowerCase() }
       const authToken = response.data.token
 
       if (authToken) {
@@ -190,7 +193,8 @@ export function AuthProvider({ children }) {
   const googleLogin = async (credential) => {
     try {
       const response = await api.post('/api/auth/google', { credential })
-      const userData = response.data.data || response.data.user
+      const rawUserData = response.data.data || response.data.user
+      const userData = rawUserData ? { ...rawUserData, role: (rawUserData.role || '').toLowerCase() } : null
       const authToken = response.data.token
 
       if (response.data.success && userData) {
@@ -226,7 +230,8 @@ export function AuthProvider({ children }) {
   const register = async (name, email, password, roleInput) => {
     try {
       const response = await api.post('/api/auth/register', { name, email, password, role: roleInput })
-      const userData = response.data.data || response.data.user
+      const rawUserData = response.data.data || response.data.user
+      const userData = { ...rawUserData, role: (rawUserData?.role || '').toLowerCase() }
       const authToken = response.data.token
 
       if (authToken) {
@@ -257,8 +262,8 @@ export function AuthProvider({ children }) {
   }
 
   const setUserData = (userData) => {
-     setUser(userData);
-     sessionStorage.setItem('user', JSON.stringify(userData));
+    setUser(userData);
+    sessionStorage.setItem('user', JSON.stringify(userData));
   }
 
   return (
@@ -281,3 +286,5 @@ export function AuthProvider({ children }) {
 }
 
 export const useAuth = () => useContext(AuthContext)
+
+export default AuthProvider

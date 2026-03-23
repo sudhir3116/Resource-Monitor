@@ -1,7 +1,15 @@
 import React, { useContext } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { AuthContext } from '../context/AuthContext'
-import { hasRouteAccess, getDashboardRoute } from '../utils/roleRoutes'
+
+const ROLE_DASHBOARDS = {
+  admin: '/admin/dashboard',
+  gm: '/gm/dashboard',
+  warden: '/warden/dashboard',
+  student: '/student/dashboard',
+  dean: '/dean/dashboard',
+  principal: '/principal/dashboard'
+}
 
 const ProtectedRoute = ({
   children,
@@ -10,41 +18,21 @@ const ProtectedRoute = ({
   const { user, loading } = useContext(AuthContext)
   const location = useLocation()
 
-  // STEP 1: Wait — never redirect while loading
+  // CRITICAL: Never redirect during loading
   if (loading) {
     return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        backgroundColor: '#030712',
-        flexDirection: 'column',
-        gap: '12px'
-      }}>
-        <div style={{
-          width: '36px',
-          height: '36px',
-          border: '3px solid #1F2937',
-          borderTop: '3px solid #3B82F6',
-          borderRadius: '50%',
-          animation: 'spin 0.8s linear infinite'
-        }} />
-        <p style={{
-          color: '#6B7280',
-          fontSize: '13px',
-          fontFamily: 'system-ui'
-        }}>
-          Verifying session...
-        </p>
-        <style>{`@keyframes spin { 
-          to { transform: rotate(360deg); } 
-        }`}</style>
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-gray-700 border-t-blue-500 rounded-full animate-spin" />
+          <p className="text-gray-500 text-sm">
+            Loading...
+          </p>
+        </div>
       </div>
     )
   }
 
-  // STEP 2: Not logged in
+  // Not logged in — go to login
   if (!user) {
     return (
       <Navigate
@@ -55,37 +43,16 @@ const ProtectedRoute = ({
     )
   }
 
-  // STEP 3: Check explicit allowedRoles if provided
-  if (allowedRoles.length > 0 &&
-    !allowedRoles.includes(user.role)) {
-    // User doesn't have permission for this specific route
-    const dashboardRoute = getDashboardRoute(user.role)
-    return (
-      <Navigate
-        to={dashboardRoute}
-        replace
-      />
-    )
+  // Role check — case insensitive
+  const userRole = (user.role || '').toLowerCase()
+  const allowed = allowedRoles.map(r => r.toLowerCase())
+
+  if (allowed.length > 0 && !allowed.includes(userRole)) {
+    const redirectTo =
+      ROLE_DASHBOARDS[userRole] || '/dashboard'
+    return <Navigate to={redirectTo} replace />
   }
 
-  // STEP 4: Check role-based URL access
-  // If route contains a role prefix, verify user has that role
-  const pathMatch = location.pathname.match(/^\/([a-z]+)/)
-  if (pathMatch && ['admin', 'gm', 'warden', 'dean', 'principal', 'student'].includes(pathMatch[1])) {
-    const routeRole = pathMatch[1]
-    // User's role must match or be allowed
-    if (user.role !== routeRole) {
-      const dashboardRoute = getDashboardRoute(user.role)
-      return (
-        <Navigate
-          to={dashboardRoute}
-          replace
-        />
-      )
-    }
-  }
-
-  // STEP 5: All permissions granted
   return children
 }
 

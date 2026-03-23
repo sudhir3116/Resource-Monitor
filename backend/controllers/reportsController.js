@@ -24,10 +24,15 @@ exports.exportCSV = async (req, res) => {
     let filter = {};
 
     // Role-based filtering
-    if (req.user.role === ROLES.WARDEN) {
+    const role = (req.user.role || '').toLowerCase();
+    if (role === 'warden') {
       const User = require('../models/User');
       const user = await User.findById(req.user.id);
-      if (user.block) filter.blockId = user.block;
+      const userBlockId = user?.block || user?.blockId;
+      if (!userBlockId) {
+        return res.status(403).json({ success: false, message: 'Not assigned to any block' });
+      }
+      filter.blockId = new mongoose.Types.ObjectId(userBlockId);
     }
 
     // Apply query filters
@@ -107,10 +112,15 @@ exports.getBillEstimate = async (req, res) => {
     };
 
     // Role-based filtering
-    if (req.user.role === ROLES.WARDEN) {
+    const role = (req.user.role || '').toLowerCase();
+    if (role === 'warden') {
       const User = require('../models/User');
       const user = await User.findById(req.user.id);
-      if (user.block) filter.blockId = new mongoose.Types.ObjectId(user.block);
+      const userBlockId = user?.block || user?.blockId;
+      if (!userBlockId) {
+        return res.status(403).json({ success: false, message: 'Not assigned to any block' });
+      }
+      filter.blockId = new mongoose.Types.ObjectId(userBlockId);
     } else if (blockId) {
       filter.blockId = new mongoose.Types.ObjectId(blockId);
     }
@@ -311,10 +321,15 @@ exports.getHistoricalTrends = async (req, res) => {
     };
 
     // Role-based filtering
-    if (req.user.role === ROLES.WARDEN) {
+    const role = (req.user.role || '').toLowerCase();
+    if (role === 'warden') {
       const User = require('../models/User');
       const user = await User.findById(req.user.id);
-      if (user.block) filter.blockId = new mongoose.Types.ObjectId(user.block);
+      const userBlockId = user?.block || user?.blockId;
+      if (!userBlockId) {
+        return res.status(403).json({ success: false, message: 'Not assigned to any block' });
+      }
+      filter.blockId = new mongoose.Types.ObjectId(userBlockId);
     } else if (blockId) {
       filter.blockId = new mongoose.Types.ObjectId(blockId);
     }
@@ -389,10 +404,15 @@ exports.getSummary = async (req, res) => {
 
     // Base filter
     let scopeFilter = {};
-    if (req.user.role === ROLES.WARDEN) {
+    const role = (req.user.role || '').toLowerCase();
+    if (role === 'warden') {
       const User = require('../models/User');
       const user = await User.findById(req.user.id).lean();
-      if (user?.block) scopeFilter.blockId = user.block;
+      const userBlockId = user?.block || user?.blockId;
+      if (!userBlockId) {
+        return res.status(403).json({ success: false, message: 'Not assigned to any block' });
+      }
+      scopeFilter.blockId = new mongoose.Types.ObjectId(userBlockId);
     }
 
     // Usage aggregation — current period
@@ -514,10 +534,15 @@ exports.getEfficiency = async (req, res) => {
     const startDate = start ? new Date(start) : new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     let scopeFilter = {};
-    if (req.user.role === ROLES.WARDEN) {
+    const role = (req.user.role || '').toLowerCase();
+    if (role === 'warden') {
       const User = require('../models/User');
       const user = await User.findById(req.user.id).lean();
-      if (user?.block) scopeFilter.blockId = user.block;
+      const userBlockId = user?.block || user?.blockId;
+      if (!userBlockId) {
+        return res.status(403).json({ success: false, message: 'Not assigned to any block' });
+      }
+      scopeFilter.blockId = new mongoose.Types.ObjectId(userBlockId);
     }
 
     // Get all resource configs for limits
@@ -617,10 +642,15 @@ exports.exportPDF = async (req, res) => {
     const { resource, blockId, start, end } = req.query;
 
     let filter = {};
-    if (req.user.role === ROLES.WARDEN) {
+    const role = (req.user.role || '').toLowerCase();
+    if (role === 'warden') {
       const User = require('../models/User');
       const user = await User.findById(req.user.id);
-      if (user.block) filter.blockId = user.block;
+      const userBlockId = user?.block || user?.blockId;
+      if (!userBlockId) {
+        return res.status(403).json({ success: false, message: 'Not assigned to any block' });
+      }
+      filter.blockId = new mongoose.Types.ObjectId(userBlockId);
     }
 
     if (resource) filter.resource_type = resource;
@@ -874,7 +904,7 @@ exports.getManagementReport = async (req, res) => {
     // Recommendations
     doc.fontSize(14).font('Helvetica-Bold').text('RECOMMENDATIONS', { underline: true });
     doc.fontSize(11).font('Helvetica');
-    
+
     const recommendations = [];
     if (costChangePercent > 10) {
       recommendations.push('• Resource costs increased significantly. Review usage patterns for anomalies.');

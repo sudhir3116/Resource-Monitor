@@ -1,320 +1,317 @@
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import api from '../services/api';
+import {
+    TrendingUp,
+    TrendingDown,
+    Calendar,
+    Zap,
+    Droplets,
+    Flame,
+    Wind,
+    Utensils,
+    Trash2,
+    Activity,
+    BarChart3,
+    PieChart as PieIcon,
+    Filter,
+    RefreshCw,
+    Info,
+    Sun
+} from 'lucide-react';
+import Card from '../components/common/Card';
+import Button from '../components/common/Button';
+import Badge from '../components/common/Badge';
 import {
     LineChart,
     Line,
+    AreaChart,
+    Area,
     XAxis,
     YAxis,
     CartesianGrid,
     Tooltip,
+    ResponsiveContainer,
+    BarChart,
+    Bar,
     Legend,
-    ResponsiveContainer
+    Cell,
+    PieChart,
+    Pie
 } from 'recharts';
-import api from '../services/api';
-import { Activity, Database, Leaf } from 'lucide-react';
-import { ThemeContext } from '../context/ThemeContext';
-import Card, { MetricCard } from '../components/common/Card';
+import { useToast } from '../context/ToastContext';
 import { logger } from '../utils/logger';
 
+
+const RESOURCE_META = {
+    Electricity: { icon: <Zap size={20} />, color: '#f59e0b', bg: 'bg-amber-500/10' },
+    Water: { icon: <Droplets size={20} />, color: '#3b82f6', bg: 'bg-blue-500/10' },
+    Solar: { icon: <Sun size={20} />, color: '#eab308', bg: 'bg-yellow-500/10' },
+    LPG: { icon: <Flame size={20} />, color: '#f97316', bg: 'bg-orange-500/10' },
+    Diesel: { icon: <Wind size={20} />, color: '#64748b', bg: 'bg-slate-500/10' },
+    Food: { icon: <Utensils size={20} />, color: '#10b981', bg: 'bg-emerald-500/10' },
+    Waste: { icon: <Trash2 size={20} />, color: '#ef4444', bg: 'bg-rose-500/10' },
+};
+
 export default function AnalyticsPage() {
-    const [period, setPeriod] = useState('monthly');
-    const [range, setRange] = useState('monthly');
+    const { addToast } = useToast();
     const [loading, setLoading] = useState(true);
-    const [chartsLoading, setChartsLoading] = useState(false);
-    const [summary, setSummary] = useState(null);
-    const [resourceData, setResourceData] = useState({});
-    const [error, setError] = useState(null);
-    const { theme } = useContext(ThemeContext);
-    const isDark = theme === 'dark';
+    const [timeRange, setTimeRange] = useState('7d');
+    const [summaryData, setSummaryData] = useState([]);
+    const [trendData, setTrendData] = useState([]);
+    const [dynamicResources, setDynamicResources] = useState([]);
 
-    // Fetch summary stats (period-dependent)
+    const fetchData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const [configRes, summaryRes, trendRes] = await Promise.all([
+                api.get('/api/resource-config'),
+                api.get('/api/usage/summary'),
+                api.get(`/api/usage/trends?range=${timeRange}`)
+            ]);
+
+            const activeConfigs = (configRes.data.data || configRes.data.resources || []).filter(c => c.isActive !== false);
+            setDynamicResources(activeConfigs);
+
+            const summaryDataObj = summaryRes.data?.data?.summary || {};
+            const mappedSummary = Object.entries(summaryDataObj).map(([key, val]) => ({
+                resource: key,
+                current: val.total || 0,
+                change: 0,
+                unit: val.unit || 'units'
+            }));
+
+            setSummaryData(mappedSummary);
+            setTrendData(trendRes.data.data || []);
+        } catch (err) {
+            logger.error('Failed to fetch analytics data', err);
+            addToast('Failed to load analytics', 'error');
+        } finally {
+            setLoading(false);
+        }
+    }, [timeRange, addToast]);
+
     useEffect(() => {
-        const fetchSummary = async () => {
-            try {
-                const res = await api.get(`/api/analytics/summary?period=${period}`);
-                setSummary(res.data);
-            } catch (err) {
-                logger.error('Summary fetch error:', err);
-            }
-        };
-        fetchSummary();
-    }, [period]);
+        fetchData();
+    }, [fetchData]);
 
-    // Fetch trend chart data (range-dependent)
-    // Maps UI range labels to the integer `days` param the analytics controller expects
-    const rangeToDays = { '7days': 7, '30days': 30, 'monthly': 30, 'all': 3650 };
+    const activeSummary = useMemo(() => {
+        const activeResourceNames = dynamicResources.map(r => r.name);
+        return summaryData.filter(s => activeResourceNames.includes(s.resource));
+    }, [summaryData, dynamicResources]);
 
-    useEffect(() => {
-        const fetchTrends = async () => {
-            try {
-                setChartsLoading(true);
-                setError(null);
-
-                // Call the trends endpoint with correct days parameter
-                const days = rangeToDays[range] || 7;
-                const url = `/api/analytics/trends?days=${days}`;
-
-                const res = await api.get(url);
-                const responseData = res.data;
-
-                // Parse response from /api/analytics/trends which returns:
-                // { success: true, trends: [{ resource: "Electricity", data: [{date, value, count}] }], period: {...} }
-                const trends = responseData.trends || [];
-
-                console.log('[Analytics] Trends from API:', trends);
-
-                // Transform the trends array into grouped format
-                const grouped = {};
-                Object.keys(RESOURCE_COLORS).forEach(r => { grouped[r] = []; });
-
-                // Process each resource's trend data
-                trends.forEach(trendItem => {
-                    const resource = trendItem.resource; // e.g., "Electricity"
-                    if (grouped[resource] !== undefined && Array.isArray(trendItem.data)) {
-                        grouped[resource] = trendItem.data.map(item => ({
-                            date: item.date,
-                            value: Number(item.value || 0)
-                        }));
-                    }
-                });
-
-                // Sort each resource's data by date
-                Object.keys(grouped).forEach(key => {
-                    grouped[key].sort((a, b) => new Date(a.date) - new Date(b.date));
-                });
-
-                setResourceData(grouped);
-            } catch (err) {
-                logger.error('Trends fetch error:', err);
-                setError('Failed to load trend data.');
-                setResourceData({});
-            } finally {
-                setChartsLoading(false);
-                setLoading(false);
-            }
-        };
-        fetchTrends();
-    }, [range]);
-
-    const RESOURCE_COLORS = {
-        Electricity: '#F59E0B',  // amber
-        Water: '#3B82F6',  // blue
-        LPG: '#EF4444',  // red
-        Diesel: '#6B7280',  // gray
-        Solar: '#10B981',  // green
-        Waste: '#8B5CF6',  // purple
+    const getResourceMeta = (type) => {
+        return RESOURCE_META[type] || { icon: <Activity size={20} />, color: '#64748b', bg: 'bg-slate-500/10' };
     };
-
-    const RESOURCE_UNITS = {
-        Electricity: 'kWh',
-        Water: 'L',
-        LPG: 'kg',
-        Diesel: 'L',
-        Solar: 'kWh',
-        Waste: 'kg',
-    };
-
-    if (loading) return (
-        <div className="space-y-6">
-            <div className="h-8 rounded" style={{ backgroundColor: 'var(--bg-hover)', width: '200px' }}></div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                {[1, 2, 3, 4].map(i => (
-                    <div key={i} className="h-32 rounded-lg animate-pulse" style={{ backgroundColor: 'var(--bg-hover)' }}></div>
-                ))}
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {[1, 2, 3, 4, 5, 6].map(i => (
-                    <div key={i} className="bg-white dark:bg-gray-800 rounded-xl p-6 h-72 animate-pulse border border-gray-200 dark:border-gray-700">
-                        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-2" />
-                        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-6" />
-                        <div className="h-48 bg-gray-100 dark:bg-gray-750 rounded" />
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-
-    const rangeLabels = { '7days': '7 Days', '30days': '30 Days', 'monthly': 'This Month', 'all': 'All Time' };
 
     return (
         <div className="space-y-6">
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 style={{ color: 'var(--text-primary)' }}>Analytics &amp; Trends</h1>
-                    <p style={{ color: 'var(--text-secondary)' }}>
-                        Detailed resource consumption analysis over time
+                    <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                        <TrendingUp size={28} className="text-blue-500" /> Consumption Analytics
+                    </h1>
+                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        Historical trends and summary of hostel resource usage
                     </p>
                 </div>
-
-                {/* Period selector (affects summary cards) */}
-                <div className="flex bg-white dark:bg-slate-800 rounded-lg border p-1" style={{ borderColor: 'var(--border)' }}>
-                    {['daily', 'weekly', 'monthly'].map(p => (
+                <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                    {['7d', '30d', '90d', '1y'].map((range) => (
                         <button
-                            key={p}
-                            onClick={() => setPeriod(p)}
-                            className={`px-4 py-1.5 rounded-md text-sm font-medium capitalize transition-all ${period === p
-                                ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
-                                : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                                }`}
+                            key={range}
+                            onClick={() => setTimeRange(range)}
+                            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${timeRange === range ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
                         >
-                            {p}
+                            {range.toUpperCase()}
                         </button>
                     ))}
+                    <Button variant="secondary" size="sm" onClick={fetchData} className="ml-2">
+                        <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                    </Button>
                 </div>
             </div>
 
-            {/* Metric Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <MetricCard
-                    icon={<Activity size={20} />}
-                    label="Total Usage"
-                    value={summary?.current?.total?.toLocaleString() || 0}
-                    change={summary?.percentageChange}
-                />
-                <MetricCard
-                    icon={<Database size={20} />}
-                    label="Records"
-                    value={summary?.current?.records?.toLocaleString() || 0}
-                />
-                {
-                    // Calculate averages for ALL resources
-                    Object.entries(resourceData)
-                        .map(([resource, data]) => {
-                            const values = data.map(d => d.value || 0);
-                            const avg = values.length > 0 ? (values.reduce((s, v) => s + v, 0) / values.length) : 0;
-                            return { resource, avg };
-                        })
-                        // Sort by average descending
-                        .sort((a, b) => b.avg - a.avg)
-                        // Take top 2 that have data > 0, fallback to first 2 if none
-                        .filter(item => item.avg > 0)
-                        .slice(0, 2)
-                        .concat(Object.entries(resourceData).map(([r]) => ({ resource: r, avg: 0 })).slice(0, 2))
-                        // Remove duplicates from fallback
-                        .filter((v, i, a) => a.findIndex(t => (t.resource === v.resource)) === i)
-                        .slice(0, 2)
-                        .map(({ resource, avg }) => {
-                            const unit = RESOURCE_UNITS[resource] || 'units';
-                            return (
-                                <MetricCard
-                                    key={resource}
-                                    icon={<Leaf size={20} />}
-                                    label={`Avg ${resource} (${rangeLabels[range]})`}
-                                    value={<>{avg.toFixed(1)} <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{unit}</span></>}
-                                />
-                            );
-                        })
-                }
-            </div>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                {dynamicResources.map((res) => {
+                    const resName = res.name;
+                    const stats = activeSummary.find(s => s.resource === resName) || { current: 0, change: 0, unit: res.unit || 'units' };
+                    const meta = getResourceMeta(resName);
+                    const isNegative = stats.change < 0;
 
-            {/* Range selector for charts */}
-            <div className="flex items-center gap-3">
-                <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Chart Range:</span>
-                <div className="flex gap-2">
-                    {[['7days', '7 Days'], ['30days', '30 Days'], ['monthly', 'This Month'], ['all', 'All Time']].map(([val, label]) => (
-                        <button
-                            key={val}
-                            onClick={() => setRange(val)}
-                            id={`range-btn-${val}`}
-                            className={`px-3 py-1 rounded-md text-sm font-medium border transition-all ${range === val
-                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                                : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                                }`}
-                            style={{ borderColor: range === val ? '#2563EB' : 'var(--border)' }}
-                        >
-                            {label}
-                        </button>
-                    ))}
-                </div>
-                {chartsLoading && (
-                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        Loading charts…
-                    </span>
-                )}
-            </div>
-
-            {error && (
-                <div className="p-3 rounded-lg text-sm" style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: 'var(--color-danger)' }}>
-                    {error}
-                </div>
-            )}
-
-            {/* Main Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {chartsLoading ? (
-                    [1, 2, 3, 4, 5, 6].map(i => (
-                        <div key={i} className="bg-white dark:bg-gray-800 rounded-xl p-6 h-72 animate-pulse border border-gray-200 dark:border-gray-700">
-                            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-2" />
-                            <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-6" />
-                            <div className="h-48 bg-gray-100 dark:bg-gray-750 rounded" />
-                        </div>
-                    ))
-                ) : (
-                    Object.entries(resourceData).map(([resource, data]) => (
-                        <div key={resource} className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-                            {/* Chart Header */}
-                            <div className="flex items-center justify-between mb-4">
-                                <div>
-                                    <h3 className="font-semibold text-gray-900 dark:text-white">
-                                        {resource} Trend
-                                    </h3>
-                                    <p className="text-xs text-gray-500 mt-0.5">
-                                        {rangeLabels[range]} · {data.length} records · Unit: {RESOURCE_UNITS[resource] || 'units'}
-                                    </p>
-                                </div>
-                                <span className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-                                    {data.length > 0
-                                        ? `${data.reduce((s, d) => s + d.value, 0).toFixed(1)} ${RESOURCE_UNITS[resource] || ''}`
-                                        : 'No data'
-                                    }
-                                </span>
+                    return (
+                        <Card key={res._id || res.name} className="relative overflow-hidden group">
+                            <div className={`absolute top-0 right-0 p-3 ${meta.bg} rounded-bl-3xl opacity-50 group-hover:scale-110 transition-transform`}>
+                                {meta.icon}
                             </div>
-
-                            {/* Chart or Empty State */}
-                            {data.length > 0 ? (
-                                <ResponsiveContainer width="100%" height={200}>
-                                    <LineChart data={data}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
-                                        <XAxis
-                                            dataKey="date"
-                                            tickFormatter={(d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                                            stroke="#9CA3AF"
-                                            tick={{ fontSize: 10 }}
-                                        />
-                                        <YAxis stroke="#9CA3AF" tick={{ fontSize: 10 }} unit={` ${RESOURCE_UNITS[resource] || ''}`} />
-                                        <Tooltip
-                                            contentStyle={{
-                                                backgroundColor: '#1F2937',
-                                                border: 'none',
-                                                borderRadius: '8px',
-                                                color: '#F9FAFB',
-                                                fontSize: '12px'
-                                            }}
-                                            formatter={(val) => [`${val} ${RESOURCE_UNITS[resource] || ''}`, resource]}
-                                            labelFormatter={(l) => new Date(l).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                                        />
-                                        <Line
-                                            type="monotone"
-                                            dataKey="value"
-                                            stroke={RESOURCE_COLORS[resource] || '#3B82F6'}
-                                            strokeWidth={2}
-                                            dot={{ r: 3 }}
-                                            activeDot={{ r: 5 }}
-                                        />
-                                    </LineChart>
-                                </ResponsiveContainer>
-                            ) : (
-                                <div className="flex flex-col items-center justify-center h-48 text-gray-400 dark:text-gray-600">
-                                    <svg className="w-10 h-10 mb-2 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                    </svg>
-                                    <p className="text-sm font-medium">No data yet</p>
-                                    <p className="text-xs mt-1 text-center">Log {resource} usage to see chart</p>
+                            <div className="space-y-1">
+                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{resName}</span>
+                                <div className="flex items-baseline gap-1">
+                                    <span className="text-xl font-bold truncate">
+                                        {stats.current > 0 ? stats.current.toLocaleString() : 'No data available'}
+                                    </span>
+                                    {stats.current > 0 && <span className="text-xs text-slate-500">{stats.unit}</span>}
                                 </div>
-                            )}
+                                <div className={`flex items-center gap-1 text-xs font-medium ${isNegative ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                    {isNegative ? <TrendingDown size={12} /> : <TrendingUp size={12} />}
+                                    {Math.abs(stats.change)}% vs last period
+                                </div>
+                            </div>
+                        </Card>
+                    );
+                })}
+            </div>
+
+            {/* Main Trends Chart */}
+            <Card>
+                <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-lg font-bold flex items-center gap-2">
+                        <BarChart3 size={20} className="text-blue-500" /> Usage Trends Over Time
+                    </h2>
+                    <div className="flex items-center gap-4 text-xs">
+                        {dynamicResources.map((res, i) => {
+                            const resName = res.name;
+                            return (
+                                <div key={resName} className="flex items-center gap-1.5">
+                                    <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: getResourceMeta(resName).color }}></div>
+                                    <span className="text-slate-500 font-medium">{resName}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+                <div className="h-[400px] w-full">
+                    {loading ? (
+                        <div className="h-full flex items-center justify-center text-slate-400">Loading chart data...</div>
+                    ) : trendData.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                            <Info size={40} className="mb-2 opacity-20" />
+                            No trend data available for this period.
                         </div>
-                    ))
-                )}
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={trendData}>
+                                <defs>
+                                    {dynamicResources.map((res, i) => {
+                                        const resName = res.name;
+                                        return (
+                                            <linearGradient key={resName} id={`color${resName}`} x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor={getResourceMeta(resName).color} stopOpacity={0.1} />
+                                                <stop offset="95%" stopColor={getResourceMeta(resName).color} stopOpacity={0} />
+                                            </linearGradient>
+                                        );
+                                    })}
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                                <XAxis
+                                    dataKey="date"
+                                    stroke="var(--text-secondary)"
+                                    fontSize={12}
+                                    tickLine={false}
+                                    axisLine={false}
+                                    tickFormatter={(val) => new Date(val).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                />
+                                <YAxis
+                                    stroke="var(--text-secondary)"
+                                    fontSize={12}
+                                    tickLine={false}
+                                    axisLine={false}
+                                    tickFormatter={(val) => val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val}
+                                />
+                                <Tooltip
+                                    contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                                    itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                                    labelStyle={{ marginBottom: '8px', fontWeight: 'bold' }}
+                                />
+                                {dynamicResources.map((res) => {
+                                    const resName = res.name;
+                                    return (
+                                        <Area
+                                            key={resName}
+                                            type="monotone"
+                                            dataKey={resName}
+                                            stroke={getResourceMeta(resName).color}
+                                            fillOpacity={1}
+                                            fill={`url(#color${resName})`}
+                                            strokeWidth={3}
+                                            dot={false}
+                                        />
+                                    );
+                                })}
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    )}
+                </div>
+            </Card>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Distribution Chart */}
+                <Card>
+                    <h2 className="text-lg font-bold flex items-center gap-2 mb-6">
+                        <PieIcon size={20} className="text-emerald-500" /> Resource Distribution
+                    </h2>
+                    <div className="h-[300px]">
+                        {loading ? (
+                            <div className="h-full flex items-center justify-center text-slate-400">Loading distribution...</div>
+                        ) : activeSummary.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-slate-400">No data found.</div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={activeSummary}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={60}
+                                        outerRadius={100}
+                                        paddingAngle={5}
+                                        dataKey="current"
+                                        nameKey="resource"
+                                    >
+                                        {activeSummary.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={getResourceMeta(entry.resource).color} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
+                                    />
+                                    <Legend verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        )}
+                    </div>
+                </Card>
+
+                {/* Efficiency/Threshold Comparison */}
+                <Card>
+                    <h2 className="text-lg font-bold flex items-center gap-2 mb-6">
+                        <BarChart3 size={20} className="text-amber-500" /> Usage vs Recommended Threshold
+                    </h2>
+                    <div className="h-[300px]">
+                        {loading ? (
+                            <div className="h-full flex items-center justify-center text-slate-400">Loading comparison...</div>
+                        ) : activeSummary.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-slate-400">No data found.</div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={activeSummary}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                                    <XAxis dataKey="resource" stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
+                                    <YAxis stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
+                                    <Tooltip
+                                        cursor={{ fill: 'transparent' }}
+                                        contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
+                                    />
+                                    <Bar dataKey="current" name="Current Usage" radius={[6, 6, 0, 0]}>
+                                        {activeSummary.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={getResourceMeta(entry.resource).color} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        )}
+                    </div>
+                </Card>
             </div>
         </div>
     );

@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const usageSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Optional if block-level usage
   blockId: { type: mongoose.Schema.Types.ObjectId, ref: 'Block' },
-  resource_type: { type: String, required: true, enum: ['Electricity', 'Water', 'LPG', 'Diesel', 'Food', 'Waste'] },
+  resource_type: { type: String, required: true, trim: true }, // Validated against ResourceConfig at controller level
   category: { type: String }, // e.g., 'Lighting', 'Heating', 'Cooking'
   usage_value: { type: Number, required: true },
   unit: { type: String }, // e.g., 'kWh', 'Liters', 'kg'

@@ -6,6 +6,7 @@ import { Input } from '../components/ui/Input';
 import { Mail, ArrowLeft, Loader2, Key } from 'lucide-react';
 import api from '../services/api';
 
+
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
   const [msg, setMsg] = useState(null);

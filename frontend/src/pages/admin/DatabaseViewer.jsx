@@ -14,10 +14,6 @@ const DatabaseViewer = () => {
     const { user } = useContext(AuthContext);
     const { addToast } = useToast();
 
-    // Authorization Check
-    if (user?.role !== 'admin') {
-        return <Navigate to="/dashboard" replace />;
-    }
 
     // States
     const [dbStats, setDbStats] = useState(null);
@@ -47,9 +43,11 @@ const DatabaseViewer = () => {
 
     // Initial Load
     useEffect(() => {
-        fetchDbStats();
-        fetchCollectionsList();
-    }, []);
+        if (user?.role === 'admin') {
+            fetchDbStats();
+            fetchCollectionsList();
+        }
+    }, [user]);
 
     // Load Collection Data when selectedCollection or params change
     useEffect(() => {
@@ -231,6 +229,11 @@ const DatabaseViewer = () => {
 
         return <span className={classes}>{children}</span>;
     };
+
+    // Authorization Check
+    if (user?.role !== 'admin') {
+        return <Navigate to="/dashboard" replace />;
+    }
 
     return (
         <div className="flex h-[calc(100vh-80px)] overflow-hidden -mx-4 -mt-4 bg-slate-50 dark:bg-slate-900">

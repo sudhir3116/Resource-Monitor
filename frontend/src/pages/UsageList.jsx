@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useEffect, useState, useContext, useMemo } from 'react';
 import api from '../services/api';
 import { getSocket } from '../utils/socket';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -15,9 +15,10 @@ import {
   Droplets,
   Flame,
   Wind,
-  Utensils,
+  Sun,
   Trash,
-  Filter
+  Filter,
+  Activity
 } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -29,6 +30,16 @@ import useSortableTable from '../hooks/useSortableTable';
 import SortIcon from '../components/common/SortIcon';
 import TableSkeleton from '../components/common/TableSkeleton';
 import timeAgo from '../utils/timeAgo';
+import { logger } from '../utils/logger';
+
+const RESOURCE_META = {
+  Electricity: { icon: <Zap size={16} className="text-amber-500" /> },
+  Water: { icon: <Droplets size={16} className="text-blue-500" /> },
+  LPG: { icon: <Flame size={16} className="text-orange-500" /> },
+  Diesel: { icon: <Wind size={16} className="text-slate-500" /> },
+  Solar: { icon: <Sun size={16} className="text-yellow-500" /> },
+  Waste: { icon: <Trash2 size={16} className="text-rose-500" /> },
+};
 
 export default function UsageList() {
   const [usages, setUsages] = useState([]);
@@ -41,6 +52,7 @@ export default function UsageList() {
   const [endDate, setEndDate] = useState('');
   const [sortMode, setSortMode] = useState('newest');
   const [blocks, setBlocks] = useState([]);
+  const [dynamicResources, setDynamicResources] = useState([]);
   const [deleteId, setDeleteId] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
 
@@ -52,16 +64,35 @@ export default function UsageList() {
   // Only Admin and General Manager can delete records (Wardens cannot)
   const canDelete = user && [ROLES.ADMIN, ROLES.GM].includes(user.role);
   const showActions = canEdit || canDelete;
-  // Executive = full campus visibility with block filter access
-  const isExecutive = user && [ROLES.DEAN, ROLES.DEAN, ROLES.ADMIN, ROLES.GM].includes(user.role);
+  const isWarden = user?.role === ROLES.WARDEN;
+  const isExecutive = user && [ROLES.DEAN, ROLES.ADMIN, ROLES.GM].includes(user.role);
+  // Show block filter only to roles that can see all blocks (not warden — backend already scopes)
+  const showBlockFilter = isExecutive;
 
   useEffect(() => {
-    load();
+    async function init() {
+      setLoading(true);
+      try {
+        const [configRes] = await Promise.all([
+          api.get('/api/resource-config'),
+        ]);
+        setDynamicResources(configRes.data.data || []);
 
-    // Fetch blocks for Dean/Principal filter
-    if (isExecutive) {
-      api.get('/api/admin/blocks').then(r => setBlocks(r.data.data || [])).catch(() => { });
+        // Fetch blocks for Dean/Admin/GM block filter (NOT warden — they're scoped server-side)
+        if (showBlockFilter) {
+          const blockRes = await api.get('/api/admin/blocks').catch(() => ({ data: { data: [] } }));
+          setBlocks(blockRes.data.data || []);
+        }
+
+        await load();
+      } catch (err) {
+        logger.error('UsageList init error:', err);
+      } finally {
+        setLoading(false);
+      }
     }
+
+    init();
 
     const socket = getSocket();
     if (socket) {
@@ -77,30 +108,47 @@ export default function UsageList() {
     };
   }, []);
 
-  // Re-fetch when executive filters change
+  // Re-fetch when filters change
   useEffect(() => {
-    if (isExecutive) load();
-  }, [blockFilter, startDate, endDate, sortMode]);
+    load();
+  }, [resourceFilter, blockFilter, startDate, endDate, sortMode]);
 
   async function load() {
-    setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (resourceFilter && resourceFilter !== 'All') params.set('resource', resourceFilter);
-      if (blockFilter) params.set('block', blockFilter);
-      if (startDate) params.set('start', startDate);
-      if (endDate) params.set('end', endDate);
-      if (sortMode === 'highest_consumption') params.set('sort', 'highest_consumption');
-      else if (sortMode === 'block_name') params.set('sort', 'block_name');
-      else if (sortMode === 'oldest') params.set('sort', 'oldest');
+      if (resourceFilter && resourceFilter !== 'All') {
+        params.set('resource_type', resourceFilter);
+      }
+      if (blockFilter) {
+        params.set('blockId', blockFilter);
+      }
+      if (startDate) {
+        params.set('startDate', startDate);
+      }
+      if (endDate) {
+        params.set('endDate', endDate);
+      }
+
+      // Map frontend sort modes to backend expectations
+      if (sortMode === 'highest_consumption') {
+        params.set('sort', '-usage_value');
+      } else if (sortMode === 'oldest') {
+        params.set('sort', 'usage_date');
+      } else if (sortMode === 'block_name') {
+        params.set('sort', 'blockId');
+      } else {
+        params.set('sort', '-usage_date');
+      }
 
       const res = await api.get(`/api/usage?${params.toString()}`);
-      setUsages(res.data.usages || (Array.isArray(res.data) ? res.data : []));
+      const arr =
+        res.data?.data ||
+        res.data?.usages ||
+        (Array.isArray(res.data) ? res.data : []);
+      setUsages(Array.isArray(arr) ? arr : []);
     } catch (err) {
       addToast('Failed to load usage records', 'error');
       setUsages([]);
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -108,10 +156,7 @@ export default function UsageList() {
     if (!deleteId) return;
     try {
       await api.delete(`/api/usage/${deleteId}`);
-      // Re-fetch the list to reflect soft-delete and prevent stale state
       await load();
-      // Request alert counts refresh via context if available
-      try { if (window && window.dispatchEvent) window.dispatchEvent(new Event('usage:deleted')); } catch (e) { }
       addToast('Record deleted successfully');
     } catch (err) {
       addToast(err.response?.data?.message || 'Failed to delete record', 'error');
@@ -126,32 +171,24 @@ export default function UsageList() {
     setDeleteId(item._id);
   };
 
-  const filteredUsages = React.useMemo(() => {
+  const filteredUsages = useMemo(() => {
     return usages.filter(u => {
       const matchesSearch = (u.userId?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (u.notes || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (u.resource_type || '').toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesResource = resourceFilter === 'All' || u.resource_type === resourceFilter;
-      return matchesSearch && matchesResource;
+        (u.resource_type || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (u.blockId?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+      return matchesSearch;
     });
-  }, [usages, searchTerm, resourceFilter]);
+  }, [usages, searchTerm]);
 
   const { sortedData: finalUsages, sortField, sortDirection, handleSort } = useSortableTable(
     filteredUsages,
     'usage_date',
-    [searchTerm, resourceFilter, blockFilter, startDate, endDate, sortMode]
+    [searchTerm, blockFilter, startDate, endDate, sortMode]
   );
 
   const getResourceIcon = (type) => {
-    switch (type) {
-      case 'Electricity': return <Zap size={16} className="text-amber-500" />;
-      case 'Water': return <Droplets size={16} className="text-blue-500" />;
-      case 'LPG': return <Flame size={16} className="text-orange-500" />;
-      case 'Diesel': return <Wind size={16} className="text-slate-500" />;
-      case 'Food': return <Utensils size={16} className="text-emerald-500" />;
-      case 'Waste': return <Trash size={16} className="text-rose-500" />;
-      default: return <Zap size={16} />;
-    }
+    return RESOURCE_META[type]?.icon || <Activity size={16} className="text-slate-400" />;
   };
 
   const handleExport = () => {
@@ -163,8 +200,9 @@ export default function UsageList() {
       Resource: u.resource_type,
       Value: u.usage_value,
       Unit: u.unit || 'units',
+      Location: u.blockId?.name || 'N/A',
       Date: new Date(u.usage_date).toLocaleString(),
-      User: u.userId?.name || 'N/A',
+      LoggedBy: u.createdBy?.name || 'N/A',
       Notes: u.notes || ''
     }));
     exportToCSV(dataToExport, `usage_records_${new Date().toISOString().split('T')[0]}.csv`);
@@ -195,7 +233,11 @@ export default function UsageList() {
             Export
           </Button>
           {canEdit && (
-            <Button variant="primary" onClick={() => navigate('/usage/new')}>
+            <Button variant="primary" onClick={() => navigate(
+              user?.role === 'warden' ? '/warden/usage/new'
+                : user?.role === 'admin' ? '/admin/usage/new'
+                  : '/usage/new'
+            )}>
               <Plus size={16} className="mr-2" />
               Log Usage
             </Button>
@@ -243,20 +285,17 @@ export default function UsageList() {
             <select
               className="input w-full md:w-48"
               value={resourceFilter}
-              onChange={e => { setResourceFilter(e.target.value); load(); }}
+              onChange={e => setResourceFilter(e.target.value)}
             >
               <option value="All">All Resources</option>
-              <option value="Electricity">Electricity</option>
-              <option value="Water">Water</option>
-              <option value="Food">Food</option>
-              <option value="LPG">LPG</option>
-              <option value="Diesel">Diesel</option>
-              <option value="Waste">Waste</option>
+              {dynamicResources.map(r => (
+                <option key={r._id} value={r.name}>{r.name}</option>
+              ))}
             </select>
           </div>
 
-          {/* Row 2: Executive-only filters (Dean / Principal / Admin) */}
-          {isExecutive && (
+          {/* Row 2: Executive-only filters (Dean / Admin / GM, NOT warden) */}
+          {showBlockFilter && (
             <div className="flex flex-col md:flex-row gap-3 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
               <div className="flex items-center gap-1 text-xs font-medium" style={{ color: 'var(--text-secondary)', minWidth: 70 }}>
                 <Filter size={13} /> Filters
@@ -332,16 +371,18 @@ export default function UsageList() {
                   <th onClick={() => handleSort('resource_type')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'resource_type' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
                     Resource <SortIcon field="resource_type" sortField={sortField} sortDirection={sortDirection} />
                   </th>
+                  <th onClick={() => handleSort('blockId.name')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'blockId.name' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                    Location <SortIcon field="blockId.name" sortField={sortField} sortDirection={sortDirection} />
+                  </th>
                   <th onClick={() => handleSort('usage_value')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'usage_value' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
                     Value <SortIcon field="usage_value" sortField={sortField} sortDirection={sortDirection} />
                   </th>
                   <th onClick={() => handleSort('usage_date')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'usage_date' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
                     Date <SortIcon field="usage_date" sortField={sortField} sortDirection={sortDirection} />
                   </th>
-                  <th onClick={() => handleSort('userId.name')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'userId.name' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
-                    Logged By <SortIcon field="userId.name" sortField={sortField} sortDirection={sortDirection} />
+                  <th onClick={() => handleSort('createdBy.name')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'createdBy.name' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                    Logged By <SortIcon field="createdBy.name" sortField={sortField} sortDirection={sortDirection} />
                   </th>
-                  <th>Notes</th>
                   {showActions && <th className="text-right">Actions</th>}
                 </tr>
               </thead>
@@ -354,6 +395,7 @@ export default function UsageList() {
                         <span className="font-medium">{u.resource_type}</span>
                       </div>
                     </td>
+                    <td className="text-sm font-medium">{u.blockId?.name || '-'}</td>
                     <td>
                       <span className="font-bold">{u.usage_value}</span>
                       <span className="text-xs text-slate-500 ml-1">{u.unit || 'units'}</span>
@@ -361,18 +403,21 @@ export default function UsageList() {
                     <td>{timeAgo(u.usage_date)}</td>
                     <td>
                       <div className="flex items-center gap-2">
-                        <div className="h-6 w-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-xs font-bold">
-                          {u.userId?.name?.charAt(0) || '?'}
+                        <div className="h-6 w-6 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-[10px] font-bold text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                          {u.createdBy?.name?.charAt(0) || '?'}
                         </div>
-                        <span className="text-sm">{u.userId?.name || 'Unknown'}</span>
+                        <span className="text-sm font-medium">{u.createdBy?.name || 'System'}</span>
                       </div>
                     </td>
-                    <td className="max-w-xs truncate text-slate-500">{u.notes || '-'}</td>
                     {showActions && (
                       <td className="text-right">
                         <div className="flex justify-end gap-2">
                           {canEdit && (
-                            <Button size="sm" variant="secondary" onClick={() => navigate(`/usage/${u._id}/edit`)}>
+                            <Button size="sm" variant="secondary" onClick={() => navigate(
+                              user?.role === 'warden' ? `/warden/usage/${u._id}/edit`
+                                : user?.role === 'admin' ? `/admin/usage/${u._id}/edit`
+                                  : `/usage/${u._id}/edit`
+                            )}>
                               <Edit2 size={14} />
                             </Button>
                           )}
@@ -404,3 +449,4 @@ export default function UsageList() {
     </div>
   );
 }
+

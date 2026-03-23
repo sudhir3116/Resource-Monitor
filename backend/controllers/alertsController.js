@@ -44,10 +44,14 @@ async function _audit(action, alertId, userId, description, changes = {}) {
 /** Build role-scoped Mongoose filter for the requesting user */
 async function _buildScopeFilter(reqUser) {
   const filter = {};
-  const role = reqUser.role;
+  const role = (reqUser.role || '').toLowerCase();
+
+  if (role === 'principal') {
+    throw new Error('Principal does not have access to raw alerts');
+  }
 
   // Wardens and Students are scoped to their assigned block only
-  if (role === ROLES.STUDENT || role === ROLES.WARDEN) {
+  if (role === 'student' || role === 'warden') {
     const user = await User.findById(reqUser.id).lean();
     if (user?.block) {
       filter.block = user.block; // Only their assigned block

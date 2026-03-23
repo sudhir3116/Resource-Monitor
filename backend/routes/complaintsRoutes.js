@@ -65,4 +65,13 @@ router.put('/:id/status',
     updateComplaintStatus
 );
 
+// ── PATCH status update (alternative endpoint) ──────────────────────────────
+router.patch('/:id/status',
+    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN),
+    [param('id').isMongoId().withMessage('Invalid id')],
+    runValidations,
+    auditMiddleware('UPDATE', 'Complaint'),
+    updateComplaintStatus
+);
+
 module.exports = router;

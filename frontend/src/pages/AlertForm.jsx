@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext } from 'react'
+import React, { useEffect, useState, useContext, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import Loading from '../components/Loading'
@@ -6,9 +6,9 @@ import { useToast } from '../context/ToastContext'
 import {
   Zap,
   Droplets,
-  Utensils,
+  Sun,
   Flame,
-  Fuel,
+  Wind,
   Recycle,
   Save,
   X,
@@ -16,31 +16,70 @@ import {
   Activity,
   Lock,
   Settings as SettingsIcon,
-  ArrowLeft
+  ArrowLeft,
+  RefreshCw,
+  BellRing,
+  Trash2
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ThemeContext } from '../context/ThemeContext';
+import Card from '../components/common/Card';
+import Button from '../components/common/Button';
+import Badge from '../components/common/Badge';
+import { logger } from '../utils/logger';
+
+const RESOURCE_META = {
+  Electricity: { icon: <Zap size={18} />, color: 'text-amber-500', label: 'Electricity Grid' },
+  Water: { icon: <Droplets size={18} />, color: 'text-blue-500', label: 'Hydraulic System' },
+  LPG: { icon: <Flame size={18} />, color: 'text-orange-500', label: 'Gas Reserves' },
+  Diesel: { icon: <Wind size={18} />, color: 'text-slate-500', label: 'Fuel Supply' },
+  Solar: { icon: <Sun size={18} />, color: 'text-yellow-500', label: 'Solar Generation' },
+  Waste: { icon: <Trash2 size={18} />, color: 'text-rose-500', label: 'Refuse Telemetry' },
+};
 
 export default function AlertForm() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { addToast } = useToast()
-  const { darkMode } = useContext(ThemeContext);
+  const { theme } = useContext(ThemeContext);
+  const isDark = theme === 'dark';
 
   const [form, setForm] = useState({ resource_type: 'Electricity', threshold_value: '', comparison: 'gt', active: true })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [dynamicResources, setDynamicResources] = useState([])
 
-  useEffect(() => { if (id) load() }, [id])
-  async function load() {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get(`/api/alerts/rules`);
-      const rule = res.data.rules.find(r => r._id === id);
-      if (rule) setForm(rule)
-    } catch (e) { setError(e.message) }
-    finally { setLoading(false) }
-  }
+      const [configRes, ruleRes] = await Promise.allSettled([
+        api.get('/api/config/thresholds'),
+        id ? api.get(`/api/alerts/rules`) : Promise.resolve({ status: 'rejected' })
+      ]);
+
+      if (configRes.status === 'fulfilled') {
+        const resources = (configRes.value.data.data || []).filter(r => r.isActive);
+        setDynamicResources(resources);
+        if (!id && resources.length > 0) {
+          setForm(prev => ({ ...prev, resource_type: resources[0].resource }));
+        }
+      }
+
+      if (id && ruleRes.status === 'fulfilled') {
+        const rule = ruleRes.value.data.rules?.find(r => r._id === id);
+        if (rule) setForm(rule);
+      }
+    } catch (e) {
+      logger.error('AlertForm fetchData error:', e);
+      setError('Failed to load configuration sequences');
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   async function submit(e) {
     e.preventDefault();
@@ -48,45 +87,53 @@ export default function AlertForm() {
     try {
       if (id) await api.put(`/api/alerts/${id}`, form);
       else await api.post('/api/alerts', form);
-      addToast(`Protocol ${id ? 'sequencing updated' : 'initialized'} successfully`)
+      addToast(`Protocol ${id ? 'sequencing updated' : 'initialized'} successfully`, 'success')
       navigate('/alerts/rules')
     } catch (err) {
       setError(err.message)
       addToast(err.message, 'error')
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false)
+    }
   }
 
+  const getMeta = (type) => RESOURCE_META[type] || { icon: <Activity size={18} />, color: 'text-indigo-500', label: type };
+
+  if (loading && !dynamicResources.length) return <div className="p-12"><Loading /></div>;
+
   return (
-    <div className="max-w-4xl mx-auto pb-20 animate-fade-in font-['Outfit']">
-      <div className="mb-12 flex flex-col md:flex-row justify-between items-start md:items-center gap-8">
-        <div>
-          <h1 className="text-5xl font-black text-slate-900 dark:text-slate-50 tracking-tightest uppercase border-l-8 border-indigo-600 pl-8">
-            {id ? 'Update' : 'Init'} <span className="text-indigo-600 dark:text-indigo-400">Protocol</span>
+    <div className="max-w-4xl mx-auto space-y-10 pb-32">
+      {/* Dynamic Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-500 text-[10px] font-black uppercase tracking-[0.2em] mb-2">
+            <BellRing size={12} /> System Sentinel Protocol
+          </div>
+          <h1 className="text-4xl font-extrabold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+            {id ? 'Refactor' : 'Initialize'} <span className="text-indigo-600">Sequencer</span>
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-4 text-xl font-bold max-w-xl italic leading-relaxed">
-            Configure automated anomaly detection sequences for institutional grid nodes.
+          <p className="text-slate-500 max-w-lg">
+            Automated anomaly detection for institutional grid nodes. Set threshold vectors for real-time monitoring.
           </p>
         </div>
-        <button onClick={() => navigate('/alerts/rules')} className="flex items-center gap-3 text-slate-400 hover:text-indigo-600 font-black text-[10px] uppercase tracking-[0.4em] transition-all group">
-          <ArrowLeft size={16} className="group-hover:-translate-x-2 transition-transform" /> Cancel Operation
-        </button>
+        <Button variant="secondary" onClick={() => navigate('/alerts/rules')} className="h-12 px-6">
+          <ArrowLeft size={16} className="mr-2" /> Abort Changes
+        </Button>
       </div>
 
-      {loading ? <Loading /> : (
-        <form onSubmit={submit} className="bg-white dark:bg-slate-800 rounded-[56px] border border-slate-100 dark:border-white/5 shadow-3xl dark:shadow-none overflow-hidden relative">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent pointer-events-none" />
-
-          <div className="p-12 md:p-16 space-y-12 relative z-10">
-            {/* Status Integration */}
-            <div className="flex flex-col md:flex-row items-center justify-between p-8 bg-slate-50 dark:bg-slate-900/50 rounded-[32px] border border-slate-100 dark:border-white/5 gap-8">
+      <form onSubmit={submit} className="relative group">
+        <Card className="overflow-visible">
+          <div className="space-y-12 p-4">
+            {/* State Toggle */}
+            <div className="flex flex-col md:flex-row items-center justify-between p-8 bg-slate-50 dark:bg-slate-900/50 rounded-3xl border border-slate-100 dark:border-slate-800 gap-8">
               <div className="flex items-center gap-6">
-                <div className={`h-16 w-16 rounded-[24px] flex items-center justify-center shadow-2xl transition-all
-                  ${form.active ? 'bg-indigo-600 text-white animate-pulse' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}>
-                  <Activity size={32} strokeWidth={2.5} />
+                <div className={`h-16 w-16 rounded-2xl flex items-center justify-center shadow-2xl transition-all duration-500 
+                            ${form.active ? 'bg-indigo-600 text-white animate-pulse shadow-indigo-500/20' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}>
+                  <Activity size={32} />
                 </div>
                 <div>
-                  <h4 className="text-xl font-black text-slate-900 dark:text-white italic uppercase tracking-tightest">Sequence State</h4>
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">Rule operational parameters</p>
+                  <h4 className="text-xl font-bold italic uppercase tracking-tight">Sequence State</h4>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Status: {form.active ? 'OPERATIONAL' : 'DORMANT'}</p>
                 </div>
               </div>
 
@@ -94,89 +141,96 @@ export default function AlertForm() {
                 type="button"
                 onClick={() => setForm({ ...form, active: !form.active })}
                 className={`relative inline-flex h-12 w-24 items-center rounded-full transition-all duration-500 shadow-inner
-                  ${form.active ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'}`}
+                        ${form.active ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'}`}
               >
                 <div className={`transform transition-all duration-500 h-8 w-8 rounded-full bg-white shadow-xl ${form.active ? 'translate-x-14' : 'translate-x-2'}`} />
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
               <div className="space-y-4">
-                <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.4em] ml-4 flex items-center gap-3">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2">
                   <ShieldAlert size={14} className="text-indigo-500" /> Resource Vector
                 </label>
                 <div className="relative group">
                   <select
-                    className="w-full bg-slate-50 dark:bg-slate-900/50 border-2 border-slate-100 dark:border-white/5 rounded-[24px] px-8 py-5 text-sm font-black text-slate-900 dark:text-white outline-none focus:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/10 transition-all appearance-none uppercase tracking-widest"
+                    className="form-input h-14 pl-6 pr-12 text-sm font-bold uppercase tracking-widest cursor-pointer"
                     value={form.resource_type}
                     onChange={e => setForm({ ...form, resource_type: e.target.value })}
                   >
-                    <option value="Electricity">Electricity Sequence</option>
-                    <option value="Water">Water Sequence</option>
-                    <option value="Food">Food Waste Grid</option>
-                    <option value="LPG">Gas Distribution</option>
-                    <option value="Diesel">Diesel Reserves</option>
-                    <option value="Waste">Waste Telemetry</option>
+                    {dynamicResources.map(res => (
+                      <option key={res.resource} value={res.resource}>
+                        {getMeta(res.resource).label}
+                      </option>
+                    ))}
                   </select>
-                  <div className="absolute right-8 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 group-hover:text-indigo-500 transition-colors">
-                    <SettingsIcon size={18} />
+                  <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-indigo-500">
+                    {getMeta(form.resource_type).icon}
                   </div>
                 </div>
               </div>
 
               <div className="space-y-4">
-                <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.4em] ml-4 flex items-center gap-3">
-                  <Zap size={14} className="text-indigo-500" /> Comparison Protocol
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2">
+                  <Activity size={14} className="text-indigo-500" /> Logic Gate
                 </label>
                 <select
-                  className="w-full bg-slate-50 dark:bg-slate-900/50 border-2 border-slate-100 dark:border-white/5 rounded-[24px] px-8 py-5 text-sm font-black text-slate-900 dark:text-white outline-none focus:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/10 transition-all appearance-none uppercase tracking-widest"
+                  className="form-input h-14 px-6 text-sm font-bold uppercase tracking-widest cursor-pointer"
                   value={form.comparison}
                   onChange={e => setForm({ ...form, comparison: e.target.value })}
                 >
-                  <option value="gt">Exceeds Threshold (&gt;)</option>
-                  <option value="lt">Below Threshold (&lt;)</option>
-                  <option value="eq">Exact Match (=)</option>
+                  <option value="gt">Greater Than (&gt;)</option>
+                  <option value="lt">Lower Than (&lt;)</option>
+                  <option value="eq">Equal To (=)</option>
                 </select>
               </div>
 
-              <div className="space-y-4 md:col-span-2">
-                <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.4em] ml-4 flex items-center gap-3">
-                  <Lock size={14} className="text-indigo-500" /> Threshold Trigger Value
+              <div className="md:col-span-2 space-y-4">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2">
+                  <Lock size={14} className="text-indigo-500" /> Trigger Threshold
                 </label>
-                <input
-                  type="number"
-                  className="w-full bg-slate-50 dark:bg-slate-900/50 border-2 border-slate-100 dark:border-white/5 rounded-[24px] px-8 py-5 text-xl font-black text-slate-900 dark:text-white outline-none focus:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-300 dark:placeholder:text-slate-700"
-                  value={form.threshold_value}
-                  onChange={e => setForm({ ...form, threshold_value: e.target.value })}
-                  placeholder="Enter limit value (e.g. 500)"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="form-input h-16 px-8 text-2xl font-black placeholder:text-slate-300 bg-slate-50/50"
+                    value={form.threshold_value}
+                    onChange={e => setForm({ ...form, threshold_value: e.target.value })}
+                    placeholder="0.00"
+                    required
+                  />
+                  <div className="absolute right-8 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs uppercase tracking-widest">
+                    Unit: {dynamicResources.find(r => r.resource === form.resource_type)?.unit || 'Value'}
+                  </div>
+                </div>
               </div>
             </div>
 
-            {error && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-6 bg-rose-500/10 border border-rose-500/20 rounded-[28px] text-rose-500 text-xs font-black uppercase tracking-widest text-center shadow-lg shadow-rose-500/10 mb-8">
-                Security Error: {error}
-              </motion.div>
-            )}
-
-            <div className="flex flex-col md:flex-row gap-6 pt-12 border-t border-slate-50 dark:border-white/5">
-              <button
-                type="button"
-                className="flex-1 py-6 rounded-[28px] border-2 border-slate-100 dark:border-white/5 text-slate-400 dark:text-slate-500 font-black text-xs uppercase tracking-[0.4em] hover:bg-slate-50 dark:hover:bg-white/5 transition-all active:scale-95"
-                onClick={() => navigate('/alerts/rules')}
-              >
-                Abort Changes
-              </button>
-              <button
+            <div className="flex flex-col md:flex-row gap-6 pt-10 border-t border-slate-50 dark:border-slate-800">
+              <Button
                 type="submit"
-                className="flex-1 py-6 bg-indigo-600 text-white rounded-[28px] font-black text-xs uppercase tracking-[0.4em] shadow-3xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-4"
+                variant="primary"
+                className="flex-1 h-14 text-sm font-black uppercase tracking-[0.2em] shadow-xl shadow-indigo-600/20"
+                disabled={loading}
               >
-                <Save size={18} strokeWidth={3} /> {id ? 'Update Protocol' : 'Initialize Rule'}
-              </button>
+                {loading ? <RefreshCw className="animate-spin mr-2" size={18} /> : <Save className="mr-2" size={18} />}
+                {id ? 'Update Protocol' : 'Deploy Sequencer'}
+              </Button>
             </div>
           </div>
-        </form>
+        </Card>
+      </form>
+
+      {error && (
+        <AnimatePresence>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="p-6 bg-rose-500/10 border border-rose-500/20 rounded-3xl text-rose-500 text-[10px] font-black uppercase tracking-[0.3em] text-center shadow-lg shadow-rose-500/5"
+          >
+            Protocol Exception: {error}
+          </motion.div>
+        </AnimatePresence>
       )}
     </div>
   )

@@ -6,6 +6,7 @@ import { Input } from '../components/ui/Input';
 import { Lock, ArrowLeft, Loader2, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import api from '../services/api';
 
+
 export default function ResetPassword() {
   const { token } = useParams();
   const navigate = useNavigate();

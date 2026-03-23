@@ -225,7 +225,7 @@ export default function Complaints() {
 
     const canSubmit = true; // All roles can submit
     const isAdminOrWarden = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role);
-    const canSeeStats = [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.DEAN].includes(user?.role);
+    const canSeeStats = [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL].includes(user?.role);
 
     const setActioning = (id, val) => setActioningIds(prev => {
         const s = new Set(prev); val ? s.add(id) : s.delete(id); return s;
@@ -235,7 +235,7 @@ export default function Complaints() {
         try {
             setLoading(true);
             const res = await api.get('/api/complaints');
-            setComplaints(res.data.data || []);
+            setComplaints(res.data.data || res.data.complaints || []);
         } catch (err) {
             addToast('Failed to load complaints', 'error');
         } finally {
@@ -409,6 +409,7 @@ export default function Complaints() {
                                     <option value="low">Low</option>
                                     <option value="medium">Medium</option>
                                     <option value="high">High</option>
+                                    <option value="urgent">Urgent</option>
                                 </select>
                             </div>
                         </div>

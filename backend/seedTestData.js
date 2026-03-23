@@ -125,7 +125,7 @@ const seedTestData = async () => {
 
             for (const student of students) {
                 // Each student gets random usage records
-                const resources = ['Electricity', 'Water', 'Food'];
+                const resources = ['Electricity', 'Water', 'Solar'];
                 for (const resource of resources) {
                     const amount = Math.random() * (resource === 'Electricity' ? 10 : resource === 'Water' ? 150 : 2);
 

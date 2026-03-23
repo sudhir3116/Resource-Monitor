@@ -69,6 +69,31 @@ mongoose.connect(process.env.MONGO_URI, {
 }).then(() => {
   if (process.env.NODE_ENV !== 'production') console.log("MongoDB connected");
 
+  // ── Seed ResourceConfig if missing ──────────────────────────────────────────
+  const ResourceConfig = require('./models/ResourceConfig');
+  const Usage = require('./models/Usage');
+
+  ResourceConfig.countDocuments().then(count => {
+    if (count === 0) {
+      const defaults = [
+        { name: 'Electricity', unit: 'kWh', dailyLimit: 100, monthlyLimit: 3000, icon: '⚡', color: '#f59e0b' },
+        { name: 'Water', unit: 'Liters', dailyLimit: 500, monthlyLimit: 15000, icon: '💧', color: '#3b82f6' },
+        { name: 'Solar', unit: 'kWh', dailyLimit: 50, monthlyLimit: 1500, icon: '☀️', color: '#10b981' },
+        { name: 'LPG', unit: 'kg', dailyLimit: 10, monthlyLimit: 300, icon: '🔥', color: '#f97316' },
+        { name: 'Diesel', unit: 'Liters', dailyLimit: 20, monthlyLimit: 600, icon: '⛽', color: '#64748b' },
+        { name: 'Waste', unit: 'kg', dailyLimit: 5, monthlyLimit: 150, icon: '♻️', color: '#ef4444' }
+      ];
+      ResourceConfig.insertMany(defaults)
+        .then(() => console.log('✅ Seeded default resource configurations'))
+        .catch(err => console.error('Error seeding resources:', err));
+    }
+  });
+
+  // ⭐ MIGRATION: Change 'Food' to 'Solar' in usages (for legacy data)
+  Usage.updateMany({ resource_type: 'Food' }, { $set: { resource_type: 'Solar' } })
+    .then(r => r.nModified > 0 && console.log(`[MIGRATION] Migrated ${r.nModified} food records to solar.`))
+    .catch(err => console.error('Migration error:', err));
+
   const PORT = process.env.PORT || 5000;
   // Create HTTP server and attach socket.io so controllers can emit events
   const http = require('http');
@@ -160,6 +185,7 @@ app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/daily-reports", require("./routes/dailyReportRoutes"));
 app.use("/api/student", require("./routes/studentRoutes"));
 app.use("/api/students", require("./routes/studentRoutes"));
+app.use("/api/resource-config", require("./routes/resourceConfigRoutes"));
 
 // Health Check — must be before the 404 catch-all
 app.get('/', (req, res) => res.json({ status: 'OK', message: 'API Running', port: process.env.PORT }));

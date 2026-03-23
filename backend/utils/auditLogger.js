@@ -48,7 +48,7 @@ const auditMiddleware = (action, resourceType) => {
                 createAuditLog({
                     action,
                     resourceType,
-                    resourceId: req.params.id || req.body._id,
+                    resourceId: req.params.id || req.body?._id,
                     userId: req.user?.id,
                     description: `${action} ${resourceType}`,
                     req

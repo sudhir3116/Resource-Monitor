@@ -1,337 +1,441 @@
-import React, { useEffect, useState, useContext } from 'react';
-import {
-    Chart as ChartJS,
-    CategoryScale,
-    LinearScale,
-    PointElement,
-    LineElement,
-    BarElement,
-    ArcElement,
-    Title,
-    Tooltip,
-    Legend,
-    Filler,
-} from 'chart.js';
-import { Line, Bar, Pie } from 'react-chartjs-2';
+import React, { useEffect, useState, useCallback, useMemo, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
-import { Download, Zap, Droplets, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
-import { ThemeContext } from '../context/ThemeContext';
+import {
+    Zap,
+    Droplets,
+    DollarSign,
+    TrendingUp,
+    TrendingDown,
+    Download,
+    Building2,
+    Activity,
+    Flame,
+    Wind,
+    Utensils,
+    Trash2,
+    RefreshCw,
+    Filter,
+    ChevronDown,
+    Bell,
+    History,
+    Sun
+} from 'lucide-react';
 import Card, { MetricCard } from '../components/common/Card';
-import EmptyState from '../components/common/EmptyState';
 import Button from '../components/common/Button';
+import Badge from '../components/common/Badge';
+import EmptyState from '../components/common/EmptyState';
 import { logger } from '../utils/logger';
+import { AuthContext } from '../context/AuthContext';
+import { ROLES } from '../utils/roles';
 import useSortableTable from '../hooks/useSortableTable';
 import SortIcon from '../components/common/SortIcon';
+import {
+    AreaChart,
+    Area,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    ResponsiveContainer,
+    PieChart,
+    Pie,
+    Cell,
+    Legend
+} from 'recharts';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
+const RESOURCE_META = {
+    Electricity: { icon: <Zap size={20} />, color: '#f59e0b', bg: 'bg-amber-500/10' },
+    Water: { icon: <Droplets size={20} />, color: '#3b82f6', bg: 'bg-blue-500/10' },
+    Solar: { icon: <Sun size={20} />, color: '#eab308', bg: 'bg-yellow-500/10' },
+    LPG: { icon: <Flame size={20} />, color: '#f97316', bg: 'bg-orange-500/10' },
+    Diesel: { icon: <Wind size={20} />, color: '#64748b', bg: 'bg-slate-500/10' },
+    Waste: { icon: <Trash2 size={20} />, color: '#ef4444', bg: 'bg-rose-500/10' },
+};
 
 export default function ExecutiveDashboard() {
+    const { user } = useContext(AuthContext);
+    const navigate = useNavigate();
+    const isDean = user?.role === ROLES.DEAN;
     const [stats, setStats] = useState(null);
-    const [trendData, setTrendData] = useState(null);
-    const [leaderboard, setLeaderboard] = useState(null);
-    const [days, setDays] = useState(7);
     const [loading, setLoading] = useState(true);
-    const { theme } = useContext(ThemeContext);
-    const isDark = theme === 'dark';
+    const [dynamicResources, setDynamicResources] = useState([]);
+    const [timeRange, setTimeRange] = useState('7d');
+    const [trendData, setTrendData] = useState([]);
+    const [leaderboard, setLeaderboard] = useState([]);
+    const [recentAlerts, setRecentAlerts] = useState([]);
+    const [recentLogs, setRecentLogs] = useState([]);
+    const [usageSummary, setUsageSummary] = useState({});
+
+    const fetchData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const promises = [
+                api.get('/api/usage/summary'),
+                api.get('/api/usage/trends?range=' + timeRange),
+                api.get('/api/analytics/leaderboard'),
+                api.get('/api/resource-config')
+            ];
+
+            if (isDean) {
+                promises.push(api.get('/api/alerts?status=Pending&limit=5'));
+                promises.push(api.get('/api/audit-logs?limit=5'));
+            }
+
+            const [summaryRes, trendRes, leaderboardRes, configRes, alertsRes, logsRes] = await Promise.allSettled(promises);
+
+            if (summaryRes.status === 'fulfilled') {
+                const data = summaryRes.value.data?.data;
+                setUsageSummary(data?.summary || {});
+                setStats({
+                    ...data,
+                    financial: { estimatedCost: data?.grandTotal || 0, percentageChange: 0 }
+                });
+            }
+
+            if (trendRes.status === 'fulfilled') {
+                setTrendData(trendRes.value.data?.data || []);
+            }
+
+            if (leaderboardRes.status === 'fulfilled') {
+                setLeaderboard(leaderboardRes.value.data.data || leaderboardRes.value.data?.leaderboard || []);
+            }
+
+            if (configRes.status === 'fulfilled') {
+                setDynamicResources((configRes.value.data.data || []).filter(r => r.isActive));
+            }
+
+            if (isDean && alertsRes?.status === 'fulfilled') {
+                setRecentAlerts(alertsRes.value.data.alerts || alertsRes.value.data.data || []);
+            }
+
+            if (isDean && logsRes?.status === 'fulfilled') {
+                setRecentLogs(logsRes.value.data.data || logsRes.value.data.logs || []);
+            }
+        } catch (err) {
+            logger.error("Failed to fetch executive dashboard data", err);
+        } finally {
+            setLoading(false);
+        }
+    }, [timeRange, isDean]);
 
     useEffect(() => {
-        async function fetchStats() {
-            try {
-                setLoading(true);
-                const [dashboardRes, leaderboardRes] = await Promise.all([
-                    api.get('/api/dashboard/executive'),
-                    api.get('/api/analytics/leaderboard').catch(() => ({ data: { leaderboard: [] } }))
-                ]);
-
-                setStats(dashboardRes.data.data || dashboardRes.data);
-
-                if (leaderboardRes.data?.leaderboard) {
-                    setLeaderboard(leaderboardRes.data);
-                }
-            } catch (err) {
-                logger.error("Failed to fetch executive dashboard", err);
-            } finally {
-                setLoading(false);
-            }
-        }
-        fetchStats();
-    }, []);
-
-    // Refetch electricity trend whenever `days` changes
-    useEffect(() => {
-        async function fetchTrend() {
-            try {
-                const range = days === 30 ? '30days' : '7days';
-                const res = await api.get(`/api/usage/trends?resource=Electricity&range=${range}`);
-                setTrendData(res.data?.data || []);
-            } catch (err) {
-                logger.error('Failed to fetch electricity trend', err);
-                setTrendData([]);
-            }
-        }
-        fetchTrend();
-    }, [days]);
+        fetchData();
+    }, [fetchData]);
 
     const { sortedData: sortedLeaderboard, sortField, sortDirection, handleSort } = useSortableTable(
-        leaderboard?.leaderboard || [],
-        'hostel-leaderboard'
+        leaderboard,
+        'executive-leaderboard'
     );
 
-    if (loading) {
+    const getResourceMeta = (type) => {
+        return RESOURCE_META[type] || { icon: <Activity size={20} />, color: '#64748b', bg: 'bg-slate-500/10' };
+    };
+
+    const costStats = useMemo(() => {
+        if (!stats?.financial) return { total: 0, change: 0 };
+        return {
+            total: parseFloat(stats.financial.estimatedCost || 0),
+            change: parseFloat(stats.financial.percentageChange || 0)
+        };
+    }, [stats]);
+
+    const distributionData = useMemo(() => {
+        if (!usageSummary || Object.keys(usageSummary).length === 0) return [];
+        return dynamicResources.map(res => {
+            const resName = res.name;
+            const data = usageSummary[resName] || {};
+            return {
+                name: resName,
+                value: data.total || 0
+            };
+        }).filter(d => d.value > 0);
+    }, [usageSummary, dynamicResources]);
+
+    if (loading && !stats) {
         return (
             <div className="space-y-6">
-                <div className="h-8 rounded" style={{ backgroundColor: 'var(--bg-hover)', width: '200px' }}></div>
+                <div className="h-8 rounded w-1/4 animate-pulse bg-slate-200 dark:bg-slate-700"></div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {[1, 2, 3].map(i => (
-                        <div key={i} className="h-32 rounded-lg animate-pulse" style={{ backgroundColor: 'var(--bg-hover)' }}></div>
+                        <div key={i} className="h-32 rounded-xl animate-pulse bg-slate-200 dark:bg-slate-700"></div>
                     ))}
                 </div>
             </div>
         );
     }
 
-    if (!stats) {
-        return null;
-    }
-
-    const { trends, financial, blockRanking = [] } = stats;
-
-
-    const chartOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: { display: false },
-            tooltip: {
-                backgroundColor: isDark ? '#1e293b' : '#ffffff',
-                titleColor: isDark ? '#f1f5f9' : '#0f172a',
-                bodyColor: isDark ? '#cbd5e1' : '#475569',
-                borderColor: isDark ? '#334155' : '#e2e8f0',
-                borderWidth: 1,
-                padding: 12,
-                cornerRadius: 8,
-            }
-        },
-        scales: {
-            y: {
-                beginAtZero: true,
-                grid: {
-                    color: isDark ? '#334155' : '#e2e8f0',
-                    drawBorder: false,
-                },
-                ticks: {
-                    color: isDark ? '#64748b' : '#64748b',
-                    font: { size: 11 }
-                }
-            },
-            x: {
-                grid: { display: false },
-                ticks: {
-                    color: isDark ? '#64748b' : '#64748b',
-                    font: { size: 11 }
-                }
-            }
-        }
-    };
-
-    // trendData is now [{date:'2026-02-20', total:450}, ...]
-    const elecLabels = trendData.map(d =>
-        new Date(d.date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    );
-    const elecValues = trendData.map(d => d.total);
-    const elecMax = Math.max(...elecValues, 0);
-
-    const electricityData = {
-        labels: elecLabels,
-        datasets: [{
-            label: 'Electricity (kWh)',
-            data: elecValues,
-            borderColor: '#2563EB',
-            backgroundColor: 'rgba(37, 99, 235, 0.1)',
-            tension: 0.4,
-            fill: true,
-            pointRadius: 4,
-            pointBackgroundColor: isDark ? '#0f172a' : '#ffffff',
-            pointBorderColor: '#2563EB',
-            pointBorderWidth: 2,
-            borderWidth: 2,
-        }],
-    };
-
-    const chartOptionsWithScale = {
-        ...chartOptions,
-        scales: {
-            ...chartOptions.scales,
-            y: {
-                ...chartOptions.scales.y,
-                beginAtZero: true,
-                suggestedMax: elecMax > 0 ? elecMax * 1.15 : 10,
-            }
-        }
-    };
-
-    const resourceData = {
-        labels: ['Electricity', 'Water'],
-        datasets: [{
-            data: [trends.electricity.current, trends.water.current],
-            backgroundColor: ['#F59E0B', '#3B82F6'],
-            borderWidth: 0,
-        }]
-    };
-
     return (
         <div className="space-y-6">
-            {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 style={{ color: 'var(--text-primary)' }}>Executive Overview</h1>
-                    <p style={{ color: 'var(--text-secondary)' }}>
-                        Campus-wide resource analytics and financial reporting
+                    <h1 className="text-2xl font-bold flex items-center gap-3" style={{ color: 'var(--text-primary)' }}>
+                        Executive Insights
+                        {isDean && <Badge variant="secondary">View Only</Badge>}
+                    </h1>
+                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        Campus-wide resource analytics and financial performance. <a href="/dean/analytics" onClick={(e) => { e.preventDefault(); navigate('/dean/analytics'); }} className="text-blue-500 hover:underline">For detailed data, visit Analytics &rarr;</a>
                     </p>
                 </div>
-                <Button variant="secondary">
-                    <Download size={16} className="mr-2" />
-                    Export Report
-                </Button>
+                <div className="flex items-center gap-2">
+                    <div className="bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 flex gap-1">
+                        {['7d', '30d', '90d'].map(range => (
+                            <button
+                                key={range}
+                                onClick={() => setTimeRange(range)}
+                                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${timeRange === range ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                            >
+                                {range.toUpperCase()}
+                            </button>
+                        ))}
+                    </div>
+                    <Button variant="secondary" onClick={fetchData}>
+                        <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                    </Button>
+                </div>
             </div>
 
-            {/* Metrics Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <MetricCard
-                    icon={<DollarSign size={20} />}
-                    label="Total Cost"
-                    value={<span style={{ color: 'var(--color-success)' }}>₹{parseFloat(financial.estimatedCost).toLocaleString()}</span>}
-                />
+            {/* Full resource cards grid for Dean */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Object.entries(usageSummary)
+                    .filter(([, d]) => d.total > 0 || d.dailyThreshold > 0)
+                    .map(([name, data]) => {
+                        const pct = data.dailyThreshold
+                            ? Math.min(
+                                Math.round(
+                                    (data.total / data.dailyThreshold) * 100
+                                ), 200)
+                            : 0;
+                        const pctColor =
+                            pct >= 150 ? '#EF4444'
+                            : pct >= 100 ? '#F97316'
+                            : pct >= 80 ? '#F59E0B'
+                            : '#10B981';
+                        const meta = getResourceMeta(name);
 
-                <MetricCard
-                    icon={<Zap size={20} />}
-                    label="Total Electricity"
-                    value={<>{trends.electricity.current.toLocaleString()} <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>kWh</span></>}
-                    change={trends.electricity.percentageChange}
-                />
+                        return (
+                            <Card key={name}
+                                className="p-5 flex flex-col gap-3"
+                                style={{
+                                    borderLeftWidth: '3px',
+                                    borderLeftColor: meta.color
+                                }}>
 
-                <MetricCard
-                    icon={<Droplets size={20} />}
-                    label="Total Water"
-                    value={<>{trends.water.current.toLocaleString()} <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>L</span></>}
-                    change={trends.water.percentageChange}
-                />
+                                {/* Header */}
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-2xl">
+                                            {meta.icon}
+                                        </span>
+                                        <span className="font-semibold text-sm"
+                                            style={{
+                                                color: 'var(--text-primary)'
+                                            }}>
+                                            {name}
+                                        </span>
+                                    </div>
+                                    {pct > 0 && (
+                                        <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                                            style={{
+                                                backgroundColor: pctColor + '20',
+                                                color: pctColor
+                                            }}>
+                                            {pct}%
+                                        </span>
+                                    )}
+                                </div>
+
+                                {/* Value */}
+                                <div>
+                                    <p className="text-2xl font-bold"
+                                        style={{
+                                            color: 'var(--text-primary)'
+                                        }}>
+                                        {data.total > 0
+                                            ? data.total.toLocaleString()
+                                            : '—'}
+                                    </p>
+                                    <p className="text-sm"
+                                        style={{
+                                            color: 'var(--text-secondary)'
+                                        }}>
+                                        {data.unit}
+                                        {data.dailyThreshold > 0 &&
+                                            ` / ${data.dailyThreshold} limit`}
+                                    </p>
+                                </div>
+
+                                {/* Progress bar */}
+                                {pct > 0 && (
+                                    <div className="w-full h-1.5 rounded-full overflow-hidden"
+                                        style={{
+                                            backgroundColor: 'var(--bg-secondary)'
+                                        }}>
+                                        <div
+                                            className="h-full rounded-full transition-all duration-500"
+                                            style={{
+                                                width: `${Math.min(pct, 100)}%`,
+                                                backgroundColor: pctColor
+                                            }}
+                                        />
+                                    </div>
+                                )}
+
+                                {/* No data state */}
+                                {data.total === 0 && (
+                                    <p className="text-xs"
+                                        style={{
+                                            color: 'var(--text-secondary)'
+                                        }}>
+                                        No data recorded yet
+                                    </p>
+                                )}
+                            </Card>
+                        );
+                    })}
             </div>
 
-            {/* Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Trend Chart */}
-                <Card
-                    title="Electricity Trend"
-                    description={days === 7 ? "Last 7 days usage pattern" : "Last 30 days usage pattern"}
-                    action={
-                        <select
-                            className="text-sm p-1 rounded border dark:bg-slate-800 dark:border-slate-700"
-                            value={days}
-                            onChange={(e) => setDays(Number(e.target.value))}
-                        >
-                            <option value={7}>7 Days</option>
-                            <option value={30}>30 Days</option>
-                        </select>
-                    }
-                >
-                    <div className="h-[300px]">
-                        {trendData.length === 0 ? (
-                            <EmptyState title="No data available" description="No electricity usage recorded in this period" />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <Card className="lg:col-span-2" title="Consumption Trends">
+                    <div className="h-[350px] w-full mt-4">
+                        {loading ? (
+                            <div className="h-full flex items-center justify-center text-slate-400">Loading trends...</div>
+                        ) : !Array.isArray(trendData) ? (
+                            <div className="h-full flex items-center justify-center text-slate-400">No data available</div>
+                        ) : trendData.length === 0 ? (
+                            <div className="h-full flex items-center justify-center text-slate-400">No trend data available.</div>
                         ) : (
-                            <Line data={electricityData} options={chartOptionsWithScale} />
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={(Array.isArray(trendData) ? trendData : []).slice(0, 10)}>
+                                    <defs>
+                                        {dynamicResources.map(res => (
+                                            <linearGradient key={res._id || res.name} id={`color${res.name}`} x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor={getResourceMeta(res.name).color} stopOpacity={0.1} />
+                                                <stop offset="95%" stopColor={getResourceMeta(res.name).color} stopOpacity={0} />
+                                            </linearGradient>
+                                        ))}
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                                    <XAxis
+                                        dataKey="_id"
+                                        stroke="var(--text-secondary)"
+                                        fontSize={12}
+                                        tickLine={false}
+                                        axisLine={false}
+                                        tickFormatter={(val) => new Date(val).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                    />
+                                    <YAxis
+                                        stroke="var(--text-secondary)"
+                                        fontSize={12}
+                                        tickLine={false}
+                                        axisLine={false}
+                                    />
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
+                                    />
+                                    {dynamicResources.map(res => (
+                                        <Area
+                                            key={res._id || res.name}
+                                            type="monotone"
+                                            dataKey={res.name}
+                                            stroke={getResourceMeta(res.name).color}
+                                            fillOpacity={1}
+                                            fill={`url(#color${res.name})`}
+                                            strokeWidth={3}
+                                            dot={false}
+                                        />
+                                    ))}
+                                </AreaChart>
+                            </ResponsiveContainer>
                         )}
                     </div>
                 </Card>
 
-                {/* Resource Distribution */}
-                <Card title="Resource Distribution" description="Current month breakdown">
-                    <div className="h-[300px] flex items-center justify-center">
-                        <div className="w-full max-w-[250px]">
-                            <Pie data={resourceData} options={{ ...chartOptions, scales: undefined }} />
-                        </div>
+                <Card title="Resource Distribution">
+                    <div className="h-[350px] mt-4">
+                        {distributionData.length === 0 ? (
+                            <div className="h-full flex items-center justify-center text-slate-400">No distribution data.</div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={distributionData}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={60}
+                                        outerRadius={100}
+                                        paddingAngle={5}
+                                        dataKey="value"
+                                    >
+                                        {distributionData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={getResourceMeta(entry.name).color} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
+                                    />
+                                    <Legend iconType="circle" />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        )}
                     </div>
                 </Card>
             </div>
 
-            {/* Block Performance Table */}
-            <Card title="Hostel Leaderboard" description="Efficiency Index Ranking">
+
+
+            {isDean && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Top 3 */}
-                    <div>
-                        <h3 className="font-semibold mb-3 text-green-500">🏆 Top 3 Efficient Blocks</h3>
-                        <div className="space-y-3">
-                            {leaderboard?.top3?.map((block, idx) => (
-                                <div key={idx} className="flex items-center justify-between p-3 border rounded-lg" style={{ borderColor: 'var(--border)' }}>
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-8 w-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold">
-                                            {idx + 1}
+                    <Card title="Recent Alerts" icon={<Bell size={18} />} description="Latest pending resource threshold alerts">
+                        <div className="space-y-4 mt-4">
+                            {recentAlerts.length === 0 ? (
+                                <p className="text-sm text-center py-4 text-slate-400">No pending alerts.</p>
+                            ) : (
+                                recentAlerts.map(alert => (
+                                    <div key={alert._id} className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex items-start gap-3">
+                                        <div className="mt-1 h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="font-semibold text-sm truncate">{alert.resourceType} Threshold</span>
+                                                <span className="text-[10px] text-slate-400">{new Date(alert.createdAt).toLocaleTimeString()}</span>
+                                            </div>
+                                            <p className="text-xs text-slate-500 line-clamp-1">{alert.message}</p>
                                         </div>
-                                        <span className="font-medium">{block.blockName}</span>
                                     </div>
-                                    <span className="font-bold text-green-500">{block.score}%</span>
-                                </div>
-                            )) || <p className="text-sm text-slate-500">No data available</p>}
+                                ))
+                            )}
+                            <Button variant="link" size="sm" className="w-full text-blue-500" onClick={() => navigate('/dean/alerts')}>
+                                View All Alerts
+                            </Button>
                         </div>
-                    </div>
+                    </Card>
 
-                    {/* Bottom 3 */}
-                    <div>
-                        <h3 className="font-semibold mb-3 text-red-500">⚠️ Needs Improvement</h3>
-                        <div className="space-y-3">
-                            {leaderboard?.bottom3?.map((block, idx) => (
-                                <div key={idx} className="flex items-center justify-between p-3 border rounded-lg" style={{ borderColor: 'var(--border)' }}>
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-8 w-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold">
-                                            !
+                    <Card title="System Activity" icon={<History size={18} />} description="Recent administrative actions and updates">
+                        <div className="space-y-4 mt-4">
+                            {recentLogs.length === 0 ? (
+                                <p className="text-sm text-center py-4 text-slate-400">No recent activity.</p>
+                            ) : (
+                                recentLogs.map(log => (
+                                    <div key={log._id} className="flex gap-3 items-start p-2 hover:bg-slate-50 dark:hover:bg-slate-800/30 rounded-lg transition-colors">
+                                        <div className="mt-1 flex-shrink-0 w-6 h-6 rounded-md bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-[10px]">
+                                            {log.action?.charAt(0)}
                                         </div>
-                                        <span className="font-medium">{block.blockName}</span>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-xs text-slate-600 dark:text-slate-300">
+                                                <span className="font-semibold">{log.userId?.name || 'System'}</span> {log.description}
+                                            </p>
+                                            <p className="text-[10px] text-slate-400">{new Date(log.timestamp || log.createdAt).toLocaleString()}</p>
+                                        </div>
                                     </div>
-                                    <span className="font-bold text-red-500">{block.score}%</span>
-                                </div>
-                            )) || <p className="text-sm text-slate-500">No data available</p>}
+                                ))
+                            )}
+                            <Button variant="link" size="sm" className="w-full text-blue-500" onClick={() => navigate('/dean/audit-logs')}>
+                                View Audit Trail
+                            </Button>
                         </div>
-                    </div>
+                    </Card>
                 </div>
-
-                <div className="mt-6 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
-                    <div className="overflow-x-auto">
-                        <table className="table w-full">
-                            <thead>
-                                <tr>
-                                    <th>Rank</th>
-                                    <th onClick={() => handleSort('blockName')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'blockName' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
-                                        Block Name <SortIcon field="blockName" sortField={sortField} sortDirection={sortDirection} />
-                                    </th>
-                                    <th onClick={() => handleSort('score')} className={`text-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'score' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
-                                        Efficiency Score <SortIcon field="score" sortField={sortField} sortDirection={sortDirection} />
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {sortedLeaderboard.map((block, idx) => (
-                                    <tr key={idx}>
-                                        <td className="w-16">
-                                            #{idx + 1}
-                                        </td>
-                                        <td className="font-semibold">
-                                            {block.blockName}
-                                        </td>
-                                        <td className="text-center">
-                                            <span className={`px-2 py-1 rounded text-xs font-bold ${block.score >= 80 ? 'bg-green-100 text-green-700' :
-                                                block.score >= 60 ? 'bg-amber-100 text-amber-700' :
-                                                    'bg-red-100 text-red-700'
-                                                }`}>
-                                                {block.score}% (Grade {block.score >= 90 ? 'A' : block.score >= 80 ? 'B' : block.score >= 70 ? 'C' : block.score >= 60 ? 'D' : 'F'})
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </Card>
+            )}
         </div>
     );
 }

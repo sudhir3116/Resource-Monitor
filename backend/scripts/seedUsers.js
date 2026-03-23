@@ -162,7 +162,7 @@ async function main() {
         { resource: 'Water', unit: 'Litres', costPerUnit: 0.5, dailyThreshold: 10000, monthlyThreshold: 300000, dailyLimitPerPerson: 100, monthlyLimitPerPerson: 3000, monthlyLimitPerBlock: 300000, alertsEnabled: true },
         { resource: 'LPG', unit: 'kg', costPerUnit: 80, dailyThreshold: 10, monthlyThreshold: 300, dailyLimitPerPerson: 0.1, monthlyLimitPerPerson: 3, monthlyLimitPerBlock: 300, alertsEnabled: true },
         { resource: 'Diesel', unit: 'Litres', costPerUnit: 95, dailyThreshold: 5, monthlyThreshold: 150, dailyLimitPerPerson: 0.05, monthlyLimitPerPerson: 1.5, monthlyLimitPerBlock: 150, alertsEnabled: true },
-        { resource: 'Food', unit: 'kg', costPerUnit: 150, dailyThreshold: 150, monthlyThreshold: 4500, dailyLimitPerPerson: 1.5, monthlyLimitPerPerson: 45, monthlyLimitPerBlock: 4500, alertsEnabled: false },
+        { resource: 'Solar', unit: 'kWh', costPerUnit: 150, dailyThreshold: 150, monthlyThreshold: 4500, dailyLimitPerPerson: 1.5, monthlyLimitPerPerson: 45, monthlyLimitPerBlock: 4500, alertsEnabled: false },
         { resource: 'Waste', unit: 'kg', costPerUnit: 0, dailyThreshold: 50, monthlyThreshold: 1500, dailyLimitPerPerson: 0.5, monthlyLimitPerPerson: 15, monthlyLimitPerBlock: 1500, alertsEnabled: false },
     ];
 

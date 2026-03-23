@@ -149,7 +149,7 @@ const seedData = async () => {
             severityThreshold: { medium: 80, high: 90, critical: 100 }
         },
         {
-            resource: 'Food',
+            resource: 'Solar',
             unit: 'kg',
             rate: 150,
             dailyLimitPerPerson: 1.5,

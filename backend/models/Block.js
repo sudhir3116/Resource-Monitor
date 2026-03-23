@@ -45,8 +45,7 @@ const blockSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-// Performance indexes
-blockSchema.index({ name: 1 });
+// Performance indexes (name index is auto-created by unique:true in schema, no need to duplicate)
 blockSchema.index({ warden: 1 });
 blockSchema.index({ status: 1 });
 blockSchema.index({ createdAt: -1 });

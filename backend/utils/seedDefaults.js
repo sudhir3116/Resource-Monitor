@@ -57,7 +57,7 @@ const seedSystemConfig = async () => {
                 alertsEnabled: true
             },
             {
-                resource: 'Food',
+                resource: 'Solar',
                 dailyLimitPerPerson: 3, // Units/Meals
                 dailyLimitPerBlock: 1000,
                 monthlyLimitPerPerson: 90, // Meals per month

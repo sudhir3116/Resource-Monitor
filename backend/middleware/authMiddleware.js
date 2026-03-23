@@ -36,10 +36,12 @@ module.exports = async function (req, res, next) {
 
     // Fetch full user object from DB for fresh role 
     try {
-      const userObj = await User.findById(decoded.id).select('-password')
+      const userObj = await User.findById(decoded.id).select('-password').populate('block', 'name location')
       if (userObj) {
         req.userObj = userObj
-        req.user.role = userObj.role // Guarantee role is not overridden and is fresh from DB
+        req.user.role = userObj.role  // Guarantee role is fresh from DB
+        req.user.block = userObj.block // Attach block (ObjectId or populated doc)
+        req.user.name = userObj.name
 
         // Invalidate tokens issued before user's last logout
         if (userObj.lastLogoutAt && decoded.iat) {

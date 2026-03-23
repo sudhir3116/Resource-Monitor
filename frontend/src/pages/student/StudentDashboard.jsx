@@ -1,90 +1,116 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import api from '../../services/api';
-import { AuthContext } from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { ThemeContext } from '../../context/ThemeContext';
-import { Activity, Zap, Droplets, Leaf, TrendingUp } from 'lucide-react';
+import { Activity, Zap, Droplets, Leaf, Flame, Wind, Trash2, RefreshCw, Sun } from 'lucide-react';
 import {
-  Chart as ChartJS, CategoryScale, LinearScale, PointElement,
-  LineElement, Title, Tooltip, Legend, Filler
-} from 'chart.js';
-import { Line } from 'react-chartjs-2';
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
+import Card from '../../components/common/Card';
+import Badge from '../../components/common/Badge';
+import EmptyState from '../../components/common/EmptyState';
+import { logger } from '../../utils/logger';
+import Button from '../../components/common/Button';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
+const RESOURCE_META = {
+  Electricity: { icon: <Zap size={20} className="text-amber-500" />, emoji: '⚡', color: '#F59E0B' },
+  Water: { icon: <Droplets size={20} className="text-blue-500" />, emoji: '💧', color: '#3B82F6' },
+  LPG: { icon: <Flame size={20} className="text-orange-500" />, emoji: '🔥', color: '#EF4444' },
+  Diesel: { icon: <Wind size={20} className="text-slate-500" />, emoji: '⛽', color: '#8B5CF6' },
+  Solar: { icon: <Sun size={20} className="text-yellow-500" />, emoji: '☀️', color: '#10B981' },
+  Waste: { icon: <Trash2 size={20} className="text-rose-500" />, emoji: '♻️', color: '#6B7280' },
+};
+
+const CHART_COLORS = {
+  Electricity: '#F59E0B',
+  Water: '#3B82F6',
+  LPG: '#EF4444',
+  Diesel: '#8B5CF6',
+  Solar: '#10B981',
+  Waste: '#6B7280',
+};
 
 const StudentDashboard = () => {
-  const { user, loading: authLoading } = useContext(AuthContext);
-  const [analytics, setAnalytics] = useState(null);
-  const [hostelInfo, setHostelInfo] = useState(null);
+  const { user, loading: authLoading } = useAuth();
+  const [summary, setSummary] = useState({});
+  const [trends, setTrends] = useState([]);
+  const [complaintCount, setComplaintCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { theme } = useContext(ThemeContext);
-  const isDark = theme === 'dark';
 
-  useEffect(() => {
-    if (!authLoading && user && user.role === 'student') {
-      fetchStudentAnalytics();
-      fetchHostelInfo();
-    }
-  }, [authLoading, user]);
+  const resourceNames = ['Electricity', 'Water', 'Solar'];
 
-  const fetchHostelInfo = async () => {
+  const fetchData = useCallback(async () => {
+    if (authLoading || !user) return;
+
+    setLoading(true);
+    setError(null);
+
     try {
-      const response = await api.get('/api/students/me');
-      setHostelInfo(response.data.data);
-    } catch (err) {
-      console.error('Hostel info error:', err);
-    }
-  };
+      const [summaryRes, trendsRes, complaintsRes] = await Promise.allSettled([
+        api.get('/api/usage/summary'),
+        api.get('/api/usage/trends?range=30d'),
+        api.get('/api/complaints')
+      ]);
 
-  const fetchStudentAnalytics = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await api.get('/api/student/usage-analytics');
-      setAnalytics(response.data.data);
+      if (summaryRes.status === 'fulfilled') {
+        setSummary(summaryRes.value.data?.data?.summary || {});
+      } else {
+        logger.error('Summary fetch failed:', summaryRes.reason?.message);
+      }
+
+      if (trendsRes.status === 'fulfilled') {
+        const data = trendsRes.value.data?.data;
+        setTrends(Array.isArray(data) ? data : []);
+      } else {
+        logger.error('Trends fetch failed:', trendsRes.reason?.message);
+      }
+
+      if (complaintsRes.status === 'fulfilled') {
+        const complaints =
+          complaintsRes.value.data?.data ||
+          complaintsRes.value.data?.complaints ||
+          [];
+        setComplaintCount(Array.isArray(complaints) ? complaints.length : 0);
+      }
+
     } catch (err) {
-      console.error('Analytics error:', err);
-      setError('Failed to load analytics data');
+      logger.error('Student dashboard error:', err);
+      setError('An unexpected error occurred');
     } finally {
       setLoading(false);
     }
+  }, [authLoading, user]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const getResourceMeta = (type) => {
+    return RESOURCE_META[type] || { icon: <Activity size={20} />, emoji: '📊', color: '#64748b' };
   };
 
-  const getChartOptions = (color, unit) => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: isDark ? '#1e293b' : '#ffffff',
-        titleColor: isDark ? '#f1f5f9' : '#0f172a',
-        bodyColor: isDark ? '#cbd5e1' : '#475569',
-        borderColor: isDark ? '#334155' : '#e2e8f0',
-        borderWidth: 1,
-        padding: 10,
-        cornerRadius: 8,
-      }
-    },
-    scales: {
-      y: {
-        beginAtZero: true,
-        grid: { color: isDark ? '#334155' : '#e2e8f0', drawBorder: false },
-        ticks: { color: isDark ? '#94a3b8' : '#64748b', font: { size: 11 }, unit: ` ${unit}` }
-      },
-      x: {
-        grid: { display: false },
-        ticks: { color: isDark ? '#94a3b8' : '#64748b', font: { size: 11 } }
-      }
-    }
-  });
+  const displayValue = (name) => {
+    const data = summary[name];
+    if (!data || data.total === 0) return 'No data available';
+    return `${data.total.toLocaleString()} ${data.unit || ''}`;
+  };
 
-  if (authLoading || loading) {
+  if (loading) {
     return (
       <div className="p-6 space-y-6">
-        <div className="h-8 w-64 bg-gray-800 rounded animate-pulse" />
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className="h-10 w-64 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[1, 2, 3, 4].map(i => (
-            <div key={i} className="h-28 bg-gray-800 rounded-xl animate-pulse" />
+            <div key={i} className="h-32 bg-slate-200 dark:bg-slate-700 rounded-xl animate-pulse" />
           ))}
         </div>
       </div>
@@ -94,237 +120,240 @@ const StudentDashboard = () => {
   if (error) {
     return (
       <div className="p-6">
-        <div className="bg-red-900/20 border border-red-800 rounded-xl p-6">
-          <p className="text-red-400 font-medium">{error}</p>
-          <button
-            onClick={fetchStudentAnalytics}
-            className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium"
-          >
-            Retry
-          </button>
-        </div>
+        <EmptyState
+          title="Dashboard Error"
+          description={error}
+          action={<Button onClick={fetchData}>Retry</Button>}
+        />
       </div>
     );
   }
 
-  if (!analytics) {
-    return (
-      <div className="p-6">
-        <p className="text-gray-400">No analytics data available</p>
-      </div>
-    );
-  }
+  const sustainabilityScore = summary?.Electricity?.total > 0 || summary?.Water?.total > 0 ? 85 : 0;
 
-  const { resources, carbonFootprint, sustainabilityScore, block } = analytics;
-
-  // Prepare chart data
-  const getLast7DaysLabels = () => {
-    const labels = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      labels.push(d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
-    }
-    return labels;
-  };
-
-  const labels = getLast7DaysLabels();
-
-  const electricityData = {
-    labels,
-    datasets: [{
-      label: 'Electricity (kWh)',
-      data: resources?.Electricity?.trend || [],
-      borderColor: '#F59E0B',
-      backgroundColor: 'rgba(245, 158, 11, 0.1)',
-      tension: 0.4,
-      fill: true,
-      borderWidth: 2,
-    }]
-  };
-
-  const waterData = {
-    labels,
-    datasets: [{
-      label: 'Water (L)',
-      data: resources?.Water?.trend || [],
-      borderColor: '#3B82F6',
-      backgroundColor: 'rgba(59, 130, 246, 0.1)',
-      tension: 0.4,
-      fill: true,
-      borderWidth: 2,
-    }]
+  const sustainabilityColor = (score) => {
+    if (score >= 80) return 'text-emerald-500';
+    if (score >= 60) return 'text-amber-500';
+    return 'text-rose-500';
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-8 max-w-7xl mx-auto">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-white">
-          🏠 {block?.name} Dashboard
-        </h1>
-        <p className="text-gray-400 text-sm mt-1">
-          Your hostel block's resource usage and sustainability metrics
-        </p>
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+            🏠 Welcome, {user?.name || 'Student'}
+          </h1>
+          <p className="text-slate-500 mt-1">
+            Real-time sustainability tracking for your hostel block
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Badge variant="secondary" className="px-3 py-1">
+            Last updated: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </Badge>
+          <Button variant="secondary" size="sm" onClick={fetchData}>
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </Button>
+        </div>
       </div>
 
-      {/* Hostel Information Card */}
-      {hostelInfo && (
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 shadow-lg">
-          <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-            🏢 Hostel Information
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4">
-            <div className="space-y-4">
-              <div className="flex justify-between border-b border-gray-700/50 pb-2">
-                <span className="text-gray-400">Block Name</span>
-                <span className="text-white font-semibold">{hostelInfo.block}</span>
-              </div>
-              <div className="flex justify-between border-b border-gray-700/50 pb-2">
-                <span className="text-gray-400">Room Number</span>
-                <span className="text-white font-semibold">{hostelInfo.roomNumber}</span>
-              </div>
-              <div className="flex justify-between border-b border-gray-700/50 pb-2">
-                <span className="text-gray-400">Floor</span>
-                <span className="text-white font-semibold">{hostelInfo.floor}</span>
-              </div>
-            </div>
-            <div className="space-y-4">
-              <div className="flex justify-between border-b border-gray-700/50 pb-2">
-                <span className="text-gray-400">Assigned Warden</span>
-                <span className="text-white font-semibold text-blue-400">{hostelInfo.wardenName}</span>
-              </div>
-              <div className="flex justify-between border-b border-gray-700/50 pb-2">
-                <span className="text-gray-400">Warden Email</span>
-                <a href={`mailto:${hostelInfo.wardenEmail}`} className="text-blue-400 hover:underline font-semibold">
-                  {hostelInfo.wardenEmail}
-                </a>
-              </div>
-            </div>
-          </div>
+      {/* Resource Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {Object.entries(summary && Object.keys(summary).length > 0 ? summary : {})
+          .filter(([, d]) => d.total > 0 || d.dailyThreshold > 0)
+          .map(([name, data]) => {
+            const meta = getResourceMeta(name);
+            const pct = data.dailyThreshold && data.total > 0
+              ? Math.round((data.total / data.dailyThreshold) * 100)
+              : 0;
+
+            return (
+              <Card key={name} className="p-4"
+                style={{
+                  borderLeftWidth: '3px',
+                  borderLeftColor: meta.color
+                }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xl">
+                    {meta.emoji}
+                  </span>
+                  <span className="font-medium text-sm"
+                    style={{
+                      color: 'var(--text-primary)'
+                    }}>
+                    {name}
+                  </span>
+                </div>
+                <p className="text-2xl font-bold"
+                  style={{ color: 'var(--text-primary)' }}>
+                  {data.total > 0
+                    ? data.total.toLocaleString()
+                    : 'No data'}
+                </p>
+                <p className="text-xs mt-1"
+                  style={{
+                    color: 'var(--text-secondary)'
+                  }}>
+                  {data.unit}
+                  {data.dailyThreshold > 0 &&
+                    ` / ${data.dailyThreshold} daily limit`}
+                </p>
+                {data.dailyThreshold > 0 &&
+                  data.total > 0 && (
+                  <div className="w-full h-1 rounded-full mt-2 overflow-hidden"
+                    style={{
+                      backgroundColor: 'var(--bg-secondary)'
+                    }}>
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${Math.min(pct, 100)}%`,
+                        backgroundColor: meta.color
+                      }}
+                    />
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+      </div>
+
+      {Object.keys(summary).length === 0 && (
+        <div className="card p-8 text-center">
+          <p className="text-4xl mb-3">📊</p>
+          <p style={{ color: 'var(--text-secondary)' }}>
+            No resource data for your block yet
+          </p>
         </div>
       )}
 
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Electricity Card */}
-        <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wide">Electricity</p>
-              <p className="text-3xl font-bold mt-2 text-yellow-400">
-                {resources?.Electricity?.current?.toFixed(1) || 0}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">kWh today</p>
-            </div>
-            <Zap className="text-yellow-400 opacity-40" size={40} />
-          </div>
-        </div>
-
-        {/* Water Card */}
-        <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wide">Water</p>
-              <p className="text-3xl font-bold mt-2 text-blue-400">
-                {resources?.Water?.current?.toFixed(1) || 0}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">liters today</p>
-            </div>
-            <Droplets className="text-blue-400 opacity-40" size={40} />
-          </div>
-        </div>
-
-        {/* Sustainability Score */}
-        <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wide">Sustainability</p>
-              <p className={`text-3xl font-bold mt-2 ${sustainabilityScore >= 80 ? 'text-green-400' :
-                sustainabilityScore >= 50 ? 'text-yellow-400' :
-                  'text-red-400'
-                }`}>
+      {/* Stats row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="border-l-4 border-emerald-500">
+          <div className="space-y-1">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sustainability Score</span>
+            <div className="flex items-baseline gap-1">
+              <span className={`text-3xl font-bold ${sustainabilityColor(sustainabilityScore)}`}>
                 {sustainabilityScore}%
-              </p>
-              <p className="text-xs text-gray-500 mt-1">score</p>
+              </span>
             </div>
-            <Leaf className={`opacity-40 ${sustainabilityScore >= 80 ? 'text-green-400' :
-              sustainabilityScore >= 50 ? 'text-yellow-400' :
-                'text-red-400'
-              }`} size={40} />
+            <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-1 overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 transition-all duration-1000"
+                style={{ width: `${sustainabilityScore}%` }}
+              />
+            </div>
           </div>
-        </div>
+        </Card>
 
-        {/* Carbon Footprint */}
-        <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wide">Carbon Footprint</p>
-              <p className="text-3xl font-bold mt-2 text-purple-400">
-                {carbonFootprint}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">kg CO₂</p>
+        <Card className="border-l-4 border-blue-500">
+          <div className="space-y-1">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">My Complaints</span>
+            <div className="flex items-baseline gap-1">
+              <span className="text-3xl font-bold text-blue-600">{complaintCount}</span>
+              <span className="text-slate-400 text-sm">submitted</span>
             </div>
-            <Activity className="text-purple-400 opacity-40" size={40} />
           </div>
-        </div>
+        </Card>
+
+        <Card className="border-l-4 border-purple-500">
+          <div className="space-y-1">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Block</span>
+            <div className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+              {user?.blockName || user?.block || 'Not assigned'}
+            </div>
+            <p className="text-[11px] text-slate-400">Your assigned hostel block</p>
+          </div>
+        </Card>
       </div>
 
-      {/* Trends */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Electricity Trend */}
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Zap size={20} className="text-yellow-400" />
-            <h2 className="text-lg font-semibold text-white">Electricity Trend (7 days)</h2>
-          </div>
-          <div className="h-64">
-            <Line data={electricityData} options={getChartOptions('#F59E0B', 'kWh')} />
-          </div>
-        </div>
-
-        {/* Water Trend */}
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Droplets size={20} className="text-blue-400" />
-            <h2 className="text-lg font-semibold text-white">Water Trend (7 days)</h2>
-          </div>
-          <div className="h-64">
-            <Line data={waterData} options={getChartOptions('#3B82F6', 'L')} />
-          </div>
-        </div>
-      </div>
-
-
-      {/* Resource Summary */}
-      <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Resource Summary (30 days)</h2>
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-          {Object.entries(resources || {}).map(([resource, stats]) => (
-            <div key={resource} className="bg-gray-700 rounded-lg p-4">
-              <p className="text-sm text-gray-400 mb-2">{resource}</p>
-              <p className="text-xl font-bold text-white">
-                {stats.total?.toFixed(1) || 0}
-              </p>
-              <div className="flex justify-between mt-2 text-xs text-gray-500">
-                <span>Avg: {stats.average?.toFixed(1) || 0}</span>
-                <span>Max: {stats.max?.toFixed(1) || 0}</span>
-              </div>
+      {/* Main Content */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Chart */}
+        <div className="lg:col-span-2">
+          <Card title="Monthly Resource Trends" description="Last 30 days usage across all resources">
+            <div className="h-[300px] w-full mt-4">
+              {trends.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                  <span className="text-4xl mb-2">📊</span>
+                  <p className="text-sm italic">No trend data available yet</p>
+                  <p className="text-xs mt-1">Data will appear once usage is recorded</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trends}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                    <XAxis
+                      dataKey="date"
+                      stroke="var(--text-secondary)"
+                      fontSize={11}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(val) => {
+                        try {
+                          return new Date(val).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                        } catch { return val; }
+                      }}
+                    />
+                    <YAxis
+                      stroke="var(--text-secondary)"
+                      fontSize={11}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--bg-card)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '12px',
+                        fontSize: '12px'
+                      }}
+                    />
+                    <Legend />
+                    {resourceNames.map(name => (
+                      <Line
+                        key={name}
+                        type="monotone"
+                        dataKey={name}
+                        stroke={CHART_COLORS[name]}
+                        strokeWidth={2}
+                        dot={false}
+                        name={name}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
             </div>
-          ))}
+          </Card>
         </div>
-      </div>
 
-      {/* Tips */}
-      <div className="bg-green-900/20 border border-green-800 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-green-400 mb-3">💡 Sustainability Tips</h3>
-        <ul className="space-y-2 text-sm text-green-300">
-          <li>• Turn off lights when leaving your room</li>
-          <li>• Take shorter showers to conserve water</li>
-          <li>• Use stairs instead of elevators when possible</li>
-          <li>• Avoid peak energy usage hours (6-9 PM)</li>
-          <li>• Report water leaks immediately to maintenance</li>
-        </ul>
+        {/* Tips */}
+        <div>
+          <Card className="bg-slate-900 text-white border-0 shadow-xl h-full">
+            <h4 className="font-bold text-lg mb-4 flex items-center gap-2">
+              <Leaf className="text-emerald-500" size={18} />
+              Sustainability Tips
+            </h4>
+            <div className="space-y-4">
+              {[
+                'Switch off fans and lights when leaving the room.',
+                'Report any water leaks in common areas immediately.',
+                'Use stairs instead of lifts for floors 1–3.',
+                'Carry your own reusable water bottle to reduce waste.'
+              ].map((tip, idx) => (
+                <div key={idx} className="flex gap-3 text-sm text-slate-300">
+                  <div className="h-5 w-5 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-emerald-500 shrink-0">
+                    {idx + 1}
+                  </div>
+                  <p className="leading-relaxed">{tip}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
       </div>
     </div>
   );

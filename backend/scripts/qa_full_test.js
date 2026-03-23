@@ -210,7 +210,7 @@ async function runTests() {
     // Delete usage
     let deleteOk = false;
     if (created) {
-      const delReq = makeReq(wardenForUsage, {}, { id: created._id });
+      const delReq = makeReq(users.admin, {}, { id: created._id });
       const delRes = makeRes();
       await usageController.deleteUsage(delReq, delRes);
       deleteOk = delRes.statusCode === 200 || (delRes.body && delRes.body.success === true);

@@ -3,6 +3,7 @@ import { Eye, EyeOff, Save, AlertCircle, CheckCircle } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
+
 const ProfilePage = () => {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
@@ -132,11 +133,10 @@ const ProfilePage = () => {
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Message Display */}
         {message && (
-          <div className={`mb-6 p-4 rounded-lg flex items-center gap-2 ${
-            message.type === 'success' 
+          <div className={`mb-6 p-4 rounded-lg flex items-center gap-2 ${message.type === 'success'
               ? 'bg-green-100 text-green-700 border border-green-400'
               : 'bg-red-100 text-red-700 border border-red-400'
-          }`}>
+            }`}>
             {message.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
             {message.text}
           </div>
@@ -161,31 +161,28 @@ const ProfilePage = () => {
           <div className="flex border-b">
             <button
               onClick={() => setActiveTab('profile')}
-              className={`px-4 py-3 font-medium ${
-                activeTab === 'profile'
+              className={`px-4 py-3 font-medium ${activeTab === 'profile'
                   ? 'text-blue-600 border-b-2 border-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
-              }`}
+                }`}
             >
               Edit Profile
             </button>
             <button
               onClick={() => setActiveTab('password')}
-              className={`px-4 py-3 font-medium ${
-                activeTab === 'password'
+              className={`px-4 py-3 font-medium ${activeTab === 'password'
                   ? 'text-blue-600 border-b-2 border-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
-              }`}
+                }`}
             >
               Change Password
             </button>
             <button
               onClick={() => setActiveTab('activity')}
-              className={`px-4 py-3 font-medium ${
-                activeTab === 'activity'
+              className={`px-4 py-3 font-medium ${activeTab === 'activity'
                   ? 'text-blue-600 border-b-2 border-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
-              }`}
+                }`}
             >
               My Activity
             </button>

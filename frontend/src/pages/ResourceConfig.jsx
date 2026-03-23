@@ -4,13 +4,14 @@ import { AuthContext } from '../context/AuthContext';
 import { ROLES } from '../utils/roles';
 import { logger } from '../utils/logger';
 import { useToast } from '../context/ToastContext';
+import { refetchResources } from '../hooks/useResources';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import EmptyState from '../components/common/EmptyState';
 import { ConfirmModal } from '../components/common/Modal';
 import {
-    Zap, Droplets, Flame, Wind, Utensils, Trash2,
+    Zap, Droplets, Flame, Wind, Sun, Trash2,
     ShieldOff, Save, RefreshCw, Plus, X, ChevronDown,
     ChevronUp, AlertTriangle, CheckCircle, Settings2,
     Building2, ToggleLeft, ToggleRight, Edit3, Clock,
@@ -19,17 +20,18 @@ import {
 import useSortableTable from '../hooks/useSortableTable';
 import SortIcon from '../components/common/SortIcon';
 
+
 /* ─── Resource meta ──────────────────────────────────────────────────────────── */
 const RESOURCE_META = {
     Electricity: { icon: <Zap size={16} />, color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
     Water: { icon: <Droplets size={16} />, color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
     LPG: { icon: <Flame size={16} />, color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
     Diesel: { icon: <Wind size={16} />, color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
-    Food: { icon: <Utensils size={16} />, color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+    Solar: { icon: <Sun size={16} />, color: '#eab308', bg: 'rgba(234,179,8,0.12)' },
     Waste: { icon: <Trash2 size={16} />, color: '#f43f5e', bg: 'rgba(244,63,94,0.12)' },
 };
 
-const ALL_RESOURCES = ['Electricity', 'Water', 'LPG', 'Diesel', 'Food', 'Waste'];
+const ALL_RESOURCES = ['Electricity', 'Water', 'LPG', 'Diesel', 'Solar', 'Waste'];
 const UNIT_OPTIONS = ['kWh', 'Liters', 'kg', 'units', 'meals', 'cubic meters'];
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────────── */
@@ -106,7 +108,7 @@ function InlineNumberInput({ value, onChange, error, min = '0', step = '0.01', s
 }
 
 /* ─── Resource Row (table row with inline edit) ──────────────────────────────── */
-function ResourceRow({ config, isAdmin, onSave, onToggle }) {
+function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
     const [editing, setEditing] = useState(false);
     const [saving, setSaving] = useState(false);
     const [draft, setDraft] = useState({});
@@ -257,6 +259,14 @@ function ResourceRow({ config, isAdmin, onSave, onToggle }) {
                                 {config.isActive
                                     ? <ToggleRight size={16} className="text-green-500" />
                                     : <ToggleLeft size={16} className="text-slate-400" />}
+                            </button>
+                            <button
+                                onClick={() => onDelete(config.resource)}
+                                title="Delete Configuration"
+                                className="flex items-center justify-center h-7 w-7 rounded-lg transition-colors hover:bg-red-50 dark:hover:bg-red-900/20 group"
+                                style={{ backgroundColor: 'var(--bg-hover)' }}
+                            >
+                                <Trash2 size={13} className="text-slate-400 group-hover:text-red-500" />
                             </button>
                         </div>
                     )}
@@ -618,6 +628,7 @@ export default function ResourceConfig() {
     const [showAddModal, setShowAddModal] = useState(false);
     const [showOverrideModal, setShowOverrideModal] = useState(false);
     const [toggleTarget, setToggleTarget] = useState(null);
+    const [deleteTarget, setDeleteTarget] = useState(null);
     const [showBlockOverrides, setShowBlockOverrides] = useState(false);
 
     const isAdmin = user?.role === ROLES.ADMIN;
@@ -691,12 +702,42 @@ export default function ResourceConfig() {
                 `${toggleTarget.resource} ${toggleTarget.isActive ? 'activated' : 'deactivated'}`,
                 'success'
             );
+            await refetchResources();
             await fetchData();
         } catch (err) {
             logger.error('Toggle error:', err);
             addToast(err.message || 'Failed to update status', 'error');
         } finally {
             setToggleTarget(null);
+        }
+    };
+
+    /* ── Delete handlers ────────────────────────────────────────────────── */
+    const handleDeleteResource = (resource) => {
+        setDeleteTarget({ type: 'resource', resource });
+    };
+
+    const handleDeleteOverride = (resource, blockId, blockName) => {
+        setDeleteTarget({ type: 'override', resource, blockId, blockName });
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteTarget) return;
+        try {
+            if (deleteTarget.type === 'resource') {
+                await api.delete(`/api/config/thresholds/${deleteTarget.resource}`);
+                addToast(`${deleteTarget.resource} configuration deleted`, 'success');
+                await refetchResources();
+            } else {
+                await api.delete(`/api/config/thresholds/${deleteTarget.resource}/block-override/${deleteTarget.blockId}`);
+                addToast(`Override for ${deleteTarget.blockName} removed`, 'success');
+            }
+            await fetchData();
+        } catch (err) {
+            logger.error('Delete error:', err);
+            addToast(err.message || 'Failed to delete', 'error');
+        } finally {
+            setDeleteTarget(null);
         }
     };
 
@@ -840,6 +881,7 @@ export default function ResourceConfig() {
                                             isAdmin={isAdmin}
                                             onSave={handleSaveResource}
                                             onToggle={handleToggle}
+                                            onDelete={handleDeleteResource}
                                         />
                                     ))
                                 )}
@@ -861,6 +903,7 @@ export default function ResourceConfig() {
                                     <th>Monthly Override</th>
                                     <th>Global Default (Daily)</th>
                                     <th>Type</th>
+                                    {isAdmin && <th>Actions</th>}
                                 </tr>
                             </thead>
                             <tbody>
@@ -869,12 +912,12 @@ export default function ResourceConfig() {
                                         ? [...config.blockOverrides.entries()]
                                         : Object.entries(config.blockOverrides || {});
                                     return overrides.map(([blockId, ov]) => (
-                                        <tr key={`${config.resource}-${blockId}`}>
-                                            <td className="font-medium">{ov.blockName || blockId}</td>
+                                        <tr key={`${config.resource}-${blockId}`} className="group hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                            <td className="font-medium text-slate-700 dark:text-slate-300">{ov.blockName || blockId}</td>
                                             <td>
                                                 <div className="flex items-center gap-2" style={{ color: RESOURCE_META[config.resource]?.color }}>
                                                     {RESOURCE_META[config.resource]?.icon}
-                                                    <span className="text-sm">{config.resource}</span>
+                                                    <span className="text-sm font-medium">{config.resource}</span>
                                                 </div>
                                             </td>
                                             <td className="tabular-nums">
@@ -891,6 +934,17 @@ export default function ResourceConfig() {
                                                 {fmtQty(config.dailyThreshold, config.unit)}
                                             </td>
                                             <td><Badge variant="warning">Override</Badge></td>
+                                            {isAdmin && (
+                                                <td>
+                                                    <button
+                                                        onClick={() => handleDeleteOverride(config.resource, blockId, ov.blockName || blockId)}
+                                                        className="h-8 w-8 rounded-lg flex items-center justify-center transition-colors hover:bg-red-50 dark:hover:bg-red-900/20 group/delbtn"
+                                                        title="Remove Override"
+                                                    >
+                                                        <Trash2 size={14} className="text-slate-400 group-hover/delbtn:text-red-500" />
+                                                    </button>
+                                                </td>
+                                            )}
                                         </tr>
                                     ));
                                 })}
@@ -928,6 +982,18 @@ export default function ResourceConfig() {
                     : ''}
                 confirmText={toggleTarget?.isActive ? 'Activate' : 'Deactivate'}
                 type={toggleTarget?.isActive ? 'primary' : 'danger'}
+            />
+
+            <ConfirmModal
+                isOpen={!!deleteTarget}
+                onClose={() => setDeleteTarget(null)}
+                onConfirm={confirmDelete}
+                title={deleteTarget?.type === 'resource' ? 'Delete Resource' : 'Remove Block Override'}
+                message={deleteTarget?.type === 'resource'
+                    ? `Are you sure you want to delete the configuration for ${deleteTarget.resource}? This will remove all threshold settings and historical overrides for this resource.`
+                    : `Are you sure you want to remove the override for ${deleteTarget?.resource} on ${deleteTarget?.blockName}? This block will revert to using the global threshold settings.`}
+                confirmText="Delete"
+                type="danger"
             />
         </div>
     );

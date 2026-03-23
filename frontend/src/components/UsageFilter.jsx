@@ -26,7 +26,7 @@ export default function UsageFilter({ filters, onFilterChange }) {
                     <option value="">All Resources</option>
                     <option value="Electricity">⚡ Electricity</option>
                     <option value="Water">💧 Water</option>
-                    <option value="Food">🍽 Food</option>
+                    <option value="Solar">☀️ Solar</option>
                     <option value="LPG">🔥 LPG</option>
                     <option value="Diesel">🛢 Diesel</option>
                     <option value="Waste">♻ Waste</option>

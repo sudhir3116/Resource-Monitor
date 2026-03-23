@@ -50,7 +50,11 @@ const getComplaints = async (req, res) => {
         const { skip, limit: pageLimit } = parsePagination({ page, limit });
 
         if (userRole === ROLES.STUDENT) {
-            filter.user = userId;
+            try {
+                filter.user = new mongoose.Types.ObjectId(userId.toString());
+            } catch (e) {
+                filter.user = userId;
+            }
         } else if (userRole === ROLES.WARDEN) {
             const User = require('../models/User');
             const currentUser = await User.findById(userId);
@@ -115,10 +119,10 @@ const createComplaint = async (req, res) => {
             description: description.trim(),
             category,
             priority: priority || 'medium',
-            user: userId,
+            user: new mongoose.Types.ObjectId(userId.toString()),
             history: [{
                 action: 'created',
-                performedBy: userId,
+                performedBy: new mongoose.Types.ObjectId(userId.toString()),
                 toStatus: 'open',
                 note: 'Complaint submitted'
             }]

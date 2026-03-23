@@ -23,122 +23,39 @@ class GlobalErrorBoundary extends Component {
     render() {
         if (this.state.hasError) {
             return (
-                <div style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100vh',
-                    backgroundColor: '#0f172a',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '20px',
-                    zIndex: 9999,
-                    fontFamily: 'system-ui, sans-serif',
-                    overflow: 'auto'
-                }}>
-                    <div style={{ maxWidth: '500px', textAlign: 'center' }}>
-                        <div style={{
-                            fontSize: '4rem',
-                            marginBottom: '1rem',
-                            opacity: 0.8
-                        }}>
-                            ⚠️
-                        </div>
-                        <h1 style={{
-                            fontSize: '2rem',
-                            marginBottom: '0.5rem',
-                            color: '#f1f5f9',
-                            fontWeight: 'bold'
-                        }}>
-                            Oops! Something went wrong
-                        </h1>
-                        <p style={{
-                            fontSize: '1rem',
-                            color: '#cbd5e1',
-                            marginBottom: '2rem',
-                            lineHeight: '1.6'
-                        }}>
-                            The application encountered an unexpected error and had to stop.
-                            Try reloading or clearing your browser cache and trying again.
+                <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+                    <div className="bg-gray-900 rounded-2xl p-8 max-w-md w-full text-center border border-gray-800 shadow-2xl">
+                        <div className="text-5xl mb-4">⚠️</div>
+                        <h2 className="text-xl font-bold text-white mb-2">
+                            Something went wrong
+                        </h2>
+                        <p className="text-gray-400 text-sm mb-6">
+                            An unexpected error occurred. Please refresh the page to continue.
                         </p>
 
-                        {process.env.NODE_ENV === 'development' && (
-                            <details style={{
-                                textAlign: 'left',
-                                background: 'rgba(30, 41, 59, 0.8)',
-                                padding: '1rem',
-                                borderRadius: '6px',
-                                marginBottom: '2rem',
-                                border: '1px solid rgba(203, 213, 225, 0.2)',
-                                color: '#cbd5e1',
-                                fontSize: '0.875rem'
-                            }}>
-                                <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#f87171' }}>
-                                    Error Details (Development Only)
-                                </summary>
-                                <pre style={{
-                                    marginTop: '1rem',
-                                    overflow: 'auto',
-                                    whiteSpace: 'pre-wrap',
-                                    wordBreak: 'break-word',
-                                    color: '#fca5a5'
-                                }}>
-                                    {this.state.error && this.state.error.toString()}
-                                    {this.state.errorInfo && '\n\n' + this.state.errorInfo.componentStack}
-                                </pre>
-                            </details>
+                        {/* Only show error detail in development */}
+                        {import.meta.env.DEV && this.state.error && (
+                            <div className="bg-red-950/50 border border-red-800/50 rounded-lg p-3 mb-6 text-left">
+                                <p className="text-red-400 text-xs font-mono break-all">
+                                    {this.state.error.message}
+                                </p>
+                            </div>
                         )}
 
-                        <div style={{
-                            display: 'flex',
-                            gap: '1rem',
-                            justifyContent: 'center',
-                            flexWrap: 'wrap'
-                        }}>
+                        <div className="flex gap-3 justify-center">
                             <button
                                 onClick={() => window.location.reload()}
-                                style={{
-                                    padding: '10px 20px',
-                                    border: 'none',
-                                    background: '#3b82f6',
-                                    color: 'white',
-                                    borderRadius: '6px',
-                                    cursor: 'pointer',
-                                    fontSize: '1rem',
-                                    fontWeight: '500',
-                                    transition: 'background 0.2s'
-                                }}
-                                onMouseOver={(e) => e.target.style.background = '#2563eb'}
-                                onMouseOut={(e) => e.target.style.background = '#3b82f6'}
+                                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition-colors text-sm"
                             >
-                                🔄 Reload Page
+                                Refresh Page
                             </button>
                             <button
-                                onClick={this.handleReset}
-                                style={{
-                                    padding: '10px 20px',
-                                    border: '1px solid #cbd5e1',
-                                    background: 'transparent',
-                                    color: '#cbd5e1',
-                                    borderRadius: '6px',
-                                    cursor: 'pointer',
-                                    fontSize: '1rem',
-                                    fontWeight: '500',
-                                    transition: 'all 0.2s'
+                                onClick={() => {
+                                    window.location.href = '/login'
                                 }}
-                                onMouseOver={(e) => {
-                                    e.target.style.background = 'rgba(203, 213, 225, 0.1)';
-                                    e.target.style.color = '#f1f5f9';
-                                }}
-                                onMouseOut={(e) => {
-                                    e.target.style.background = 'transparent';
-                                    e.target.style.color = '#cbd5e1';
-                                }}
+                                className="px-5 py-2.5 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded-xl transition-colors text-sm"
                             >
-                                🔑 Go to Login
+                                Go to Login
                             </button>
                         </div>
                     </div>

@@ -12,7 +12,7 @@ const RESOURCE_TYPES = Object.freeze({
     WATER: 'Water',
     LPG: 'LPG',
     DIESEL: 'Diesel',
-    FOOD: 'Food',
+    SOLAR: 'Solar',
     WASTE: 'Waste',
 });
 
@@ -22,7 +22,7 @@ const RESOURCE_UNITS = Object.freeze({
     Water: 'Litres',
     LPG: 'kg',
     Diesel: 'Litres',
-    Food: 'kg',
+    Solar: 'kWh',
     Waste: 'kg',
 });
 

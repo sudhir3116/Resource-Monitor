@@ -70,16 +70,20 @@ const getAnalyticsSummary = async (req, res) => {
             });
         }
 
-        // Filter by user role
-        let filter = {};
-        if (req.user.role === ROLES.STUDENT || req.user.role === ROLES.WARDEN) {
-            // Students and Wardens see their assigned block's data
+        const role = (req.user.role || '').toLowerCase()
+        let filter = {}
+
+        if (role === 'warden' || role === 'student') {
             const user = await require('../models/User').findById(req.user.id);
-            if (user.block) {
-                filter.blockId = user.block;
+            const blockId = user?.block || user?.blockId;
+            if (!blockId) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Not assigned to any block'
+                })
             }
+            filter.blockId = new mongoose.Types.ObjectId(blockId)
         }
-        // Admin, Dean, Principal see all data
 
         // Current period stats
         const currentStats = await Usage.aggregate([
@@ -96,7 +100,7 @@ const getAnalyticsSummary = async (req, res) => {
             {
                 $group: {
                     _id: null,
-                    totalUsage: { $sum: '$usage_value' },
+                    value: { $sum: '$usage_value' },
                     totalRecords: { $sum: 1 },
                     avgUsage: { $avg: '$usage_value' },
                     resources: { $addToSet: '$resource_type' }
@@ -119,33 +123,86 @@ const getAnalyticsSummary = async (req, res) => {
             {
                 $group: {
                     _id: null,
-                    totalUsage: { $sum: '$usage_value' },
+                    value: { $sum: '$usage_value' },
                     totalRecords: { $sum: 1 }
                 }
             }
         ]);
 
-        const current = currentStats[0] || { totalUsage: 0, totalRecords: 0, avgUsage: 0, resources: [] };
-        const previous = previousStats[0] || { totalUsage: 0, totalRecords: 0 };
+        const current = currentStats[0] || { value: 0, totalRecords: 0, avgUsage: 0, resources: [] };
+        const previous = previousStats[0] || { value: 0, totalRecords: 0 };
 
-        const percentageChange = calculatePercentageChange(current.totalUsage, previous.totalUsage);
+        const percentageChange = calculatePercentageChange(current.value, previous.value);
         const trend = percentageChange > 0 ? 'up' : percentageChange < 0 ? 'down' : 'stable';
+
+        // Current period stats by resource
+        const currentByResource = await Usage.aggregate([
+            {
+                $match: {
+                    ...filter,
+                    deleted: { $ne: true },
+                    usage_date: {
+                        $gte: ranges.current.start,
+                        $lte: ranges.current.end
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: '$resource_type',
+                    current: { $sum: '$usage_value' }
+                }
+            }
+        ]);
+
+        // Previous period stats by resource
+        const previousByResource = await Usage.aggregate([
+            {
+                $match: {
+                    ...filter,
+                    deleted: { $ne: true },
+                    usage_date: {
+                        $gte: ranges.previous.start,
+                        $lte: ranges.previous.end
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: '$resource_type',
+                    previous: { $sum: '$usage_value' }
+                }
+            }
+        ]);
+
+        const resourceData = currentByResource.map(curr => {
+            const prev = previousByResource.find(p => String(p._id) === String(curr._id)) || { previous: 0 };
+            const change = calculatePercentageChange(curr.current, prev.previous);
+            return {
+                resource: curr._id,
+                current: Math.round(curr.current * 100) / 100,
+                change: Math.round(change * 100) / 100
+            };
+        });
 
         res.json({
             success: true,
             period,
             current: {
-                total: Math.round(current.totalUsage * 100) / 100,
+                total: Math.round(current.value * 100) / 100,
+                value: Math.round(current.value * 100) / 100, // Phase 2 compliance
                 records: current.totalRecords,
                 average: Math.round(current.avgUsage * 100) / 100,
                 resources: current.resources.length
             },
             previous: {
-                total: Math.round(previous.totalUsage * 100) / 100,
+                total: Math.round(previous.value * 100) / 100,
+                value: Math.round(previous.value * 100) / 100, // Phase 2 compliance
                 records: previous.totalRecords
             },
             percentageChange: Math.round(percentageChange * 100) / 100,
-            trend
+            trend,
+            data: resourceData
         });
     } catch (error) {
         console.error('Analytics summary error:', error);
@@ -180,10 +237,17 @@ const getResourceTrends = async (req, res) => {
 
         let filter = { usage_date: { $gte: startDate, $lte: endDate } };
 
-        // Role-based filtering
-        if (req.user.role === ROLES.STUDENT || req.user.role === ROLES.WARDEN) {
+        const role = (req.user.role || '').toLowerCase()
+        if (role === 'warden' || role === 'student') {
             const user = await require('../models/User').findById(req.user.id);
-            if (user.block) filter.blockId = user.block;
+            const blockId = user?.block || user?.blockId;
+            if (!blockId) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Not assigned to any block'
+                })
+            }
+            filter.blockId = new mongoose.Types.ObjectId(blockId)
         }
 
 
@@ -218,12 +282,14 @@ const getResourceTrends = async (req, res) => {
             }
         ]);
 
+        const trendResult = {};
+        trends.forEach(t => {
+            trendResult[t._id.toLowerCase()] = t.data;
+        });
+
         res.json({
             success: true,
-            trends: trends.map(t => ({
-                resource: t._id,
-                data: t.data
-            })),
+            trends: trendResult, // Phase 1 grouped structure
             period: { days: daysInt, start: startDate, end: endDate }
         });
     } catch (error) {
@@ -242,11 +308,28 @@ const getResourceTrends = async (req, res) => {
  */
 const detectAnomalies = async (req, res) => {
     try {
-        if (req.user.role === ROLES.STUDENT) {
+        const role = (req.user.role || '').toLowerCase();
+        if (role === 'student') {
             return res.status(403).json({
                 success: false,
                 error: 'Access denied'
             });
+        }
+
+        let matchStage = {
+            deleted: { $ne: true }
+        };
+
+        if (role === 'warden') {
+            const user = await require('../models/User').findById(req.user.id);
+            const blockId = user?.block || user?.blockId;
+            if (!blockId) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Not assigned to any block'
+                });
+            }
+            matchStage.blockId = new mongoose.Types.ObjectId(blockId);
         }
 
         const today = new Date();
@@ -259,8 +342,8 @@ const detectAnomalies = async (req, res) => {
         const todayUsage = await Usage.aggregate([
             {
                 $match: {
-                    usage_date: { $gte: today },
-                    deleted: { $ne: true }
+                    ...matchStage,
+                    usage_date: { $gte: today }
                 }
             },
             {
@@ -275,8 +358,8 @@ const detectAnomalies = async (req, res) => {
         const weeklyAvg = await Usage.aggregate([
             {
                 $match: {
-                    usage_date: { $gte: sevenDaysAgo, $lt: today },
-                    deleted: { $ne: true }
+                    ...matchStage,
+                    usage_date: { $gte: sevenDaysAgo, $lt: today }
                 }
             },
             {
@@ -349,12 +432,19 @@ const getSustainabilityScore = async (req, res) => {
 
         let filter = { usage_date: { $gte: startOfMonth } };
 
-        // Role-based filtering
-        if (req.user.role === ROLES.STUDENT || req.user.role === ROLES.WARDEN) {
+        const role = (req.user.role || '').toLowerCase()
+        if (role === 'warden' || role === 'student') {
             const user = await require('../models/User').findById(req.user.id);
-            if (user.block) filter.blockId = user.block;
+            const userBlockId = user?.block || user?.blockId;
+            if (!userBlockId) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Not assigned to any block'
+                })
+            }
+            filter.blockId = new mongoose.Types.ObjectId(userBlockId)
         } else if (blockId) {
-            filter.blockId = blockId;
+            filter.blockId = new mongoose.Types.ObjectId(blockId);
         }
 
 
@@ -431,10 +521,17 @@ const getEfficiencyRating = async (req, res) => {
 
         let filter = { usage_date: { $gte: startOfMonth } };
 
-        // Role-based filtering
-        if (req.user.role === ROLES.STUDENT || req.user.role === ROLES.WARDEN) {
+        const role = (req.user.role || '').toLowerCase()
+        if (role === 'warden' || role === 'student') {
             const user = await require('../models/User').findById(req.user.id);
-            if (user.block) filter.blockId = user.block;
+            const blockId = user?.block || user?.blockId;
+            if (!blockId) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Not assigned to any block'
+                })
+            }
+            filter.blockId = new mongoose.Types.ObjectId(blockId)
         }
 
 
@@ -559,12 +656,16 @@ const getBudgetMonitoring = async (req, res) => {
 
         // Filter for user
         let result = blockBudgets;
-        if (req.user.role === ROLES.WARDEN) {
+        const role = (req.user.role || '').toLowerCase();
+        if (role === 'warden') {
             const user = await require('../models/User').findById(req.user.id);
-            if (user.block) {
-                result = blockBudgets.filter(b => String(b.blockId) === String(user.block));
+            const userBlockId = user?.block || user?.blockId;
+            if (userBlockId) {
+                result = blockBudgets.filter(b => String(b.blockId) === String(userBlockId));
+            } else {
+                result = [];
             }
-        } else if (req.user.role === ROLES.STUDENT) {
+        } else if (role === 'student') {
             return res.status(403).json({ success: false, error: 'Access denied' });
         }
 
@@ -655,7 +756,7 @@ const getBlockAnalytics = async (req, res) => {
         }
 
         // Students can only see their own block analytics
-        if (user.role === 'student' && user.block !== blockId) {
+        if (user.role === 'student' && String(user.block) !== String(blockId)) {
             return res.status(403).json({ success: false, message: 'Access denied' });
         }
 
@@ -675,7 +776,7 @@ const getBlockAnalytics = async (req, res) => {
 
         // Group data by resource type
         const resourceStats = {};
-        const resources = ['Electricity', 'Water', 'LPG', 'Diesel', 'Food', 'Waste'];
+        const resources = ['Electricity', 'Water', 'LPG', 'Diesel', 'Solar', 'Waste'];
 
         resources.forEach(resource => {
             const resourceUsage = usageData.filter(u => u.resource_type === resource);
@@ -746,13 +847,20 @@ const getStudentUsageAnalytics = async (req, res) => {
         }
 
         // Mock block ID if not found for admins/other testing, but students MUST have a block
-        const blockId = user.block;
+        let blockId = user.block;
 
-        // Re-use logic or call getBlockAnalytics logic internally
-        // To avoid code duplication, we can manually call getBlockAnalytics logic here
-        // or refactor getBlockAnalytics. For now, let's keep it clean as requested.
+        if (!blockId && user.role !== 'student') {
+            // Admin testing, find any block
+            const anyBlock = await Block.findOne();
+            if (anyBlock) {
+                blockId = anyBlock._id;
+            } else {
+                return res.status(404).json({ success: false, message: 'No blocks exist purely for admin test view' });
+            }
+        }
 
         req.params.blockId = blockId.toString(); // Map for the implementation below
+        req.user.block = blockId.toString(); // Ensure req.user has the correct block ID for validation
         return getBlockAnalytics(req, res);
     } catch (error) {
         console.error('Student usage analytics error:', error);
