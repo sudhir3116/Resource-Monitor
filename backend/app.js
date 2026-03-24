@@ -41,7 +41,8 @@ app.use('/api', apiLimiter);
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
-  process.env.FRONTEND_URL
+  process.env.FRONTEND_URL,
+  process.env.CLIENT_URL,
 ].filter(Boolean);
 
 app.use(cors({
@@ -69,25 +70,33 @@ mongoose.connect(process.env.MONGO_URI, {
 }).then(() => {
   if (process.env.NODE_ENV !== 'production') console.log("MongoDB connected");
 
-  // ── Seed ResourceConfig if missing ──────────────────────────────────────────
+  // ── Seed ResourceConfig on startup (upsert — safe to run every time) ─────────
   const ResourceConfig = require('./models/ResourceConfig');
   const Usage = require('./models/Usage');
 
-  ResourceConfig.countDocuments().then(count => {
-    if (count === 0) {
+  const seedResourceConfig = async () => {
+    try {
       const defaults = [
-        { name: 'Electricity', unit: 'kWh', dailyLimit: 100, monthlyLimit: 3000, icon: '⚡', color: '#f59e0b' },
-        { name: 'Water', unit: 'Liters', dailyLimit: 500, monthlyLimit: 15000, icon: '💧', color: '#3b82f6' },
-        { name: 'Solar', unit: 'kWh', dailyLimit: 50, monthlyLimit: 1500, icon: '☀️', color: '#10b981' },
-        { name: 'LPG', unit: 'kg', dailyLimit: 10, monthlyLimit: 300, icon: '🔥', color: '#f97316' },
-        { name: 'Diesel', unit: 'Liters', dailyLimit: 20, monthlyLimit: 600, icon: '⛽', color: '#64748b' },
-        { name: 'Waste', unit: 'kg', dailyLimit: 5, monthlyLimit: 150, icon: '♻️', color: '#ef4444' }
+        { name: 'Electricity', unit: 'kWh',    dailyLimit: 400,   monthlyLimit: 12000,  icon: '⚡', color: '#F59E0B', isActive: true },
+        { name: 'Water',       unit: 'Liters', dailyLimit: 20000, monthlyLimit: 600000, icon: '💧', color: '#3B82F6', isActive: true },
+        { name: 'LPG',         unit: 'kg',     dailyLimit: 45,    monthlyLimit: 1350,   icon: '🔥', color: '#EF4444', isActive: true },
+        { name: 'Diesel',      unit: 'Liters', dailyLimit: 70,    monthlyLimit: 2100,   icon: '⛽', color: '#8B5CF6', isActive: true },
+        { name: 'Solar',       unit: 'kWh',    dailyLimit: 200,   monthlyLimit: 6000,   icon: '☀️', color: '#10B981', isActive: true },
+        { name: 'Waste',       unit: 'kg',     dailyLimit: 80,    monthlyLimit: 2400,   icon: '♻️', color: '#6B7280', isActive: true },
       ];
-      ResourceConfig.insertMany(defaults)
-        .then(() => console.log('✅ Seeded default resource configurations'))
-        .catch(err => console.error('Error seeding resources:', err));
+      for (const r of defaults) {
+        await ResourceConfig.findOneAndUpdate(
+          { name: r.name },
+          { $setOnInsert: r },
+          { upsert: true }
+        ).catch(() => {});
+      }
+      console.log('✅ ResourceConfig seeded');
+    } catch (e) {
+      console.error('Seed error:', e.message);
     }
-  });
+  };
+  seedResourceConfig();
 
   // ⭐ MIGRATION: Change 'Food' to 'Solar' in usages (for legacy data)
   Usage.updateMany({ resource_type: 'Food' }, { $set: { resource_type: 'Solar' } })
@@ -187,8 +196,9 @@ app.use("/api/student", require("./routes/studentRoutes"));
 app.use("/api/students", require("./routes/studentRoutes"));
 app.use("/api/resource-config", require("./routes/resourceConfigRoutes"));
 
-// Health Check — must be before the 404 catch-all
+// Health Check endpoints — must be before the 404 catch-all
 app.get('/', (req, res) => res.json({ status: 'OK', message: 'API Running', port: process.env.PORT }));
+app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString(), env: process.env.NODE_ENV }));
 
 // 404 handler for unknown API routes
 app.use(/\/api\/.*/, (req, res) => {

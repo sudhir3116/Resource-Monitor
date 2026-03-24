@@ -60,7 +60,7 @@ export default function PrincipalDashboard() {
         setLoading(true);
         try {
             const [configRes, summaryRes, trendRes, leaderboardRes] = await Promise.allSettled([
-                api.get('/api/config/thresholds'),
+                api.get('/api/resource-config'),
                 api.get('/api/usage/summary'),
                 api.get(`/api/usage/trends?range=${timeRange}`),
                 api.get('/api/analytics/leaderboard')
@@ -74,16 +74,12 @@ export default function PrincipalDashboard() {
             if (summaryRes.status === 'fulfilled') {
                 const sumData = summaryRes.value.data?.data?.summary || {};
                 setUsageSummary(sumData);
-                // Also reconstruct fake stats for the pie chart / other dependencies
-                const fakeStats = { trends: {} };
-                Object.entries(sumData).forEach(([k, v]) => {
-                    fakeStats.trends[k.toLowerCase()] = { current: v.total || 0, percentageChange: 0 };
-                });
-                setStats(fakeStats);
+                setStats({ trends: {} }); // kept for costStats / loading guard
             }
 
             if (trendRes.status === 'fulfilled') {
-                setTrendData(trendRes.value.data?.data || []);
+                const raw = trendRes.value.data?.data;
+                setTrendData(Array.isArray(raw) ? raw : []);
             }
 
             if (leaderboardRes.status === 'fulfilled') {
@@ -118,12 +114,10 @@ export default function PrincipalDashboard() {
     }, [stats]);
 
     const distributionData = useMemo(() => {
-        if (!stats?.trends) return [];
-        return dynamicResources.map(res => ({
-            name: res.resource,
-            value: stats.trends[res.resource.toLowerCase()]?.current || stats.trends[res.resource]?.current || 0
-        })).filter(d => d.value > 0);
-    }, [stats, dynamicResources]);
+        return Object.entries(usageSummary)
+            .map(([name, data]) => ({ name, value: data.total || 0 }))
+            .filter(d => d.value > 0);
+    }, [usageSummary]);
 
     if (loading && !stats) {
         return (
@@ -199,9 +193,9 @@ export default function PrincipalDashboard() {
                             : 0;
                         const pctColor =
                             pct >= 150 ? '#EF4444'
-                            : pct >= 100 ? '#F97316'
-                            : pct >= 80 ? '#F59E0B'
-                            : '#10B981';
+                                : pct >= 100 ? '#F97316'
+                                    : pct >= 80 ? '#F59E0B'
+                                        : '#10B981';
                         const meta = getResourceMeta(name);
 
                         return (
@@ -297,23 +291,26 @@ export default function PrincipalDashboard() {
                             <div className="h-full flex items-center justify-center text-slate-400">No trend data available.</div>
                         ) : (
                             <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={(Array.isArray(trendData) ? trendData : []).slice(0, 10)}>
+                                <AreaChart data={trendData}>
                                     <defs>
                                         {dynamicResources.map(res => (
-                                            <linearGradient key={res._id} id={`color${res.resource}`} x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor={getResourceMeta(res.resource).color} stopOpacity={0.1} />
-                                                <stop offset="95%" stopColor={getResourceMeta(res.resource).color} stopOpacity={0} />
+                                            <linearGradient key={res._id || res.name} id={`colorP${res.name}`} x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor={getResourceMeta(res.name).color} stopOpacity={0.1} />
+                                                <stop offset="95%" stopColor={getResourceMeta(res.name).color} stopOpacity={0} />
                                             </linearGradient>
                                         ))}
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                                     <XAxis
-                                        dataKey="_id"
+                                        dataKey="date"
                                         stroke="var(--text-secondary)"
                                         fontSize={12}
                                         tickLine={false}
                                         axisLine={false}
-                                        tickFormatter={(val) => new Date(val).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                        tickFormatter={(val) => {
+                                            try { return new Date(val).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
+                                            catch { return val; }
+                                        }}
                                     />
                                     <YAxis
                                         stroke="var(--text-secondary)"
@@ -326,12 +323,12 @@ export default function PrincipalDashboard() {
                                     />
                                     {dynamicResources.map(res => (
                                         <Area
-                                            key={res._id}
+                                            key={res._id || res.name}
                                             type="monotone"
-                                            dataKey={res.resource}
-                                            stroke={getResourceMeta(res.resource).color}
+                                            dataKey={res.name}
+                                            stroke={getResourceMeta(res.name).color}
                                             fillOpacity={1}
-                                            fill={`url(#color${res.resource})`}
+                                            fill={`url(#colorP${res.name})`}
                                             strokeWidth={3}
                                             dot={false}
                                         />

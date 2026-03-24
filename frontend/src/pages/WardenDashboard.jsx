@@ -1,65 +1,42 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import api from '../services/api';
 import { getSocket } from '../utils/socket';
-import { Zap, Droplets, AlertTriangle, Plus, Download, Activity, Flame, Wind, Utensils, Trash2, TrendingUp, TrendingDown, Sun } from 'lucide-react';
+import { Zap, Droplets, AlertTriangle, Plus, Activity, Flame, Wind, Trash2, Sun, TrendingUp, ArrowRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import Card, { MetricCard } from '../components/common/Card';
 import Button from '../components/common/Button';
 import EmptyState from '../components/common/EmptyState';
-import { exportToCSV } from '../utils/export';
 import { useToast } from '../context/ToastContext';
 import { logger } from '../utils/logger';
 
 const RESOURCE_META = {
-    Electricity: { icon: <Zap size={20} />, unit: 'kWh', color: 'text-amber-500' },
-    Water: { icon: <Droplets size={20} />, unit: 'L', color: 'text-blue-500' },
-    Solar: { icon: <Sun size={20} />, unit: 'kWh', color: 'text-yellow-500' },
-    LPG: { icon: <Flame size={20} />, unit: 'kg', color: 'text-orange-500' },
-    Diesel: { icon: <Wind size={20} />, unit: 'L', color: 'text-slate-500' },
-    Waste: { icon: <Trash2 size={20} />, unit: 'kg', color: 'text-rose-500' },
+    Electricity: { icon: <Zap size={20} />, color: '#F59E0B' },
+    Water: { icon: <Droplets size={20} />, color: '#3B82F6' },
+    Solar: { icon: <Sun size={20} />, color: '#10B981' },
+    LPG: { icon: <Flame size={20} />, color: '#EF4444' },
+    Diesel: { icon: <Wind size={20} />, color: '#8B5CF6' },
+    Waste: { icon: <Trash2 size={20} />, color: '#6B7280' },
 };
 
 export default function WardenDashboard() {
-    const [stats, setStats] = useState(null);
+    const [summaryData, setSummaryData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [dynamicResources, setDynamicResources] = useState([]);
     const { addToast } = useToast();
     const navigate = useNavigate();
 
-    const [budget, setBudget] = useState(null);
-    const [efficiency, setEfficiency] = useState(null);
-
     const fetchStats = useCallback(async () => {
         try {
-            const [configRes, dashboardRes, budgetRes, leaderboardRes] = await Promise.allSettled([
-                api.get('/api/config/thresholds'),
-                api.get('/api/dashboard/warden'),
-                api.get('/api/analytics/budget'),
-                api.get('/api/analytics/leaderboard')
+            const [summaryRes, alertsRes] = await Promise.allSettled([
+                api.get('/api/usage/summary'),
+                api.get('/api/alerts?status=OPEN&limit=5').catch(() => ({ data: { total: 0 } }))
             ]);
 
-            if (configRes.status === 'fulfilled') {
-                setDynamicResources((configRes.value.data.data || []).filter(r => r.isActive));
-            }
-
-            let dashboardData = null;
-            if (dashboardRes.status === 'fulfilled') {
-                dashboardData = dashboardRes.value.data.data || dashboardRes.value.data;
-            }
-            setStats(dashboardData);
-
-            if (budgetRes.status === 'fulfilled') {
-                const budgetsArr = budgetRes.value.data.data || budgetRes.value.data || [];
-                if (Array.isArray(budgetsArr) && budgetsArr.length > 0) setBudget(budgetsArr[0]);
-            }
-
-            if (leaderboardRes.status === 'fulfilled') {
-                const leaderboardsArr = leaderboardRes.value.data.data || leaderboardRes.value.data || [];
-                if (Array.isArray(leaderboardsArr) && leaderboardsArr.length > 0) setEfficiency(leaderboardsArr[0]);
+            if (summaryRes.status === 'fulfilled') {
+                setSummaryData(summaryRes.value.data?.data || null);
             }
         } catch (err) {
-            logger.error("Failed to fetch warden dashboard", err);
-            addToast("Failed to load dashboard data", "error");
+            logger.error('Failed to fetch warden dashboard', err);
+            addToast('Failed to load dashboard data', 'error');
         } finally {
             setLoading(false);
         }
@@ -71,54 +48,23 @@ export default function WardenDashboard() {
         if (socket) {
             socket.on('dashboard:refresh', fetchStats);
             socket.on('dashboard:usage_added', fetchStats);
-            socket.on('dashboard:alert_created', fetchStats);
-            socket.on('dashboard:alert_resolved', fetchStats);
+            socket.on('alerts:refresh', fetchStats);
         }
         return () => {
             if (socket) {
                 socket.off('dashboard:refresh', fetchStats);
                 socket.off('dashboard:usage_added', fetchStats);
-                socket.off('dashboard:alert_created', fetchStats);
-                socket.off('dashboard:alert_resolved', fetchStats);
+                socket.off('alerts:refresh', fetchStats);
             }
         };
     }, [fetchStats]);
-
-    const handleExportCSV = () => {
-        if (!stats?.todayUsage || stats.todayUsage.length === 0) {
-            addToast('No usage data to export', 'warning');
-            return;
-        }
-
-        const data = stats.todayUsage.map(u => {
-            const config = dynamicResources.find(r => r.resource === u._id);
-            return {
-                Resource: u._id,
-                TotalConsumption: u.total,
-                Unit: config?.unit || RESOURCE_META[u._id]?.unit || 'units',
-                Date: new Date().toLocaleDateString()
-            };
-        });
-
-        exportToCSV(data, `warden_daily_report_${new Date().toISOString().split('T')[0]}.csv`);
-        addToast('Report exported successfully');
-    };
-
-    const getResourceIcon = (type) => {
-        return RESOURCE_META[type]?.icon || <Activity size={20} />;
-    };
-
-    const getResourceUnit = (type) => {
-        const config = dynamicResources.find(r => r.resource === type);
-        return config?.unit || RESOURCE_META[type]?.unit || 'units';
-    };
 
     if (loading) {
         return (
             <div className="space-y-6">
                 <div className="h-8 rounded" style={{ backgroundColor: 'var(--bg-hover)', width: '200px' }}></div>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    {[1, 2, 3, 4].map(i => (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {[1, 2, 3].map(i => (
                         <div key={i} className="h-32 rounded-lg animate-pulse" style={{ backgroundColor: 'var(--bg-hover)' }}></div>
                     ))}
                 </div>
@@ -126,96 +72,129 @@ export default function WardenDashboard() {
         );
     }
 
-    if (!stats) {
-        return <EmptyState title="No Data Available" description="Unable to load dashboard data" />;
-    }
-
-    const { activeAlerts, todayUsage = [] } = stats;
+    const summary = summaryData?.summary || {};
+    const alertsCount = summaryData?.alertsCount || 0;
+    const resourceEntries = Object.entries(summary);
 
     return (
         <div className="space-y-6">
+            {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 style={{ color: 'var(--text-primary)' }}>Block Management</h1>
-                    <p style={{ color: 'var(--text-secondary)' }}>Monitor and manage resource usage for your assigned block</p>
+                    <h1 style={{ color: 'var(--text-primary)' }}>Block Dashboard</h1>
+                    <p style={{ color: 'var(--text-secondary)' }}>Monitor resource usage for your assigned block</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <Button variant="secondary" size="sm" onClick={() => navigate('/warden/usage')}>
-                        View Detailed Usage &rarr;
+                    <Button variant="secondary" size="sm" onClick={() => navigate('/warden/usage/all')}>
+                        View Detailed Usage <ArrowRight size={14} className="ml-1" />
                     </Button>
-                    <Link to="/usage/new">
-                        <Button variant="primary" size="sm">
-                            <Plus size={16} className="mr-2" /> Add Usage
-                        </Button>
-                    </Link>
+                    <Button variant="primary" size="sm" onClick={() => navigate('/warden/usage/new')}>
+                        <Plus size={16} className="mr-2" /> Log Usage
+                    </Button>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Alert count card */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <MetricCard
                     icon={<AlertTriangle size={20} />}
                     label="Active Alerts"
-                    value={<span style={{ color: 'var(--color-danger)' }}>{activeAlerts || 0}</span>}
+                    value={<span style={{ color: alertsCount > 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>{alertsCount}</span>}
                 />
-
-                {dynamicResources.slice(0, 3).map(res => {
-                    const data = stats[res.resource.toLowerCase()] || stats[res.resource] || { current: 0, percentageChange: 0 };
+                {resourceEntries.slice(0, 3).map(([name, data]) => {
+                    const meta = RESOURCE_META[name] || { icon: <Activity size={20} />, color: '#64748b' };
                     return (
                         <MetricCard
-                            key={res._id}
-                            icon={getResourceIcon(res.resource)}
-                            label={res.resource}
-                            value={<>{data.current?.toLocaleString() || 0} <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{res.unit}</span></>}
-                            change={data.percentageChange}
+                            key={name}
+                            icon={<span style={{ color: meta.color }}>{meta.icon}</span>}
+                            label={name}
+                            value={
+                                <>
+                                    {data.total > 0 ? data.total.toLocaleString() : 'No data'}
+                                    {data.total > 0 && <span className="text-sm ml-1" style={{ color: 'var(--text-secondary)' }}>{data.unit}</span>}
+                                </>
+                            }
                         />
                     );
                 })}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* All resource cards */}
+            {resourceEntries.length > 0 ? (
+                <div>
+                    <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
+                        <TrendingUp size={20} className="inline mr-2 text-blue-500" />
+                        Resource Summary
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {resourceEntries.map(([name, data]) => {
+                            const meta = RESOURCE_META[name] || { icon: <Activity size={20} />, color: '#64748b' };
+                            const pct = data.dailyLimit > 0
+                                ? Math.min(Math.round((data.total / data.dailyLimit) * 100), 200)
+                                : 0;
+                            const pctColor = pct >= 150 ? '#EF4444' : pct >= 100 ? '#F97316' : pct >= 80 ? '#F59E0B' : '#10B981';
 
-
-                <Card title="Block Performance" description="Overall efficiency metrics">
-                    <div className="space-y-6">
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Overall Efficiency</span>
-                                <span className="text-sm font-semibold" style={{ color: (efficiency?.score || 0) >= 80 ? 'var(--color-success)' : (efficiency?.score || 0) >= 60 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
-                                    {efficiency ? Math.round(efficiency.score) : 84}%
-                                </span>
-                            </div>
-                            <div className="w-full rounded-full h-2 overflow-hidden" style={{ backgroundColor: 'var(--bg-hover)' }}>
-                                <div className="h-full transition-all duration-500 rounded-full" style={{ width: `${efficiency ? efficiency.score : 84}%`, backgroundColor: (efficiency?.score || 0) >= 80 ? 'var(--color-success)' : (efficiency?.score || 0) >= 60 ? 'var(--color-warning)' : 'var(--color-danger)' }} />
-                            </div>
-                        </div>
-
-                        <div className="p-4 rounded-lg border" style={{
-                            borderColor: (efficiency?.score || 0) >= 80 ? 'var(--color-success)' : (efficiency?.score || 0) >= 60 ? 'var(--color-warning)' : 'var(--color-danger)',
-                            backgroundColor: (efficiency?.score || 0) >= 80 ? 'rgba(34, 197, 94, 0.1)' : (efficiency?.score || 0) >= 60 ? 'rgba(234, 179, 8, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                        }}>
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-xs font-medium uppercase tracking-wider mb-1" style={{ color: (efficiency?.score || 0) >= 80 ? 'var(--color-success)' : (efficiency?.score || 0) >= 60 ? 'var(--color-warning)' : 'var(--color-danger)' }}>Sustainability Rating</p>
-                                    <p className="text-3xl font-bold" style={{ color: (efficiency?.score || 0) >= 80 ? 'var(--color-success)' : (efficiency?.score || 0) >= 60 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
-                                        {efficiency ? (efficiency.score >= 90 ? 'A+' : efficiency.score >= 80 ? 'A' : efficiency.score >= 70 ? 'B' : efficiency.score >= 60 ? 'C' : 'F') : 'A+'}
+                            return (
+                                <Card key={name} className="p-4" style={{ borderLeft: `3px solid ${meta.color}` }}>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: meta.color }}>
+                                            {meta.icon} {name}
+                                        </span>
+                                        {pct > 0 && (
+                                            <span className="text-xs font-bold" style={{ color: pctColor }}>
+                                                {pct}%
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                                        {data.total > 0 ? data.total.toLocaleString() : 'No data'}
                                     </p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-xs" style={{ color: (efficiency?.score || 0) >= 80 ? 'var(--color-success)' : (efficiency?.score || 0) >= 60 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
-                                        {efficiency ? (efficiency.score >= 80 ? 'Top tier' : efficiency.score >= 60 ? 'Average' : 'Needs attention') : 'Top tier'}
+                                    <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                                        {data.unit}
+                                        {data.dailyLimit > 0 && ` / ${data.dailyLimit} daily limit`}
                                     </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
-                            <Link to="/analytics">
-                                <Button variant="secondary" className="w-full justify-center">View Detailed Reports</Button>
-                            </Link>
-                        </div>
+                                    {pct > 0 && (
+                                        <div className="w-full h-1 rounded-full mt-2 overflow-hidden" style={{ backgroundColor: 'var(--bg-hover)' }}>
+                                            <div
+                                                className="h-full rounded-full transition-all"
+                                                style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: pctColor }}
+                                            />
+                                        </div>
+                                    )}
+                                </Card>
+                            );
+                        })}
                     </div>
-                </Card>
-            </div>
+                </div>
+            ) : (
+                <EmptyState
+                    title="No Usage Data"
+                    description="No resource usage has been recorded for your block yet. Start by logging usage."
+                    action={
+                        <Button variant="primary" onClick={() => navigate('/warden/usage/new')}>
+                            <Plus size={16} className="mr-2" /> Log First Usage
+                        </Button>
+                    }
+                />
+            )}
+
+            {/* Quick links */}
+            <Card>
+                <div className="flex flex-wrap gap-3">
+                    <Link to="/warden/usage/all">
+                        <Button variant="secondary" size="sm">📊 View All Usage Records</Button>
+                    </Link>
+                    <Link to="/warden/complaints">
+                        <Button variant="secondary" size="sm">📋 Manage Complaints</Button>
+                    </Link>
+                    <Link to="/warden/daily-report">
+                        <Button variant="secondary" size="sm">📄 Daily Report</Button>
+                    </Link>
+                    <Link to="/analytics">
+                        <Button variant="secondary" size="sm">📈 Full Analytics</Button>
+                    </Link>
+                </div>
+            </Card>
         </div>
     );
 }

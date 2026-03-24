@@ -378,8 +378,13 @@ exports.createUsage = async (req, res) => {
 
 exports.getUsages = async (req, res) => {
   try {
-    const { start, end, resource, category, sort, page = 1, limit = 100, block, dateRange, filters } = req.query
-    const filter = {}
+    // Support both old and new query param names
+    const start = req.query.startDate || req.query.start;
+    const end = req.query.endDate || req.query.end;
+    const resource = req.query.resource_type || req.query.resource;
+    const blockQry = req.query.blockId || req.query.block;
+    const { category, sort, page = 1, limit = 100, dateRange, filters } = req.query;
+    const filter = {};
 
     // Role-based Access Control
     const callerRole = req.user?.role;
@@ -391,11 +396,13 @@ exports.getUsages = async (req, res) => {
         message: 'Access denied. Students cannot view usage records.'
       });
     } else if (callerRole === 'warden') {
-      // req.user.block is now populated by authMiddleware (ObjectId or populated doc)
+      // req.user.block is populated by authMiddleware (ObjectId or populated doc)
+      const rawBlock = req.user?.block;
       const blockId =
-        req.user?.block?._id ||   // populated doc → extract _id
-        req.user?.block ||        // raw ObjectId
-        req.userObj?.block ||     // fallback: full userObj
+        rawBlock?._id?.toString() ||
+        rawBlock?.toString() ||
+        req.userObj?.block?._id?.toString() ||
+        req.userObj?.block?.toString() ||
         null;
 
       if (!blockId) {
@@ -405,33 +412,35 @@ exports.getUsages = async (req, res) => {
         });
       }
 
-      filter.blockId = blockId;
+      try {
+        filter.blockId = new mongoose.Types.ObjectId(blockId);
+      } catch (e) {
+        filter.blockId = blockId;
+      }
       console.log(`[WARDEN FILTER] blockId=${blockId} role=${callerRole}`);
     } else if (['dean', 'admin', 'gm', 'principal'].includes(callerRole)) {
-      // Dean / Principal / Admin / General Manager: optional block filter
-      if (block && mongoose.Types.ObjectId.isValid(block)) {
-        filter.blockId = new mongoose.Types.ObjectId(block);
+      // Admin / GM / Dean can filter by blockId query param
+      if (blockQry && mongoose.Types.ObjectId.isValid(blockQry)) {
+        filter.blockId = new mongoose.Types.ObjectId(blockQry);
       }
     }
 
-    // Apply timestamp filters (legacy)
+    // Date range filters
     if (start || end) {
-      filter.usage_date = {}
-      if (start) filter.usage_date.$gte = new Date(start)
-      if (end) filter.usage_date.$lte = new Date(new Date(end).setHours(23, 59, 59, 999))
+      filter.usage_date = {};
+      if (start) filter.usage_date.$gte = new Date(start);
+      if (end) filter.usage_date.$lte = new Date(new Date(end).setHours(23, 59, 59, 999));
     }
-
-    // Apply new comprehensive date range filter (supersedes above)
-    if (dateRange || (start && end)) {
-      const dateFilter = buildDateRangeFilter({ range: dateRange, startDate: start, endDate: end, dateField: 'usage_date' });
+    if (dateRange) {
+      const dateFilter = buildDateRangeFilter({ range: dateRange, dateField: 'usage_date' });
       Object.assign(filter, dateFilter);
     }
 
-    // Apply resource and category filters
-    if (resource && resource !== 'All') filter.resource_type = resource
-    if (category) filter.category = category
+    // Resource and category filters
+    if (resource && resource !== 'All') filter.resource_type = resource;
+    if (category) filter.category = category;
 
-    // Parse additional filters if provided as JSON
+    // Additional JSON filters
     if (filters) {
       try {
         const parsedFilters = typeof filters === 'string' ? JSON.parse(filters) : filters;
@@ -444,25 +453,23 @@ exports.getUsages = async (req, res) => {
     // Exclude soft-deleted records
     filter.deleted = { $ne: true };
 
-    // Determine sort option - Enhanced with queryBuilder
-    const allowedSortFields = ['date', 'resource', 'usage', 'block', 'user', 'usage_date', 'resource_type', 'usage_value', 'blockId'];
+    // Sort option
+    const allowedSortFields = ['usage_date', 'resource_type', 'usage_value', 'blockId', 'createdAt'];
     let sortOption = { usage_date: -1 };
 
     if (sort) {
-      // Try new format: "date:desc,resource:asc"
       if (sort.includes(':')) {
         sortOption = parseSortParam(sort, allowedSortFields);
-      } else {
-        // Legacy format: highest_consumption | block_name | oldest
-        if (sort === 'highest_consumption') {
-          sortOption = { usage_value: -1 };
-        } else if (sort === 'block_name') {
-          sortOption = { blockId: 1, usage_date: -1 };
-        } else if (sort === 'oldest') {
-          sortOption = { usage_date: 1 };
-        } else if (sort === 'newest') {
-          sortOption = { usage_date: -1 };
-        }
+      } else if (sort === '-usage_value' || sort === 'highest_consumption') {
+        sortOption = { usage_value: -1 };
+      } else if (sort === 'usage_value') {
+        sortOption = { usage_value: 1 };
+      } else if (sort === 'blockId' || sort === 'block_name') {
+        sortOption = { blockId: 1, usage_date: -1 };
+      } else if (sort === 'usage_date' || sort === 'oldest') {
+        sortOption = { usage_date: 1 };
+      } else if (sort === '-usage_date' || sort === 'newest') {
+        sortOption = { usage_date: -1 };
       }
     }
 
@@ -475,21 +482,21 @@ exports.getUsages = async (req, res) => {
       .limit(pageLimit)
       .populate('userId', 'name email role block')
       .populate('createdBy', 'name email role')
-      .populate('blockId', 'name');
+      .populate('blockId', 'name location');
 
     const total = await Usage.countDocuments(filter);
 
     res.json({
       success: true,
-      usages,
+      data: usages,   // primary key expected by frontend
+      usages,         // backward compatibility
       total,
       page: Number(page),
+      limit: pageLimit,
       pages: Math.ceil(total / pageLimit),
-      sortBy: sort,
-      filters: { resource, category, dateRange }
-    })
+    });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message })
+    res.status(500).json({ success: false, message: err.message });
   }
 }
 
