@@ -28,8 +28,10 @@ const AnnouncementBoard = () => {
     pinned: false
   });
 
-  const role = (user?.role || '').toLowerCase();
-  const isAdmin = ['admin', 'gm', 'warden'].includes(role);
+  const isAdmin = user?.role === 'admin';
+  const isGM = user?.role === 'gm';
+  const canManageResources = ['admin', 'gm'].includes(user?.role);
+  const canPostNotice = ['admin', 'gm', 'warden'].includes(user?.role?.toLowerCase());
 
   useEffect(() => {
     fetchAnnouncements();
@@ -156,7 +158,7 @@ const AnnouncementBoard = () => {
               </div>
             </div>
           </div>
-          {isAdmin && (
+          {canPostNotice && (
             <button
               onClick={() => {
                 setShowForm(!showForm);
@@ -231,7 +233,7 @@ const AnnouncementBoard = () => {
         )}
 
         {/* Create/Edit Form Modal */}
-        {showForm && isAdmin && (
+        {showForm && canPostNotice && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
 
@@ -366,12 +368,12 @@ const AnnouncementBoard = () => {
               No announcements yet
             </h3>
             <p className="text-gray-400 text-sm mt-2 max-w-sm leading-relaxed">
-              {isAdmin
+              {canPostNotice
                 ? 'Post the first announcement to notify all hostel residents'
                 : 'No announcements have been posted yet. Check back later.'
               }
             </p>
-            {isAdmin && (
+            {canPostNotice && (
               <button
                 onClick={() => {
                   setShowForm(true);
@@ -440,7 +442,7 @@ const AnnouncementBoard = () => {
                   )}
                 </div>
 
-                {isAdmin && (
+                {canPostNotice && (
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => {

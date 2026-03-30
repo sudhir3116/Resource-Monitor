@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import api from '../services/api';
 import {
     Building2, Plus, Trash2, UserCheck, UserX,
-    X, RefreshCw, Shield, Users
+    X, RefreshCw, Shield, Users, Edit2
 } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -95,6 +95,125 @@ function CreateBlockModal({ isOpen, onClose, onCreated }) {
     );
 }
 
+// ─── Edit Block Modal ──────────────────────────────────────────────────────────
+function EditBlockModal({ isOpen, onClose, block, onUpdated }) {
+    const { addToast } = useToast();
+    const [form, setForm] = useState({
+        name: '',
+        type: 'Hostel',
+        capacity: '',
+        monthly_budget: '',
+        status: 'Active'
+    });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        if (!isOpen) return;
+        setError('');
+        setForm({
+            name: block?.name || '',
+            type: block?.type || 'Hostel',
+            capacity: block?.capacity ?? '',
+            monthly_budget: block?.monthly_budget ?? '',
+            status: block?.status || 'Active'
+        });
+    }, [isOpen, block]);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+
+        if (!form.name.trim()) {
+            setError('Block name is required.');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const payload = {
+                name: form.name.trim(),
+                type: form.type,
+                capacity: Number(form.capacity) || 0,
+                monthly_budget: Number(form.monthly_budget) || 0,
+                status: form.status
+            };
+            const res = await api.patch(`/api/blocks/${block._id}`, payload);
+            if (res.data?.success) {
+                addToast(`Block "${res.data.block?.name || form.name}" updated`, 'success');
+                onUpdated(res.data.block || { ...block, ...payload });
+                onClose();
+            }
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to update block');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={`Edit Block — ${block?.name || ''}`} size="sm">
+            <form onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                    <div className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: 'var(--color-danger)' }}>
+                        {error}
+                    </div>
+                )}
+
+                <div>
+                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                        Block Name <span className="text-red-500">*</span>
+                    </label>
+                    <input className="input w-full" value={form.name}
+                        onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Type</label>
+                    <select className="input w-full" value={form.type}
+                        onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                        <option value="Hostel">Hostel</option>
+                        <option value="Academic">Academic</option>
+                        <option value="Administrative">Administrative</option>
+                        <option value="Service">Service</option>
+                    </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                    <div>
+                        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Capacity</label>
+                        <input type="number" min="0" className="input w-full" placeholder="0" value={form.capacity}
+                            onChange={e => setForm(f => ({ ...f, capacity: e.target.value }))} />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Monthly Budget (₹)</label>
+                        <input type="number" min="0" className="input w-full" placeholder="0" value={form.monthly_budget}
+                            onChange={e => setForm(f => ({ ...f, monthly_budget: e.target.value }))} />
+                    </div>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Status</label>
+                    <select className="input w-full" value={form.status}
+                        onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+                        <option value="Active">Active</option>
+                        <option value="Maintenance">Maintenance</option>
+                        <option value="Closed">Closed</option>
+                    </select>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                    <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+                    <Button variant="primary" type="submit" disabled={loading}>
+                        {loading ? <RefreshCw size={14} className="animate-spin mr-1" /> : null}
+                        Save Changes
+                    </Button>
+                </div>
+            </form>
+        </Modal>
+    );
+}
+
 // ─── Assign Warden Modal ──────────────────────────────────────────────────────
 function AssignWardenModal({ isOpen, onClose, block, wardens, onAssigned }) {
     const { addToast } = useToast();
@@ -160,6 +279,7 @@ export default function BlockManagement() {
 
     const [showCreate, setShowCreate] = useState(false);
     const [assignTarget, setAssignTarget] = useState(null);
+    const [editTarget, setEditTarget] = useState(null);
 
     const [selectedIds, setSelectedIds] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
@@ -197,6 +317,10 @@ export default function BlockManagement() {
 
     const handleCreated = (newBlock) => {
         setBlocks(prev => [...prev, newBlock].sort((a, b) => a.name.localeCompare(b.name)));
+    };
+
+    const handleUpdated = () => {
+        fetchData();
     };
 
     const handleSingleDelete = (blockId, blockName) => {
@@ -466,6 +590,14 @@ export default function BlockManagement() {
                                                         <Button
                                                             size="sm"
                                                             variant="secondary"
+                                                            title="Edit block"
+                                                            onClick={() => setEditTarget(block)}
+                                                        >
+                                                            <Edit2 size={14} />
+                                                        </Button>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="secondary"
                                                             title="Assign / change warden"
                                                             onClick={() => setAssignTarget(block)}
                                                         >
@@ -537,6 +669,12 @@ export default function BlockManagement() {
                 isOpen={showCreate}
                 onClose={() => setShowCreate(false)}
                 onCreated={handleCreated}
+            />
+            <EditBlockModal
+                isOpen={!!editTarget}
+                onClose={() => setEditTarget(null)}
+                block={editTarget}
+                onUpdated={handleUpdated}
             />
             {assignTarget && (
                 <AssignWardenModal

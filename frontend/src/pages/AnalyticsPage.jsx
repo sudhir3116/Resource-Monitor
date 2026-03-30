@@ -40,6 +40,7 @@ import {
 } from 'recharts';
 import { useToast } from '../context/ToastContext';
 import { logger } from '../utils/logger';
+import { getSocket } from '../utils/socket';
 
 
 const RESOURCE_META = {
@@ -59,17 +60,19 @@ export default function AnalyticsPage() {
     const [summaryData, setSummaryData] = useState([]);
     const [trendData, setTrendData] = useState([]);
     const [dynamicResources, setDynamicResources] = useState([]);
+    const [blockComparison, setBlockComparison] = useState([]);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const [configRes, summaryRes, trendRes] = await Promise.all([
-                api.get('/api/resource-config'),
+            const [configRes, summaryRes, trendRes, leaderboardRes] = await Promise.all([
+                api.get('/api/config/thresholds'),
                 api.get('/api/usage/summary'),
-                api.get(`/api/usage/trends?range=${timeRange}`)
+                api.get(`/api/usage/trends?range=${timeRange}`).catch(() => ({ data: { data: [] } })),
+                api.get('/api/analytics/leaderboard').catch(() => ({ data: { leaderboard: [] } }))
             ]);
 
-            const activeConfigs = (configRes.data.data || configRes.data.resources || []).filter(c => c.isActive !== false);
+            const activeConfigs = (configRes.data.data || []).filter(c => c.isActive !== false);
             setDynamicResources(activeConfigs);
 
             const summaryDataObj = summaryRes.data?.data?.summary || {};
@@ -81,7 +84,22 @@ export default function AnalyticsPage() {
             }));
 
             setSummaryData(mappedSummary);
-            setTrendData(trendRes.data.data || []);
+            setTrendData(Array.isArray(trendRes.data?.data) ? trendRes.data.data : []);
+
+            const rawLeaderboard =
+                leaderboardRes.data?.leaderboard ||
+                leaderboardRes.data?.data?.leaderboard ||
+                [];
+
+            const mappedComparison = Array.isArray(rawLeaderboard)
+                ? rawLeaderboard.map(b => ({
+                    block: b.blockName || b.block || 'Unknown',
+                    score: Number(b.score ?? 0),
+                    efficiency: Number(b.score ?? 0),
+                }))
+                : [];
+
+            setBlockComparison(mappedComparison);
         } catch (err) {
             logger.error('Failed to fetch analytics data', err);
             addToast('Failed to load analytics', 'error');
@@ -94,13 +112,63 @@ export default function AnalyticsPage() {
         fetchData();
     }, [fetchData]);
 
+    // Realtime: refresh charts when usage / alerts change.
+    useEffect(() => {
+        const socket = getSocket();
+        if (!socket) return;
+
+        socket.on('usage:refresh', fetchData);
+        socket.on('alerts:refresh', fetchData);
+        socket.on('dashboard:refresh', fetchData);
+        socket.on('resources:refresh', fetchData);
+
+        return () => {
+            socket.off('usage:refresh', fetchData);
+            socket.off('alerts:refresh', fetchData);
+            socket.off('dashboard:refresh', fetchData);
+            socket.off('resources:refresh', fetchData);
+        };
+    }, [fetchData]);
+
+    const resourcesForCharts = useMemo(() => {
+        if (Array.isArray(dynamicResources) && dynamicResources.length > 0) return dynamicResources;
+        // Fallback: build resource list from the usage summary so charts don't go empty
+        // when config thresholds are temporarily missing/empty.
+        return (Array.isArray(summaryData) ? summaryData : []).map(s => ({
+            _id: s.resource,
+            resource: s.resource,
+            name: s.resource,
+            unit: s.unit
+        }));
+    }, [dynamicResources, summaryData]);
+
     const activeSummary = useMemo(() => {
-        const activeResourceNames = dynamicResources.map(r => r.name);
+        const activeResourceNames = resourcesForCharts.map(r => r.resource || r.name);
         return summaryData.filter(s => activeResourceNames.includes(s.resource));
-    }, [summaryData, dynamicResources]);
+    }, [summaryData, resourcesForCharts]);
+
+    const safeTrendData = useMemo(() => (Array.isArray(trendData) ? trendData : []), [trendData]);
+    const trendSeries = useMemo(
+        () => resourcesForCharts.map(r => r.resource || r.name).filter(Boolean),
+        [resourcesForCharts]
+    );
+
+    const hasAnyTrendSeriesData = useMemo(() => {
+        if (!trendSeries.length || !safeTrendData.length) return false;
+        return safeTrendData.some(row =>
+            trendSeries.some(key => row?.[key] != null)
+        );
+    }, [trendSeries, safeTrendData]);
 
     const getResourceMeta = (type) => {
         return RESOURCE_META[type] || { icon: <Activity size={20} />, color: '#64748b', bg: 'bg-slate-500/10' };
+    };
+
+    const getScoreColor = (score) => {
+        const s = Number(score || 0);
+        if (s >= 80) return '#10b981'; // green
+        if (s >= 60) return '#f59e0b'; // amber
+        return '#ef4444'; // red
     };
 
     return (
@@ -133,8 +201,8 @@ export default function AnalyticsPage() {
 
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-                {dynamicResources.map((res) => {
-                    const resName = res.name;
+                {resourcesForCharts.map((res) => {
+                    const resName = res.resource || res.name;
                     const stats = activeSummary.find(s => s.resource === resName) || { current: 0, change: 0, unit: res.unit || 'units' };
                     const meta = getResourceMeta(resName);
                     const isNegative = stats.change < 0;
@@ -169,8 +237,8 @@ export default function AnalyticsPage() {
                         <BarChart3 size={20} className="text-blue-500" /> Usage Trends Over Time
                     </h2>
                     <div className="flex items-center gap-4 text-xs">
-                        {dynamicResources.map((res, i) => {
-                            const resName = res.name;
+                        {resourcesForCharts.map((res, i) => {
+                            const resName = res.resource || res.name;
                             return (
                                 <div key={resName} className="flex items-center gap-1.5">
                                     <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: getResourceMeta(resName).color }}></div>
@@ -183,17 +251,16 @@ export default function AnalyticsPage() {
                 <div className="h-[400px] w-full">
                     {loading ? (
                         <div className="h-full flex items-center justify-center text-slate-400">Loading chart data...</div>
-                    ) : trendData.length === 0 ? (
+                    ) : !hasAnyTrendSeriesData ? (
                         <div className="h-full flex flex-col items-center justify-center text-slate-400">
                             <Info size={40} className="mb-2 opacity-20" />
-                            No trend data available for this period.
+                            No trend data available for the active resources in this period.
                         </div>
                     ) : (
                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={trendData}>
+                            <AreaChart data={safeTrendData}>
                                 <defs>
-                                    {dynamicResources.map((res, i) => {
-                                        const resName = res.name;
+                                    {trendSeries.map((resName) => {
                                         return (
                                             <linearGradient key={resName} id={`color${resName}`} x1="0" y1="0" x2="0" y2="1">
                                                 <stop offset="5%" stopColor={getResourceMeta(resName).color} stopOpacity={0.1} />
@@ -223,8 +290,7 @@ export default function AnalyticsPage() {
                                     itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
                                     labelStyle={{ marginBottom: '8px', fontWeight: 'bold' }}
                                 />
-                                {dynamicResources.map((res) => {
-                                    const resName = res.name;
+                                {trendSeries.map((resName) => {
                                     return (
                                         <Area
                                             key={resName}
@@ -282,29 +348,29 @@ export default function AnalyticsPage() {
                     </div>
                 </Card>
 
-                {/* Efficiency/Threshold Comparison */}
+                {/* Block Comparison */}
                 <Card>
                     <h2 className="text-lg font-bold flex items-center gap-2 mb-6">
-                        <BarChart3 size={20} className="text-amber-500" /> Usage vs Recommended Threshold
+                        <BarChart3 size={20} className="text-amber-500" /> Block Comparison
                     </h2>
                     <div className="h-[300px]">
                         {loading ? (
                             <div className="h-full flex items-center justify-center text-slate-400">Loading comparison...</div>
-                        ) : activeSummary.length === 0 ? (
+                        ) : (blockComparison || []).length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-slate-400">No data found.</div>
                         ) : (
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={activeSummary}>
+                                <BarChart data={blockComparison || []}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-                                    <XAxis dataKey="resource" stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
+                                    <XAxis dataKey="block" stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
                                     <YAxis stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
                                     <Tooltip
                                         cursor={{ fill: 'transparent' }}
                                         contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
                                     />
-                                    <Bar dataKey="current" name="Current Usage" radius={[6, 6, 0, 0]}>
-                                        {activeSummary.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={getResourceMeta(entry.resource).color} />
+                                    <Bar dataKey="score" name="Efficiency Score" radius={[6, 6, 0, 0]}>
+                                        {(blockComparison || []).map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={getScoreColor(entry.score)} />
                                         ))}
                                     </Bar>
                                 </BarChart>

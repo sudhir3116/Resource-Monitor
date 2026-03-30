@@ -31,8 +31,15 @@ export default function AuditLogs() {
         limit: 50
     });
 
-    const actions = ['CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT', 'EXPORT', 'RESOLVE_ALERT', 'UPDATE_THRESHOLD'];
-    const resources = ['Usage', 'User', 'Block', 'Alert', 'SystemConfig', 'Auth'];
+    const actions = [
+        'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT', 'EXPORT',
+        'RESOLVE_ALERT', 'REVIEW_ALERT', 'ESCALATE_ALERT',
+        'ADD_COMMENT', 'DISMISS_ALERT', 'UPDATE_THRESHOLD',
+        'RESOLVE_COMPLAINT', 'ESCALATE_COMPLAINT', 'COMMENT_COMPLAINT',
+        'COMPLAINT_SLA_BREACH',
+        'BULK_DELETE', 'BULK_UPDATE'
+    ];
+    const resources = ['Usage', 'User', 'Block', 'Alert', 'SystemConfig', 'Auth', 'Complaint'];
 
     useEffect(() => {
         fetchLogs();
@@ -191,7 +198,12 @@ export default function AuditLogs() {
                                             {log.description}
                                         </td>
                                         <td className="text-right text-sm text-slate-500">
-                                            {formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}
+                                            <div>
+                                                {formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}
+                                            </div>
+                                            <div className="text-xs text-slate-400">
+                                                {new Date(log.createdAt).toLocaleString()}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}

@@ -12,8 +12,8 @@ import Badge from '../components/common/Badge';
 import EmptyState from '../components/common/EmptyState';
 import {
     AlertCircle, AlertTriangle, Info, CheckCircle,
-    Search, Filter, RefreshCw, Eye, ShieldCheck,
-    Clock, XCircle, MapPin, Activity, TrendingUp, RotateCcw
+    Search, RefreshCw, Eye,
+    XCircle, MapPin, Activity, TrendingUp, RotateCcw
 } from 'lucide-react';
 
 const SEVERITY_CONFIG = {
@@ -50,6 +50,8 @@ export default function Alerts() {
     const [blocks, setBlocks] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [actioning, setActioning] = useState(new Set()); // ids being processed
+    const [selectedAlertIds, setSelectedAlertIds] = useState([]);
+    const [bulkBusy, setBulkBusy] = useState(false);
 
     const isStudent = user?.role === ROLES.STUDENT;
     const isWarden = user?.role === ROLES.WARDEN;
@@ -57,16 +59,17 @@ export default function Alerts() {
     const isDean = user?.role === ROLES.DEAN;
     const isPrincipal = user?.role === ROLES.PRINCIPAL;
     const isGM = user?.role === ROLES.GM;
-    // Executive = roles with full campus view 
+    // GM is view-only for alerts (no lifecycle updates).
+    // Wardens can investigate (flag for review) but cannot close alerts.
     const isExecutive = isAdmin || isDean || isPrincipal || isGM;
-    // Only Admin and GM can resolve, dismiss, escalate, or reopen alerts.
-    // Wardens can ONLY investigate (flag for review) — they cannot close alerts.
-    const canResolve = isAdmin || isGM;
-    const canDismiss = isAdmin || isGM;
-    const canEscalate = isAdmin || isGM;
-    const canReopen = isAdmin || isGM;
-    const canInvestigate = isWarden || isAdmin || isGM;
-    const canAcknowledge = isDean || isPrincipal || isAdmin || isGM;
+    const canModifyAlerts = isAdmin;
+
+    const canResolve = canModifyAlerts;
+    const canDismiss = canModifyAlerts;
+    const canEscalate = canModifyAlerts;
+    const canReopen = canModifyAlerts;
+    const canInvestigate = isWarden || canModifyAlerts;
+    const canAcknowledge = isDean || isPrincipal || canModifyAlerts;
 
     const fetchAlerts = useCallback(async () => {
         try {
@@ -99,12 +102,14 @@ export default function Alerts() {
         if (socket) {
             socket.on('alert:new', fetchAlerts);
             socket.on('alert:updated', fetchAlerts);
+            socket.on('alerts:refresh', fetchAlerts);
         }
 
         return () => {
             if (socket) {
                 socket.off('alert:new', fetchAlerts);
                 socket.off('alert:updated', fetchAlerts);
+                socket.off('alerts:refresh', fetchAlerts);
             }
         };
     }, [fetchAlerts]);
@@ -231,8 +236,77 @@ export default function Alerts() {
     // Counts — 'Active' is what the DB stores (not 'Pending')
     const pendingCount = alerts.filter(a => a.status === 'Active').length;
     const investigatingCnt = alerts.filter(a => a.status === 'Investigating').length;
+    const escalatedCnt = alerts.filter(a => a.status === 'Escalated').length;
     const criticalCount = alerts.filter(a => getSeverityKey(a.severity) === 'critical').length;
     const resolvedCount = alerts.filter(a => a.status === 'Resolved').length;
+    const activeTotal = pendingCount + investigatingCnt + escalatedCnt;
+
+    const selectedAlerts = alerts.filter(a => selectedAlertIds.includes(a._id));
+    const allVisibleSelected = filteredAlerts.length > 0 && filteredAlerts.every(a => selectedAlertIds.includes(a._id));
+
+    const toggleSelected = (id) => {
+        setSelectedAlertIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
+
+    const setSelectedForVisible = (checked) => {
+        if (!checked) {
+            setSelectedAlertIds([]);
+            return;
+        }
+        setSelectedAlertIds(filteredAlerts.map(a => a._id));
+    };
+
+    const bulkUpdate = async (kind) => {
+        if (bulkBusy) return;
+        const currentlySelected = selectedAlerts;
+        if (!currentlySelected.length) return;
+
+        setBulkBusy(true);
+        try {
+            const ids = currentlySelected
+                .filter(a => {
+                    if (kind === 'investigate') return a.status !== 'Investigating' && !['Resolved', 'Dismissed'].includes(a.status);
+                    if (kind === 'resolve') return a.status !== 'Resolved' && a.status !== 'Dismissed';
+                    if (kind === 'dismiss') return a.status !== 'Resolved' && a.status !== 'Dismissed';
+                    if (kind === 'escalate') return a.status !== 'Resolved' && a.status !== 'Escalated';
+                    if (kind === 'reopen') return ['Resolved', 'Dismissed'].includes(a.status);
+                    return false;
+                })
+                .map(a => a._id);
+
+            if (!ids.length) {
+                addToast('No selected alerts eligible for this action', 'info');
+                return;
+            }
+
+            const requests = ids.map(id => {
+                switch (kind) {
+                    case 'investigate':
+                        return api.put(`/api/alerts/${id}/investigate`);
+                    case 'resolve':
+                        return api.put(`/api/alerts/${id}/resolve`, { comment: 'Resolved via bulk action' });
+                    case 'dismiss':
+                        return api.put(`/api/alerts/${id}/dismiss`);
+                    case 'escalate':
+                        return api.put(`/api/alerts/${id}/escalate`);
+                    case 'reopen':
+                        return api.put(`/api/alerts/${id}/reopen`);
+                    default:
+                        return Promise.resolve();
+                }
+            });
+
+            await Promise.allSettled(requests);
+            refreshCounts();
+            await fetchAlerts();
+            setSelectedAlertIds([]);
+            addToast('Bulk update completed', 'success');
+        } catch (err) {
+            addToast(err.message || 'Bulk update failed', 'error');
+        } finally {
+            setBulkBusy(false);
+        }
+    };
 
     if (loading) {
         return (
@@ -266,7 +340,7 @@ export default function Alerts() {
 
             {/* Summary KPIs */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <KPICard label="Pending" value={pendingCount} icon={<Clock size={18} />} color="amber" />
+                <KPICard label="Active" value={activeTotal} icon={<AlertTriangle size={18} />} color="amber" />
                 <KPICard label="Investigating" value={investigatingCnt} icon={<Search size={18} />} color="blue" />
                 <KPICard label="Critical" value={criticalCount} icon={<AlertCircle size={18} />} color="red" />
                 <KPICard label="Resolved" value={resolvedCount} icon={<CheckCircle size={18} />} color="green" />
@@ -343,6 +417,173 @@ export default function Alerts() {
                     title="No alerts found"
                     description="No alerts match the current filters."
                 />
+            ) : (isAdmin || isGM) ? (
+                <div className="space-y-3">
+                    {isAdmin && selectedAlertIds.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 bg-blue-900/30 border border-blue-600/40 rounded-xl">
+                            <span className="text-sm font-medium text-blue-300">
+                                {selectedAlertIds.length} selected
+                            </span>
+                            <button
+                                onClick={() => setSelectedAlertIds([])}
+                                className="text-xs text-gray-300 hover:text-white"
+                                type="button"
+                            >
+                                Clear
+                            </button>
+
+                            <div className="ml-auto flex flex-wrap gap-2">
+                                {canInvestigate && (
+                                    <Button size="sm" variant="secondary" disabled={bulkBusy} onClick={() => bulkUpdate('investigate')}>
+                                        {bulkBusy ? <RefreshCw size={14} className="animate-spin mr-2" /> : <Search size={14} className="mr-2" />}
+                                        Investigate
+                                    </Button>
+                                )}
+                                {canResolve && (
+                                    <Button size="sm" variant="primary" disabled={bulkBusy} onClick={() => bulkUpdate('resolve')}>
+                                        {bulkBusy ? <RefreshCw size={14} className="animate-spin mr-2" /> : <CheckCircle size={14} className="mr-2" />}
+                                        Resolve
+                                    </Button>
+                                )}
+                                {canDismiss && (
+                                    <Button size="sm" variant="danger" disabled={bulkBusy} onClick={() => bulkUpdate('dismiss')}>
+                                        {bulkBusy ? <RefreshCw size={14} className="animate-spin mr-2" /> : <XCircle size={14} className="mr-2" />}
+                                        Dismiss
+                                    </Button>
+                                )}
+                                {canEscalate && (
+                                    <Button size="sm" variant="warning" disabled={bulkBusy} onClick={() => bulkUpdate('escalate')}>
+                                        {bulkBusy ? <RefreshCw size={14} className="animate-spin mr-2" /> : <TrendingUp size={14} className="mr-2" />}
+                                        Escalate
+                                    </Button>
+                                )}
+                                {canReopen && (
+                                    <Button size="sm" variant="secondary" disabled={bulkBusy} onClick={() => bulkUpdate('reopen')}>
+                                        {bulkBusy ? <RefreshCw size={14} className="animate-spin mr-2" /> : <RotateCcw size={14} className="mr-2" />}
+                                        Reopen
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="overflow-x-auto">
+                        <table className="table">
+                            <thead>
+                                <tr>
+                                    <th className="w-10">
+                                        <input
+                                            type="checkbox"
+                                            checked={allVisibleSelected}
+                                            disabled={!isAdmin}
+                                            className={!isAdmin ? 'opacity-0 pointer-events-none' : ''}
+                                            onChange={(e) => isAdmin && setSelectedForVisible(e.target.checked)}
+                                            style={{ width: '16px', height: '16px', minWidth: '16px', cursor: 'pointer', accentColor: '#3B82F6' }}
+                                        />
+                                    </th>
+                                    <th>Severity</th>
+                                    <th>Resource</th>
+                                    <th>Block</th>
+                                    <th>Message</th>
+                                    <th>Status</th>
+                                    <th className="pr-6">Time</th>
+                                    <th className="text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredAlerts.map(alert => {
+                                    const sevKey = getSeverityKey(alert.severity);
+                                    const sevConfig = SEVERITY_CONFIG[sevKey] || SEVERITY_CONFIG.medium;
+                                    const isActioning = actioning.has(alert._id);
+                                    const isResolved = alert.status === 'Resolved' || alert.status === 'Dismissed';
+                                    const checked = selectedAlertIds.includes(alert._id);
+
+                                    return (
+                                        <tr key={alert._id} className={checked ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}>
+                                            <td>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked}
+                                                    disabled={!isAdmin}
+                                                    className={!isAdmin ? 'opacity-0 pointer-events-none' : ''}
+                                                    onChange={() => isAdmin && toggleSelected(alert._id)}
+                                                    style={{ width: '16px', height: '16px', minWidth: '16px', cursor: 'pointer', accentColor: '#3B82F6' }}
+                                                />
+                                            </td>
+                                            <td>
+                                                <Badge variant={sevConfig.badgeVariant}>{sevConfig.label}</Badge>
+                                            </td>
+                                            <td>
+                                                <div className="flex items-center gap-2">
+                                                    <Activity size={14} />
+                                                    <span className="font-medium">{alert.resourceType}</span>
+                                                </div>
+                                            </td>
+                                            <td className="text-sm">
+                                                {alert.block?.name || '-'}
+                                            </td>
+                                            <td className="max-w-xs text-sm text-slate-600 dark:text-slate-300 truncate">
+                                                {alert.message}
+                                            </td>
+                                            <td>
+                                                <Badge variant={STATUS_BADGE[alert.status] || 'default'}>{alert.status}</Badge>
+                                            </td>
+                                            <td className="pr-6 text-xs text-slate-500">
+                                                {timeAgo(alert.createdAt)}
+                                            </td>
+                                            <td className="text-right whitespace-nowrap">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    {/* Warden/Admin/GM Investigate */}
+                                                    {canInvestigate && !isResolved && alert.status !== 'Investigating' && (
+                                                        <Button size="sm" variant="secondary" disabled={isActioning} onClick={() => handleInvestigate(alert._id)}>
+                                                            {isActioning ? <RefreshCw size={13} className="animate-spin mr-1" /> : <Search size={13} className="mr-1" />}
+                                                            Investigate
+                                                        </Button>
+                                                    )}
+                                                    {/* Dean/Principal/Admin/GM Acknowledge */}
+                                                    {canAcknowledge && !alert.acknowledgedAt && (
+                                                        <Button size="sm" variant="secondary" disabled={isActioning} onClick={() => handleAcknowledge(alert._id)}>
+                                                            <Eye size={13} className="mr-1" />
+                                                            Acknowledge
+                                                        </Button>
+                                                    )}
+
+                                                    {canResolve && !isResolved && (
+                                                        <Button size="sm" variant="primary" disabled={isActioning} onClick={() => handleResolve(alert._id)}>
+                                                            {isActioning ? <RefreshCw size={13} className="animate-spin mr-1" /> : <CheckCircle size={13} className="mr-1" />}
+                                                            Resolve
+                                                        </Button>
+                                                    )}
+
+                                                    {canDismiss && !isResolved && (
+                                                        <Button size="sm" variant="danger" disabled={isActioning} onClick={() => handleDismiss(alert._id)}>
+                                                            <XCircle size={13} className="mr-1" />
+                                                            Dismiss
+                                                        </Button>
+                                                    )}
+
+                                                    {canEscalate && !isResolved && alert.status !== 'Escalated' && (
+                                                        <Button size="sm" variant="warning" disabled={isActioning} onClick={() => handleEscalate(alert._id)}>
+                                                            <TrendingUp size={13} className="mr-1" />
+                                                            Escalate
+                                                        </Button>
+                                                    )}
+
+                                                    {canReopen && (alert.status === 'Resolved' || alert.status === 'Dismissed') && (
+                                                        <Button size="sm" variant="secondary" disabled={isActioning} onClick={() => handleReopen(alert._id)}>
+                                                            <RotateCcw size={13} className="mr-1" />
+                                                            Reopen
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             ) : (
                 <div className="space-y-3">
                     {filteredAlerts.map(alert => {

@@ -258,6 +258,11 @@ function App() {
                 <AuditLogs />
               </ProtectedRoute>
             } />
+            <Route path="/gm/resource-config" element={
+              <ProtectedRoute allowedRoles={['gm']}>
+                <ResourceConfig />
+              </ProtectedRoute>
+            } />
 
             {/* ════════════════════════════════════════════════════════════════ */}
             {/* WARDEN ROUTES (/warden/*)                                       */}

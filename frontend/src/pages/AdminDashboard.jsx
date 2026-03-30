@@ -42,56 +42,81 @@ export default function AdminDashboard() {
     const [stats, setStats] = useState({
         totalUsers: 0,
         totalBlocks: 0,
+        totalResources: 0,
         activeAlerts: 0,
-        pendingComplaints: 0,
+        unresolvedComplaints: 0,
         recentAlerts: [],
         recentComplaints: []
     });
     const [loading, setLoading] = useState(true);
-    const [dynamicResources, setDynamicResources] = useState([]);
 
     const fetchData = useCallback(async () => {
         try {
-            const [usersRes, blocksRes, alertsRes, complaintsRes, configRes] = await Promise.allSettled([
+            const [
+                usersRes,
+                blocksRes,
+                alertsRes,
+                complaintsRes,
+                configRes,
+                alertCountRes,
+                complaintStatsRes
+            ] = await Promise.allSettled([
                 api.get('/api/admin/users'),
                 api.get('/api/admin/blocks'),
                 api.get('/api/alerts?limit=5'),
                 api.get('/api/complaints?limit=5'),
-                api.get('/api/config/thresholds')
+                api.get('/api/config/thresholds'),
+                api.get('/api/alerts/count'),
+                api.get('/api/complaints/stats')
             ]);
 
-            const safeArray = (res) => {
-                if (res.status !== 'fulfilled') return []
-                const d = res.value.data
-                return Array.isArray(d) ? d
-                    : Array.isArray(d?.data) ? d.data
-                        : Array.isArray(d?.users) ? d.users
-                            : Array.isArray(d?.blocks) ? d.blocks
-                                : Array.isArray(d?.alerts) ? d.alerts
-                                    : Array.isArray(d?.complaints) ? d.complaints
-                                        : []
-            }
+            const users = usersRes.status === 'fulfilled'
+                ? (usersRes.value.data.data || usersRes.value.data.users || [])
+                : [];
+            const blocks = blocksRes.status === 'fulfilled'
+                ? (blocksRes.value.data.data || blocksRes.value.data.blocks || [])
+                : [];
+            const configs = configRes.status === 'fulfilled'
+                ? (configRes.value.data.data || [])
+                : [];
 
-            const safeCount = (res, ...keys) => {
-                if (res.status !== 'fulfilled') return 0
-                const d = res.value.data
-                for (const k of keys) {
-                    if (typeof d?.[k] === 'number') return d[k]
-                }
-                return safeArray(res).length
-            }
+            const recentAlerts = alertsRes.status === 'fulfilled'
+                ? (alertsRes.value.data.alerts || [])
+                : [];
+            const recentComplaints = complaintsRes.status === 'fulfilled'
+                ? (complaintsRes.value.data.data || [])
+                : [];
 
-            if (configRes.status === 'fulfilled') {
-                setDynamicResources((configRes.value.data.data || []).filter(r => r.isActive));
-            }
+            const alertCounts = alertCountRes.status === 'fulfilled'
+                ? (alertCountRes.value.data.counts || {})
+                : {};
+
+            const activeAlerts =
+                Number(alertCounts.pending || 0) +
+                Number(alertCounts.investigating || 0) +
+                Number(alertCounts.escalated || 0);
+
+            const byStatus = complaintStatsRes.status === 'fulfilled'
+                ? (complaintStatsRes.value.data.byStatus || [])
+                : [];
+            const statusMap = byStatus.reduce((acc, s) => {
+                const key = s?._id || s?.status;
+                if (!key) return acc;
+                acc[key] = Number(s.count || 0);
+                return acc;
+            }, {});
+            const totalComplaints = Number(complaintStatsRes.status === 'fulfilled' ? complaintStatsRes.value.data.total : 0);
+            const resolvedComplaints = Number(statusMap.resolved || statusMap.RESOLVED || 0);
+            const unresolvedComplaints = Math.max(0, totalComplaints - resolvedComplaints);
 
             setStats({
-                totalUsers: safeCount(usersRes, 'totalUsers', 'total'),
-                totalBlocks: safeCount(blocksRes, 'totalBlocks', 'total'),
-                activeAlerts: safeArray(alertsRes).length, // simplified for dashboard
-                pendingComplaints: safeArray(complaintsRes).filter(c => c.status !== 'RESOLVED').length,
-                recentAlerts: safeArray(alertsRes),
-                recentComplaints: safeArray(complaintsRes)
+                totalUsers: Array.isArray(users) ? users.length : 0,
+                totalBlocks: Array.isArray(blocks) ? blocks.length : 0,
+                totalResources: Array.isArray(configs) ? configs.length : 0,
+                activeAlerts,
+                unresolvedComplaints,
+                recentAlerts: Array.isArray(recentAlerts) ? recentAlerts : [],
+                recentComplaints: Array.isArray(recentComplaints) ? recentComplaints : []
             });
         } catch (err) {
             logger.error('Failed to load Admin Dashboard stats', err);
@@ -106,11 +131,23 @@ export default function AdminDashboard() {
         if (socket) {
             socket.on('dashboard:refresh', fetchData);
             socket.on('users:refresh', fetchData);
+            socket.on('alerts:refresh', fetchData);
+            socket.on('resources:refresh', fetchData);
+            socket.on('dashboard:alert_created', fetchData);
+            socket.on('dashboard:alert_resolved', fetchData);
+            socket.on('dashboard:complaint_added', fetchData);
+            socket.on('complaints:refresh', fetchData);
         }
         return () => {
             if (socket) {
                 socket.off('dashboard:refresh', fetchData);
                 socket.off('users:refresh', fetchData);
+                socket.off('alerts:refresh', fetchData);
+                socket.off('resources:refresh', fetchData);
+                socket.off('dashboard:alert_created', fetchData);
+                socket.off('dashboard:alert_resolved', fetchData);
+                socket.off('dashboard:complaint_added', fetchData);
+                socket.off('complaints:refresh', fetchData);
             }
         };
     }, [fetchData]);
@@ -119,7 +156,7 @@ export default function AdminDashboard() {
         return RESOURCE_META[type]?.icon || <Activity size={16} />;
     };
 
-    if (loading && stats.totalUsers === 0) {
+    if (loading) {
         return (
             <div className="space-y-6">
                 <div className="h-8 w-48 rounded animate-pulse bg-slate-200 dark:bg-slate-700"></div>
@@ -155,7 +192,7 @@ export default function AdminDashboard() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                 <Card className="border-l-4 border-blue-500">
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Users</span>
@@ -174,6 +211,15 @@ export default function AdminDashboard() {
                     <p className="text-xs text-slate-500 mt-1">Monitored infrastructure</p>
                 </Card>
 
+                <Card className="border-l-4 border-emerald-500">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Resources</span>
+                        <Settings size={18} className="text-emerald-500" />
+                    </div>
+                    <div className="text-3xl font-bold">{stats.totalResources}</div>
+                    <p className="text-xs text-slate-500 mt-1">Configured items</p>
+                </Card>
+
                 <Card className="border-l-4 border-rose-500">
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Active Alerts</span>
@@ -188,7 +234,7 @@ export default function AdminDashboard() {
                         <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Complaints</span>
                         <MessageSquare size={18} className="text-amber-500" />
                     </div>
-                    <div className="text-3xl font-bold">{stats.pendingComplaints}</div>
+                    <div className="text-3xl font-bold">{stats.unresolvedComplaints}</div>
                     <p className="text-xs text-slate-500 mt-1">Unresolved tickets</p>
                 </Card>
             </div>
@@ -221,14 +267,23 @@ export default function AdminDashboard() {
                                                 </td>
                                                 <td>{alert.block?.name || alert.block || '-'}</td>
                                                 <td>
-                                                    <Badge variant={alert.severity === 'CRITICAL' ? 'danger' : alert.severity === 'HIGH' ? 'warning' : 'secondary'}>
-                                                        {alert.severity}
-                                                    </Badge>
+                                                    {(() => {
+                                                        const sev = String(alert.severity || '').toUpperCase();
+                                                        const variant = (sev === 'CRITICAL' || sev === 'SEVERE') ? 'danger'
+                                                            : (sev === 'HIGH') ? 'warning'
+                                                                : 'secondary';
+                                                        return <Badge variant={variant}>{alert.severity}</Badge>;
+                                                    })()}
                                                 </td>
                                                 <td>
-                                                    <Badge variant={alert.status === 'RESOLVED' ? 'success' : 'warning'}>
-                                                        {alert.status}
-                                                    </Badge>
+                                                    {(() => {
+                                                        const st = String(alert.status || '').toUpperCase();
+                                                        const variant = st === 'RESOLVED' ? 'success'
+                                                            : (st === 'DISMISSED') ? 'default'
+                                                                : (st === 'ESCALATED') ? 'warning'
+                                                                    : 'warning';
+                                                        return <Badge variant={variant}>{alert.status}</Badge>;
+                                                    })()}
                                                 </td>
                                                 <td className="pr-6 text-xs text-slate-400">
                                                     {new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -265,7 +320,7 @@ export default function AdminDashboard() {
                                                 </div>
                                             </div>
                                         </div>
-                                        <Badge variant={complaint.status === 'RESOLVED' ? 'success' : 'warning'}>
+                                        <Badge variant={String(complaint.status || '').toLowerCase() === 'resolved' ? 'success' : 'warning'}>
                                             {complaint.status}
                                         </Badge>
                                     </div>
@@ -294,38 +349,6 @@ export default function AdminDashboard() {
                                     <ChevronDown size={14} className="-rotate-90 text-slate-400" />
                                 </Link>
                             ))}
-                        </div>
-                    </Card>
-
-                    <Card title="System Performance">
-                        <div className="space-y-4 mt-4">
-                            <div>
-                                <div className="flex justify-between text-xs mb-1.5">
-                                    <span className="text-slate-500">Storage Usage</span>
-                                    <span className="font-bold text-slate-700 dark:text-slate-200">42%</span>
-                                </div>
-                                <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                    <div className="h-full bg-blue-500" style={{ width: '42%' }}></div>
-                                </div>
-                            </div>
-                            <div>
-                                <div className="flex justify-between text-xs mb-1.5">
-                                    <span className="text-slate-500">API Latency</span>
-                                    <span className="font-bold text-green-500">124ms</span>
-                                </div>
-                                <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                    <div className="h-full bg-green-500" style={{ width: '15%' }}></div>
-                                </div>
-                            </div>
-                            <div>
-                                <div className="flex justify-between text-xs mb-1.5">
-                                    <span className="text-slate-500">Uptime</span>
-                                    <span className="font-bold text-blue-500">99.9%</span>
-                                </div>
-                                <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                    <div className="h-full bg-blue-500" style={{ width: '99.9%' }}></div>
-                                </div>
-                            </div>
                         </div>
                     </Card>
                 </div>

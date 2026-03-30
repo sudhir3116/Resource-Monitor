@@ -27,19 +27,19 @@ router.get('/thresholds', getThresholds);
 router.get('/thresholds/:resource', getResourceThreshold);
 router.get('/blocks', getBlocks);
 
-// ── Write routes (Admin only) ──────────────────────────────────────────────
+// ── Write routes (Admin and GM) ──────────────────────────────────────────────
 router.post(
     '/thresholds',
-    authorizeRoles(ROLES.ADMIN),
-        [
-            body('resource').notEmpty().withMessage('resource is required'),
-            body('dailyThreshold').optional().isNumeric(),
-            body('monthlyThreshold').optional().isNumeric(),
-            body('unit').optional().isString()
-        ],
-        runValidations,
-        auditMiddleware('CREATE', 'SystemConfig'),
-        createThreshold
+    authorizeRoles(ROLES.ADMIN, ROLES.GM),
+    [
+        body('resource').notEmpty().withMessage('resource is required'),
+        body('dailyThreshold').optional().isNumeric(),
+        body('monthlyThreshold').optional().isNumeric(),
+        body('unit').optional().isString()
+    ],
+    runValidations,
+    auditMiddleware('CREATE', 'SystemConfig'),
+    createThreshold
 );
 
 router.put(
@@ -53,7 +53,7 @@ router.put(
 // PUT / PATCH by resource name (primary endpoint used by UI)
 router.put(
     '/thresholds/:resource',
-    authorizeRoles(ROLES.ADMIN),
+    authorizeRoles(ROLES.ADMIN, ROLES.GM),
     [param('resource').notEmpty().withMessage('resource required')],
     runValidations,
     auditMiddleware('UPDATE', 'SystemConfig'),
@@ -63,7 +63,7 @@ router.put(
 // PATCH alias — supports partial updates, same handler
 router.patch(
     '/thresholds/:resource',
-    authorizeRoles(ROLES.ADMIN),
+    authorizeRoles(ROLES.ADMIN, ROLES.GM),
     [param('resource').notEmpty().withMessage('resource required')],
     runValidations,
     auditMiddleware('UPDATE', 'SystemConfig'),
@@ -82,7 +82,7 @@ router.put(
 
 router.put(
     '/thresholds/:resource/block-override/:blockId',
-    authorizeRoles(ROLES.ADMIN),
+    authorizeRoles(ROLES.ADMIN, ROLES.GM),
     [param('resource').notEmpty().withMessage('resource required'), param('blockId').isMongoId().withMessage('Invalid blockId')],
     runValidations,
     auditMiddleware('UPDATE', 'SystemConfig'),
@@ -91,7 +91,7 @@ router.put(
 
 router.delete(
     '/thresholds/:resource/block-override/:blockId',
-    authorizeRoles(ROLES.ADMIN),
+    authorizeRoles(ROLES.ADMIN, ROLES.GM),
     [param('resource').notEmpty().withMessage('resource required'), param('blockId').isMongoId().withMessage('Invalid blockId')],
     runValidations,
     auditMiddleware('UPDATE', 'SystemConfig'),
@@ -100,7 +100,7 @@ router.delete(
 
 router.delete(
     '/thresholds/:resource',
-    authorizeRoles(ROLES.ADMIN),
+    authorizeRoles(ROLES.ADMIN, ROLES.GM),
     [param('resource').notEmpty().withMessage('resource required')],
     runValidations,
     auditMiddleware('DELETE', 'SystemConfig'),

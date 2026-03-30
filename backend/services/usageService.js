@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Usage = require('../models/Usage');
 const Alert = require('../models/Alert');
-const ResourceConfig = require('../models/ResourceConfig');
+const SystemConfig = require('../models/SystemConfig');
 
 /**
  * getUsageSummary
@@ -20,13 +20,14 @@ exports.getUsageSummary = async (options = {}) => {
     if (['warden', 'student'].includes(normalizedRole)) {
         if (!blockId) {
             // Warden/student with no block: return empty summary
-            const noConfigs = await ResourceConfig.find({ isActive: { $ne: false } }).lean();
+            const noConfigs = await SystemConfig.find({ isActive: { $ne: false } }).lean();
             const emptySummary = {};
             noConfigs.forEach(cfg => {
-                emptySummary[cfg.name] = {
+                const resName = cfg.resource || cfg.name;
+                emptySummary[resName] = {
                     total: 0, current: 0, cost: 0, count: 0, avgValue: 0, maxValue: 0,
-                    unit: cfg.unit || 'units', dailyLimit: cfg.dailyLimit || 0,
-                    monthlyLimit: cfg.monthlyLimit || 0, icon: cfg.icon || '📊',
+                    unit: cfg.unit || 'units', dailyLimit: cfg.dailyThreshold || cfg.dailyLimit || 0,
+                    monthlyLimit: cfg.monthlyThreshold || cfg.monthlyLimit || 0, icon: cfg.icon || '📊',
                     color: cfg.color || '#64748b', lastDate: null
                 };
             });
@@ -69,17 +70,18 @@ exports.getUsageSummary = async (options = {}) => {
 
     const [results, configs] = await Promise.all([
         Usage.aggregate(pipeline),
-        ResourceConfig.find({ isActive: { $ne: false } }).lean()
+        SystemConfig.find({ isActive: { $ne: false } }).lean()
     ]);
 
     // Build config map
     const configMap = {};
-    configs.forEach(c => { configMap[c.name] = c; });
+    configs.forEach(c => { configMap[c.resource || c.name] = c; });
 
     // Initialize all active resources in summary with 0
     const summary = {};
     configs.forEach(cfg => {
-        summary[cfg.name] = {
+        const resName = cfg.resource || cfg.name;
+        summary[resName] = {
             total: 0,
             current: 0,
             cost: 0,
@@ -87,8 +89,8 @@ exports.getUsageSummary = async (options = {}) => {
             avgValue: 0,
             maxValue: 0,
             unit: cfg.unit || 'units',
-            dailyLimit: cfg.dailyLimit || 0,
-            monthlyLimit: cfg.monthlyLimit || 0,
+            dailyLimit: cfg.dailyThreshold || cfg.dailyLimit || 0,
+            monthlyLimit: cfg.monthlyThreshold || cfg.monthlyLimit || 0,
             icon: cfg.icon || '📊',
             color: cfg.color || '#64748b',
             lastDate: null
@@ -108,8 +110,8 @@ exports.getUsageSummary = async (options = {}) => {
             avgValue: Math.round((r.avgValue || 0) * 100) / 100,
             maxValue: Math.round((r.maxValue || 0) * 100) / 100,
             unit: cfg.unit || 'units',
-            dailyLimit: cfg.dailyLimit || 0,
-            monthlyLimit: cfg.monthlyLimit || 0,
+            dailyLimit: cfg.dailyThreshold || cfg.dailyLimit || 0,
+            monthlyLimit: cfg.monthlyThreshold || cfg.monthlyLimit || 0,
             icon: cfg.icon || '📊',
             color: cfg.color || '#64748b',
             lastDate: r.lastDate

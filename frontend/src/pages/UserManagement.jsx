@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react';
 import api from '../services/api';
 import { getSocket } from '../utils/socket';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import {
     Users, Search, Trash2, Edit2, Plus, Key, ToggleLeft, ToggleRight, UserCheck
@@ -454,7 +454,10 @@ export default function UserManagement() {
     const [searchTerm, setSearchTerm] = useState('');
     const [roleFilter, setRoleFilter] = useState('All');
     const { addToast } = useToast();
-    const { user: currentUser } = useContext(AuthContext);
+    const { user: currentUser } = useAuth();
+    const isAdmin = currentUser?.role === 'admin';
+    const isGM = currentUser?.role === 'gm';
+    const canManageResources = ['admin', 'gm'].includes(currentUser?.role);
 
     // Selection
     const [selectedIds, setSelectedIds] = useState([]);
@@ -472,8 +475,6 @@ export default function UserManagement() {
     const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState('');
     const [showBulkResetPw, setShowBulkResetPw] = useState(false);
     const [bulkActionConfirm, setBulkActionConfirm] = useState(null); // { type, status }
-
-    const isAdmin = currentUser?.role === 'admin';
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchUsers = useCallback(async () => {

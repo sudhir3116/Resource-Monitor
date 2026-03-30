@@ -1,7 +1,20 @@
+/**
+ * services/reportService.js - ENHANCED
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Comprehensive reporting: daily, weekly, monthly, custom reports with export
+ * Professional-grade reporting system for all roles
+ */
+
 const Usage = require('../models/Usage');
 const Alert = require('../models/Alert');
 const Block = require('../models/Block');
+const Complaint = require('../models/Complaint');
+const ResourceConfig = require('../models/ResourceConfig');
+const mongoose = require('mongoose');
 
+/**
+ * LEGACY: Generate daily report data (kept for backward compatibility)
+ */
 const generateDailyReportData = async () => {
     const today = new Date();
     const startOfDay = new Date(today); startOfDay.setHours(0, 0, 0, 0);
@@ -23,7 +36,6 @@ const generateDailyReportData = async () => {
     const blockStats = [];
     if (blockUsage.length > 0) {
         await Block.populate(blockUsage, { path: '_id.block', select: 'name' });
-        // Transform for easier viewing
         blockUsage.forEach(item => {
             if (item._id.block) {
                 blockStats.push({
@@ -40,8 +52,8 @@ const generateDailyReportData = async () => {
         createdAt: { $gte: startOfDay, $lte: endOfDay }
     }).populate('user', 'name email').populate('block', 'name');
 
-    // 4. Score Logic (Simple deduction)
-    let score = 100 - (alerts.filter(a => a.severity === 'critical' || a.severity === 'high').length * 10);
+    // 4. Score Logic
+    let score = 100 - (alerts.filter(a => a.severity === 'Critical' || a.severity === 'High').length * 10);
     if (score < 0) score = 0;
 
     return {

@@ -10,6 +10,7 @@ const auditLogSchema = new mongoose.Schema({
             'RESOLVE_ALERT', 'REVIEW_ALERT', 'ESCALATE_ALERT',
             'ADD_COMMENT', 'DISMISS_ALERT', 'UPDATE_THRESHOLD',
             'RESOLVE_COMPLAINT', 'ESCALATE_COMPLAINT', 'COMMENT_COMPLAINT',
+            'COMPLAINT_SLA_BREACH',
             'BULK_DELETE', 'BULK_UPDATE'
         ]
     },

@@ -4,8 +4,8 @@ const Block = require('../models/Block');
 const { ROLES } = require('../config/roles');
 
 const ADMIN_ONLY = (req, res) => {
-    if (req.user.role !== ROLES.ADMIN) {
-        res.status(403).json({ success: false, message: 'Access denied: Only Administrators can modify resource configuration.' });
+    if (req.user.role !== ROLES.ADMIN && req.user.role !== ROLES.GM) {
+        res.status(403).json({ success: false, message: 'Access denied: Only Administrators or GMs can modify resource configuration.' });
         return false;
     }
     return true;
@@ -24,6 +24,26 @@ const logConfigChange = async (req, action, resourceId, description, before, aft
         });
     } catch (e) {
         console.error('Config audit log error:', e.message);
+    }
+};
+
+/**
+ * Notify connected clients to refresh resource-driven UIs.
+ * Non-fatal: if socket isn't initialized, we silently skip.
+ */
+const emitResourcesRefresh = async () => {
+    try {
+        const socketUtil = require('../utils/socket');
+        const socketManager = require('../socket/socketManager');
+        const io = socketUtil.getIO && socketUtil.getIO();
+        if (!io) return;
+
+        io.emit('resources:refresh');
+        // Also target common admin rooms for reliability.
+        socketManager.emitToRole(io, 'admin', 'resources:refresh', {});
+        socketManager.emitToRole(io, 'gm', 'resources:refresh', {});
+    } catch {
+        // non-fatal
     }
 };
 
@@ -92,7 +112,7 @@ exports.createThreshold = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Daily threshold cannot exceed monthly threshold' });
         }
 
-        const existing = await SystemConfig.findOne({ resource });
+        const existing = await SystemConfig.findOne({ resource: { $regex: new RegExp(`^${resource}$`, 'i') } });
         if (existing) {
             return res.status(409).json({ success: false, message: `Configuration for '${resource}' already exists. Use update instead.` });
         }
@@ -115,6 +135,7 @@ exports.createThreshold = async (req, res) => {
             null, config.toObject()
         );
 
+        await emitResourcesRefresh();
         res.status(201).json({ success: true, message: `Configuration for '${resource}' created successfully`, data: config });
     } catch (error) {
         console.error('createThreshold error:', error);
@@ -217,6 +238,7 @@ exports.updateThreshold = async (req, res) => {
             existing.toObject(), updated.toObject()
         );
 
+        await emitResourcesRefresh();
         res.json({
             success: true,
             message: `Configuration for '${resource}' updated successfully`,
@@ -281,6 +303,7 @@ exports.updateThresholdById = async (req, res) => {
             existing.toObject(), updated.toObject()
         );
 
+        await emitResourcesRefresh();
         res.json({ success: true, message: `Configuration updated successfully`, data: updated });
     } catch (error) {
         console.error('[configController] updateThresholdById FAILED:', error);
@@ -337,6 +360,7 @@ exports.bulkUpdateThresholds = async (req, res) => {
             }
         }
 
+        await emitResourcesRefresh();
         res.json({ success: true, message: `Updated ${results.length} configuration(s)`, data: results, errors });
     } catch (error) {
         console.error('bulkUpdateThresholds error:', error);
@@ -399,6 +423,7 @@ exports.setBlockOverride = async (req, res) => {
             before, updated.toObject()
         );
 
+        await emitResourcesRefresh();
         res.json({ success: true, message: `Block override set for '${block.name}'`, data: updated });
     } catch (error) {
         console.error('setBlockOverride error:', error);
@@ -432,6 +457,7 @@ exports.removeBlockOverride = async (req, res) => {
             before, updated.toObject()
         );
 
+        await emitResourcesRefresh();
         res.json({ success: true, message: 'Block override removed', data: updated });
     } catch (error) {
         console.error('removeBlockOverride error:', error);
@@ -458,6 +484,7 @@ exports.deleteThreshold = async (req, res) => {
             config.toObject(), null
         );
 
+        await emitResourcesRefresh();
         res.json({ success: true, message: `Configuration for '${resource}' deleted` });
     } catch (error) {
         console.error('deleteThreshold error:', error);

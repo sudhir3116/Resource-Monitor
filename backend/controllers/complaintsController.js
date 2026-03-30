@@ -23,6 +23,25 @@ const CAN_REVIEW = [ROLES.ADMIN, ROLES.WARDEN];
 const CAN_ESCALATE = [ROLES.DEAN, ROLES.ADMIN];
 const CAN_SEE_ALL = [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN];
 
+/**
+ * Notify connected clients that complaint lists/stats must refresh.
+ * Non-fatal: skips if socket isn't initialized.
+ */
+const emitComplaintsRefresh = async () => {
+    try {
+        const socketUtil = require('../utils/socket');
+        const socketManager = require('../socket/socketManager');
+        const io = socketUtil.getIO && socketUtil.getIO();
+        if (!io) return;
+
+        io.emit('complaints:refresh');
+        socketManager.emitToRole(io, 'admin', 'complaints:refresh', {});
+        socketManager.emitToRole(io, 'gm', 'complaints:refresh', {});
+    } catch {
+        // non-fatal
+    }
+};
+
 const logAction = async (req, complaintId, action, desc) => {
     try {
         const mappedAction = (action === 'RESOLVE') ? 'RESOLVE_COMPLAINT' :
@@ -143,6 +162,7 @@ const createComplaint = async (req, res) => {
             }
         } catch (e) { /* non-fatal */ }
 
+        await emitComplaintsRefresh();
         res.status(201).json({ success: true, data: populated });
     } catch (error) {
         console.error('Create complaint error:', error);
@@ -200,6 +220,7 @@ const reviewComplaint = async (req, res) => {
             }
         } catch (e) { /* non-fatal */ }
 
+        await emitComplaintsRefresh();
         res.json({ success: true, message: 'Complaint marked as Under Review', data: updated });
     } catch (error) {
         console.error('Review complaint error:', error);
@@ -261,6 +282,7 @@ const resolveComplaint = async (req, res) => {
             }
         } catch (e) { /* non-fatal */ }
 
+        await emitComplaintsRefresh();
         res.json({ success: true, message: 'Complaint resolved successfully', data: updated });
     } catch (error) {
         console.error('Resolve complaint error:', error);
@@ -324,6 +346,7 @@ const escalateComplaint = async (req, res) => {
             }
         } catch (e) { /* non-fatal */ }
 
+        await emitComplaintsRefresh();
         res.json({ success: true, message: 'Complaint escalated', data: updated });
     } catch (error) {
         console.error('Escalate complaint error:', error);
@@ -395,6 +418,7 @@ const updateComplaintStatus = async (req, res) => {
             }
         } catch (e) { /* non-fatal */ }
 
+        await emitComplaintsRefresh();
         res.json({ success: true, message: 'Status updated', data: updated });
     } catch (error) {
         console.error('Update complaint status error:', error);

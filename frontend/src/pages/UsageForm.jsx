@@ -77,17 +77,17 @@ export default function UsageForm() {
     setLoading(true);
     try {
       const [configRes, blocksRes] = await Promise.allSettled([
-        api.get('/api/resource-config'),
+        api.get('/api/config/thresholds'),
         (!isWarden) ? api.get('/api/admin/blocks') : Promise.resolve({ status: 'rejected' })
       ]);
 
       if (configRes.status === 'fulfilled') {
         const configs = configRes.value.data.data || [];
-        const activeResources = configs.filter(c => c.isActive);
+        const activeResources = configs.filter(c => c.isActive !== false);
         setDynamicResources(activeResources);
 
         if (!id && activeResources.length > 0) {
-          setForm(f => ({ ...f, resource_type: activeResources[0].name }));
+          setForm(f => ({ ...f, resource_type: activeResources[0].name || activeResources[0].resource }));
         }
       }
 
@@ -119,6 +119,9 @@ export default function UsageForm() {
   useEffect(() => {
     if (canWrite) fetchData();
   }, [fetchData, canWrite]);
+
+  const selectedResource = dynamicResources.find(r => r.name === form.resource_type);
+  const selectedResourceMissing = !!form.resource_type && !selectedResource;
 
   const validate = () => {
     const newErrors = {};
@@ -215,9 +218,18 @@ export default function UsageForm() {
               </label>
 
               {dynamicResources.length === 0 ? (
-                <div className="p-8 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl text-center text-slate-500 italic">
-                  No active resource channels available. Contact System Admin to enable sensors.
-                </div>
+                form.resource_type ? (
+                  <div className="p-6 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl text-center text-slate-500 italic">
+                    Selected resource was deactivated or deleted.
+                    <div className="mt-2 text-xs text-slate-400">
+                      Label: <strong style={{ color: 'var(--text-primary)' }}>Deleted Resource</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-8 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl text-center text-slate-500 italic">
+                    No active resource channels available. Contact System Admin to enable sensors.
+                  </div>
+                )
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {dynamicResources.map(res => {
@@ -243,6 +255,25 @@ export default function UsageForm() {
                       </button>
                     );
                   })}
+
+                  {selectedResourceMissing && (
+                    <button
+                      type="button"
+                      disabled
+                      className="group relative flex flex-col items-center justify-center p-6 rounded-3xl border-2 border-slate-200 bg-white/50 dark:bg-slate-900/30 text-slate-400 cursor-not-allowed"
+                      title="This resource is no longer active"
+                    >
+                      <div className="p-4 rounded-2xl mb-4 bg-slate-100 dark:bg-slate-800 text-slate-500">
+                        <Activity size={22} />
+                      </div>
+                      <span className="text-xs font-black uppercase tracking-widest text-slate-500">
+                        Deleted Resource
+                      </span>
+                      <span className="text-[10px] mt-1 text-slate-400">
+                        {form.resource_type}
+                      </span>
+                    </button>
+                  )}
                 </div>
               )}
               {errors.resource_type && <p className="text-rose-500 text-xs font-bold pl-2">System Alert: {errors.resource_type}</p>}

@@ -170,12 +170,13 @@ exports.updateBlock = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Block not found' });
     }
 
-    const { name, type, capacity, status, departments, warden } = req.body;
+    const { name, type, capacity, status, departments, warden, monthly_budget } = req.body;
 
     const updates = {};
     if (name && name.trim()) updates.name = name.trim();
     if (type && ['Hostel', 'Academic', 'Administrative', 'Service'].includes(type)) updates.type = type;
     if (capacity !== undefined) updates.capacity = Math.max(0, parseInt(capacity) || 0);
+    if (monthly_budget !== undefined) updates.monthly_budget = Math.max(0, parseInt(monthly_budget) || 0);
     if (status && ['Active', 'Maintenance', 'Closed'].includes(status)) updates.status = status;
     if (departments && Array.isArray(departments)) updates.departments = departments;
 

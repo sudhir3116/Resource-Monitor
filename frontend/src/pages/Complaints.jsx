@@ -106,7 +106,7 @@ function ComplaintRow({ complaint, user, onReview, onResolve, onEscalate, action
 
     const canResolve = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role) && !isResolved;
     const canReview = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role) && complaint.status === 'open';
-    const canEscalate = [ROLES.DEAN, ROLES.DEAN, ROLES.ADMIN].includes(user?.role) && !isResolved && !isEscalated;
+    const canEscalate = [ROLES.DEAN, ROLES.ADMIN].includes(user?.role) && !isResolved && !isEscalated;
 
     return (
         <div className="rounded-lg border p-4 transition-all" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
@@ -197,6 +197,126 @@ function ComplaintRow({ complaint, user, onReview, onResolve, onEscalate, action
     );
 }
 
+// ─── Complaint Detail Modal ──────────────────────────────────────────────
+function ComplaintDetailModal({ isOpen, onClose, complaint, user, onReview, onResolve, onEscalate, actioningIds }) {
+    const [showHistory, setShowHistory] = useState(false);
+    const sc = complaint ? (STATUS_CONFIG[complaint.status] || STATUS_CONFIG.open) : STATUS_CONFIG.open;
+    const isActioning = complaint ? actioningIds.has(complaint._id) : false;
+
+    const isResolved = complaint?.status === 'resolved';
+    const isEscalated = complaint?.status === 'escalated';
+
+    const canResolve = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role) && complaint && !isResolved;
+    const canReview = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role) && complaint && complaint.status === 'open';
+    const canEscalate = [ROLES.DEAN, ROLES.ADMIN].includes(user?.role) && complaint && !isResolved && !isEscalated;
+
+    useEffect(() => {
+        if (isOpen) setShowHistory(false);
+    }, [isOpen]);
+
+    if (!isOpen || !complaint) return null;
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
+            <div className="relative w-full max-w-3xl rounded-xl p-5" style={{ backgroundColor: 'var(--bg-card)', boxShadow: 'var(--shadow-lg)' }}>
+                <div className="flex items-center justify-between gap-4 mb-4">
+                    <div className="min-w-0">
+                        <h3 className="font-semibold text-base flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                            {sc.icon} {sc.label}
+                        </h3>
+                        <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{complaint.title}</p>
+                    </div>
+                    <button onClick={onClose} type="button" className="shrink-0">
+                        <X size={18} style={{ color: 'var(--text-secondary)' }} />
+                    </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                    <Badge variant="default">{CATEGORY_LABELS[complaint.category] || complaint.category}</Badge>
+                    {complaint.priority === 'high' && <Badge variant="danger">High Priority</Badge>}
+                    {complaint.assignedTo && <Badge variant="secondary">Assigned</Badge>}
+                </div>
+
+                <div className="rounded-lg p-3 mb-4" style={{ backgroundColor: 'var(--bg-secondary)' }}>
+                    <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{complaint.description}</p>
+                </div>
+
+                <div className="flex flex-wrap gap-4 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    <span>By {complaint.user?.name || 'Unknown'} ({complaint.user?.role})</span>
+                    <span>{timeAgo(complaint.createdAt)}</span>
+                    {complaint.assignedTo && <span>Assigned: {complaint.assignedTo.name}</span>}
+                    {isResolved && complaint.resolvedBy && (
+                        <span className="text-green-600 dark:text-green-400">
+                            Resolved by {complaint.resolvedBy.name}
+                        </span>
+                    )}
+                    {isEscalated && complaint.escalatedBy && (
+                        <span className="text-red-600 dark:text-red-400">
+                            Escalated by {complaint.escalatedBy.name}: {complaint.escalationReason}
+                        </span>
+                    )}
+                </div>
+
+                {/* History */}
+                {complaint.history?.length > 0 && (
+                    <div className="mt-4">
+                        <button
+                            className="mt-2 flex items-center gap-1 text-xs transition-colors"
+                            style={{ color: 'var(--text-secondary)' }}
+                            onClick={() => setShowHistory(v => !v)}
+                            type="button"
+                        >
+                            <History size={12} />
+                            {showHistory ? 'Hide' : 'Show'} history ({complaint.history.length})
+                            {showHistory ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        </button>
+                        {showHistory && (
+                            <div className="mt-2 space-y-1.5 pl-3 border-l-2" style={{ borderColor: 'var(--border)' }}>
+                                {complaint.history.map((h, i) => (
+                                    <div key={i} className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                                            {h.performedBy?.name || 'System'}
+                                        </span>
+                                        {' '}{h.action.replace('_', ' ')}
+                                        {h.toStatus && ` → ${STATUS_CONFIG[h.toStatus]?.label || h.toStatus}`}
+                                        {h.note && `: ${h.note}`}
+                                        &nbsp;·&nbsp;{new Date(h.timestamp).toLocaleString()}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex flex-wrap gap-2 justify-end mt-5">
+                    {canReview && (
+                        <Button size="sm" variant="secondary" disabled={isActioning} onClick={() => onReview(complaint._id)}>
+                            {isActioning ? <RefreshCw size={13} className="animate-spin mr-1" /> : <Eye size={13} className="mr-1" />}
+                            Review
+                        </Button>
+                    )}
+                    {canResolve && (
+                        <Button size="sm" variant="primary" disabled={isActioning} onClick={() => onResolve(complaint)}>
+                            {isActioning ? <RefreshCw size={13} className="animate-spin mr-1" /> : <CheckCircle size={13} className="mr-1" />}
+                            Resolve
+                        </Button>
+                    )}
+                    {canEscalate && (
+                        <Button size="sm" variant="danger" disabled={isActioning} onClick={() => onEscalate(complaint)}>
+                            <ArrowUpCircle size={13} className="mr-1" /> Escalate
+                        </Button>
+                    )}
+                    <Button size="sm" variant="secondary" disabled={isActioning} onClick={onClose}>
+                        Close
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Complaints() {
     const { user } = useContext(AuthContext);
@@ -225,11 +345,15 @@ export default function Complaints() {
 
     const canSubmit = true; // All roles can submit
     const isAdminOrWarden = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role);
+    const isAdmin = user?.role === ROLES.ADMIN;
+    const isGM = user?.role === ROLES.GM;
     const canSeeStats = [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL].includes(user?.role);
 
     const setActioning = (id, val) => setActioningIds(prev => {
         const s = new Set(prev); val ? s.add(id) : s.delete(id); return s;
     });
+
+    const [detailTarget, setDetailTarget] = useState(null);
 
     const fetchComplaints = useCallback(async () => {
         try {
@@ -248,11 +372,13 @@ export default function Complaints() {
 
         const socket = getSocket();
         if (socket) {
-            socket.on('complaint:updated', fetchComplaints);
+            socket.on('complaints:refresh', fetchComplaints);
+            socket.on('complaint:updated', fetchComplaints); // backward compat
         }
 
         return () => {
             if (socket) {
+                socket.off('complaints:refresh', fetchComplaints);
                 socket.off('complaint:updated', fetchComplaints);
             }
         };
@@ -360,10 +486,12 @@ export default function Complaints() {
                         Submit and track resource-related complaints
                     </p>
                 </div>
-                <Button variant="primary" onClick={() => setShowForm(v => !v)}>
-                    {showForm ? <X size={16} className="mr-2" /> : <Plus size={16} className="mr-2" />}
-                    {showForm ? 'Cancel' : 'New Complaint'}
-                </Button>
+                {!isGM && (
+                    <Button variant="primary" onClick={() => setShowForm(v => !v)}>
+                        {showForm ? <X size={16} className="mr-2" /> : <Plus size={16} className="mr-2" />}
+                        {showForm ? 'Cancel' : 'New Complaint'}
+                    </Button>
+                )}
             </div>
 
             {/* Stats row */}
@@ -464,6 +592,52 @@ export default function Complaints() {
                     title="No complaints found"
                     description="No complaints match the current filters."
                 />
+            ) : (isAdmin || isGM) ? (
+                <div className="overflow-x-auto">
+                    <table className="table">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Title</th>
+                                <th>Category</th>
+                                <th>Priority</th>
+                                <th>Assigned</th>
+                                <th>Submitted</th>
+                                <th className="text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filtered.map(complaint => {
+                                const sc = STATUS_CONFIG[complaint.status] || STATUS_CONFIG.open;
+                                return (
+                                    <tr key={complaint._id} className="cursor-pointer hover:bg-blue-50/50 dark:hover:bg-blue-900/10" onClick={() => setDetailTarget(complaint)}>
+                                        <td>
+                                            <Badge variant={sc.variant} className="flex items-center gap-1">
+                                                {sc.icon} {sc.label}
+                                            </Badge>
+                                        </td>
+                                        <td className="max-w-md">
+                                            <div className="font-medium truncate">{complaint.title}</div>
+                                        </td>
+                                        <td>
+                                            {CATEGORY_LABELS[complaint.category] || complaint.category}
+                                        </td>
+                                        <td>
+                                            {complaint.priority === 'high' ? <Badge variant="danger">High</Badge> : <Badge variant="default">Normal</Badge>}
+                                        </td>
+                                        <td>{complaint.assignedTo?.name || '-'}</td>
+                                        <td className="text-xs text-slate-500">{timeAgo(complaint.createdAt)}</td>
+                                        <td className="text-right whitespace-nowrap">
+                                            <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); setDetailTarget(complaint); }}>
+                                                View Details
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             ) : (
                 <div className="space-y-3">
                     {filtered.map(complaint => (
@@ -479,6 +653,18 @@ export default function Complaints() {
                     ))}
                 </div>
             )}
+
+            {/* Complaint Detail Modal (Admin Table) */}
+            <ComplaintDetailModal
+                isOpen={!!detailTarget}
+                onClose={() => setDetailTarget(null)}
+                complaint={detailTarget}
+                user={user}
+                onReview={handleReview}
+                onResolve={setResolveTarget}
+                onEscalate={setEscalateTarget}
+                actioningIds={actioningIds}
+            />
 
             {/* Confirm Resolve Modal */}
             <ConfirmModal

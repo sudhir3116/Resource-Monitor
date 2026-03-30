@@ -27,6 +27,7 @@ const NAV_CONFIG = {
         { label: 'Complaints', icon: '📝', path: '/gm/complaints' },
         { label: 'Analytics', icon: '📈', path: '/gm/analytics' },
         { label: 'Notice Board', icon: '📌', path: '/gm/notices' },
+        { label: 'Resource Config', icon: '⚙️', path: '/gm/resource-config' },
         { label: 'Reports', icon: '📤', path: '/gm/reports' },
         { label: 'Audit Logs', icon: '🗃️', path: '/gm/audit-logs' },
     ],

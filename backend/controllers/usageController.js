@@ -316,9 +316,11 @@ exports.createUsage = async (req, res) => {
         const usageData = { block: resolvedBlockId, resource: resource_type, value: usage_value, timestamp: new Date() };
         socketManager.emitToRole(io, 'admin', 'usage:new', usage);
         socketManager.emitToRole(io, 'gm', 'usage:new', usage);
+        socketManager.emitToRole(io, 'warden', 'usage:new', usage);
         if (resolvedBlockId) socketManager.emitToBlock(io, resolvedBlockId, 'usage:new', usage);
         socketManager.emitToRole(io, 'admin', 'dashboard:usage_added', usageData);
         socketManager.emitToRole(io, 'gm', 'dashboard:usage_added', usageData);
+        socketManager.emitToRole(io, 'warden', 'dashboard:usage_added', usageData);
       }
     } catch (e) { /* non-fatal */ }
 
@@ -389,21 +391,20 @@ exports.getUsages = async (req, res) => {
     // Role-based Access Control
     const callerRole = req.user?.role;
 
-    // Students are NOT allowed to access usage records at all
-    if (!callerRole || callerRole === 'student' || callerRole === 'user') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Students cannot view usage records.'
-      });
+    // Check role and assign filters
+    if (!callerRole || callerRole === 'user') {
+      return res.status(403).json({ success: false, message: 'Access denied.' });
+    } else if (callerRole === 'student') {
+      const rawBlock = req.user?.block || req.userObj?.block;
+      const blockId = rawBlock?._id?.toString() || rawBlock?.toString();
+      if (blockId) {
+        filter.blockId = new mongoose.Types.ObjectId(blockId);
+      } else {
+        filter.userId = new mongoose.Types.ObjectId(req.userId || req.user?.id);
+      }
     } else if (callerRole === 'warden') {
-      // req.user.block is populated by authMiddleware (ObjectId or populated doc)
-      const rawBlock = req.user?.block;
-      const blockId =
-        rawBlock?._id?.toString() ||
-        rawBlock?.toString() ||
-        req.userObj?.block?._id?.toString() ||
-        req.userObj?.block?.toString() ||
-        null;
+      const rawBlock = req.user?.block || req.userObj?.block;
+      const blockId = rawBlock?._id?.toString() || rawBlock?.toString();
 
       if (!blockId) {
         return res.status(403).json({
@@ -417,9 +418,8 @@ exports.getUsages = async (req, res) => {
       } catch (e) {
         filter.blockId = blockId;
       }
-      console.log(`[WARDEN FILTER] blockId=${blockId} role=${callerRole}`);
     } else if (['dean', 'admin', 'gm', 'principal'].includes(callerRole)) {
-      // Admin / GM / Dean can filter by blockId query param
+      // Admin / GM / Dean / Principal can see everything, or filter by blockId query param
       if (blockQry && mongoose.Types.ObjectId.isValid(blockQry)) {
         filter.blockId = new mongoose.Types.ObjectId(blockQry);
       }

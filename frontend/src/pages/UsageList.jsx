@@ -61,8 +61,8 @@ export default function UsageList() {
   const navigate = useNavigate();
 
   const canEdit = user && [ROLES.ADMIN, ROLES.WARDEN].includes(user.role);
-  // Only Admin and General Manager can delete records (Wardens cannot)
-  const canDelete = user && [ROLES.ADMIN, ROLES.GM].includes(user.role);
+  // Only Admin can delete usage records (Wardens/GM are view-only here)
+  const canDelete = user && [ROLES.ADMIN].includes(user.role);
   const showActions = canEdit || canDelete;
   const isWarden = user?.role === ROLES.WARDEN;
   const isExecutive = user && [ROLES.DEAN, ROLES.ADMIN, ROLES.GM].includes(user.role);

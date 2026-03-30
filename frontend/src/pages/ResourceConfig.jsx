@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useContext, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import api from '../services/api';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { ROLES } from '../utils/roles';
 import { logger } from '../utils/logger';
 import { useToast } from '../context/ToastContext';
@@ -253,16 +253,16 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
                             <button
                                 onClick={() => onToggle(config.resource, !config.isActive)}
                                 title={config.isActive ? 'Deactivate' : 'Activate'}
-                                className="flex items-center justify-center h-7 w-7 rounded-lg transition-colors"
-                                style={{ backgroundColor: 'var(--bg-hover)' }}
+                                className={`flex items-center justify-center px-2 py-1 rounded-lg transition-colors text-xs font-medium border ${config.isActive
+                                    ? 'bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:border-amber-900/50'
+                                    : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-100 dark:bg-green-900/20 dark:border-green-900/50'
+                                    }`}
                             >
-                                {config.isActive
-                                    ? <ToggleRight size={16} className="text-green-500" />
-                                    : <ToggleLeft size={16} className="text-slate-400" />}
+                                {config.isActive ? 'Deactivate' : 'Activate'}
                             </button>
                             <button
                                 onClick={() => onDelete(config.resource)}
-                                title="Delete Configuration"
+                                title="Delete Permanently"
                                 className="flex items-center justify-center h-7 w-7 rounded-lg transition-colors hover:bg-red-50 dark:hover:bg-red-900/20 group"
                                 style={{ backgroundColor: 'var(--bg-hover)' }}
                             >
@@ -499,11 +499,12 @@ function AddResourceModal({ isOpen, onClose, existingResources, onSave }) {
     const [errors, setErrors] = useState({});
     const { addToast } = useToast();
 
-    const available = ALL_RESOURCES.filter(r => !existingResources.includes(r));
-
     const validate = () => {
         const e = {};
-        if (!form.resource) e.resource = 'Select a resource';
+        if (!form.resource.trim()) e.resource = 'Resource name is required';
+        else if (existingResources.some(r => r.toLowerCase() === form.resource.trim().toLowerCase())) {
+            e.resource = 'Resource already exists';
+        }
         if (!form.unit.trim()) e.unit = 'Required';
         if (form.costPerUnit === '' || Number(form.costPerUnit) < 0) e.costPerUnit = 'Must be ≥ 0';
         if (!form.dailyThreshold || Number(form.dailyThreshold) <= 0) e.dailyThreshold = 'Must be > 0';
@@ -549,68 +550,61 @@ function AddResourceModal({ isOpen, onClose, existingResources, onSave }) {
                     </h3>
                     <button onClick={onClose} className="p-1 rounded" style={{ color: 'var(--text-secondary)' }}><X size={18} /></button>
                 </div>
-                {available.length === 0 ? (
-                    <div className="text-center py-6">
-                        <CheckCircle size={32} className="text-green-500 mx-auto mb-2" />
-                        <p style={{ color: 'var(--text-secondary)' }}>All resources are already configured.</p>
+                <div className="space-y-4">
+                    <div>
+                        <label className="form-label">Resource Name</label>
+                        <input
+                            type="text"
+                            className={`form-input ${errors.resource ? 'border-red-500' : ''}`}
+                            placeholder="e.g. Natural Gas"
+                            value={form.resource}
+                            onChange={e => setForm(p => ({ ...p, resource: e.target.value }))}
+                        />
+                        {errors.resource && <p className="text-red-500 text-xs mt-1">{errors.resource}</p>}
                     </div>
-                ) : (
-                    <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="form-label">Resource</label>
-                            <select className={`form-input ${errors.resource ? 'border-red-500' : ''}`}
-                                value={form.resource} onChange={e => setForm(p => ({ ...p, resource: e.target.value }))}>
-                                <option value="">Select resource…</option>
-                                {available.map(r => <option key={r} value={r}>{r}</option>)}
+                            <label className="form-label">Unit</label>
+                            <select className={`form-input ${errors.unit ? 'border-red-500' : ''}`}
+                                value={form.unit} onChange={e => setForm(p => ({ ...p, unit: e.target.value }))}>
+                                {UNIT_OPTIONS.map(u => <option key={u}>{u}</option>)}
                             </select>
-                            {errors.resource && <p className="text-red-500 text-xs mt-1">{errors.resource}</p>}
+                            {errors.unit && <p className="text-red-500 text-xs mt-1">{errors.unit}</p>}
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="form-label">Unit</label>
-                                <select className={`form-input ${errors.unit ? 'border-red-500' : ''}`}
-                                    value={form.unit} onChange={e => setForm(p => ({ ...p, unit: e.target.value }))}>
-                                    {UNIT_OPTIONS.map(u => <option key={u}>{u}</option>)}
-                                </select>
-                                {errors.unit && <p className="text-red-500 text-xs mt-1">{errors.unit}</p>}
-                            </div>
-                            <div>
-                                <label className="form-label">Cost per unit (₹)</label>
-                                <input type="number" min="0" step="0.01" placeholder="0.00"
-                                    className={`form-input ${errors.costPerUnit ? 'border-red-500' : ''}`}
-                                    value={form.costPerUnit}
-                                    onChange={e => setForm(p => ({ ...p, costPerUnit: e.target.value }))} />
-                                {errors.costPerUnit && <p className="text-red-500 text-xs mt-1">{errors.costPerUnit}</p>}
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="form-label">Daily Threshold</label>
-                                <input type="number" min="0.01" placeholder="e.g. 50"
-                                    className={`form-input ${errors.dailyThreshold ? 'border-red-500' : ''}`}
-                                    value={form.dailyThreshold}
-                                    onChange={e => setForm(p => ({ ...p, dailyThreshold: e.target.value }))} />
-                                {errors.dailyThreshold && <p className="text-red-500 text-xs mt-1">{errors.dailyThreshold}</p>}
-                            </div>
-                            <div>
-                                <label className="form-label">Monthly Threshold</label>
-                                <input type="number" min="0.01" placeholder="e.g. 1500"
-                                    className={`form-input ${errors.monthlyThreshold ? 'border-red-500' : ''}`}
-                                    value={form.monthlyThreshold}
-                                    onChange={e => setForm(p => ({ ...p, monthlyThreshold: e.target.value }))} />
-                                {errors.monthlyThreshold && <p className="text-red-500 text-xs mt-1">{errors.monthlyThreshold}</p>}
-                            </div>
+                        <div>
+                            <label className="form-label">Cost per unit (₹)</label>
+                            <input type="number" min="0" step="0.01" placeholder="0.00"
+                                className={`form-input ${errors.costPerUnit ? 'border-red-500' : ''}`}
+                                value={form.costPerUnit}
+                                onChange={e => setForm(p => ({ ...p, costPerUnit: e.target.value }))} />
+                            {errors.costPerUnit && <p className="text-red-500 text-xs mt-1">{errors.costPerUnit}</p>}
                         </div>
                     </div>
-                )}
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="form-label">Daily Threshold</label>
+                            <input type="number" min="0.01" placeholder="e.g. 50"
+                                className={`form-input ${errors.dailyThreshold ? 'border-red-500' : ''}`}
+                                value={form.dailyThreshold}
+                                onChange={e => setForm(p => ({ ...p, dailyThreshold: e.target.value }))} />
+                            {errors.dailyThreshold && <p className="text-red-500 text-xs mt-1">{errors.dailyThreshold}</p>}
+                        </div>
+                        <div>
+                            <label className="form-label">Monthly Threshold</label>
+                            <input type="number" min="0.01" placeholder="e.g. 1500"
+                                className={`form-input ${errors.monthlyThreshold ? 'border-red-500' : ''}`}
+                                value={form.monthlyThreshold}
+                                onChange={e => setForm(p => ({ ...p, monthlyThreshold: e.target.value }))} />
+                            {errors.monthlyThreshold && <p className="text-red-500 text-xs mt-1">{errors.monthlyThreshold}</p>}
+                        </div>
+                    </div>
+                </div>
                 <div className="flex justify-end gap-3 mt-6">
                     <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
-                    {available.length > 0 && (
-                        <Button variant="primary" onClick={handleSubmit} disabled={saving}>
-                            {saving ? <RefreshCw size={14} className="animate-spin mr-1" /> : <Plus size={14} className="mr-1" />}
-                            {saving ? 'Creating…' : 'Create'}
-                        </Button>
-                    )}
+                    <Button variant="primary" onClick={handleSubmit} disabled={saving}>
+                        {saving ? <RefreshCw size={14} className="animate-spin mr-1" /> : <Plus size={14} className="mr-1" />}
+                        {saving ? 'Creating…' : 'Create'}
+                    </Button>
                 </div>
             </div>
         </div>
@@ -619,7 +613,7 @@ function AddResourceModal({ isOpen, onClose, existingResources, onSave }) {
 
 /* ─── Main Page ──────────────────────────────────────────────────────────────── */
 export default function ResourceConfig() {
-    const { user } = useContext(AuthContext);
+    const { user } = useAuth();
     const { addToast } = useToast();
 
     const [configs, setConfigs] = useState([]);
@@ -632,8 +626,11 @@ export default function ResourceConfig() {
     const [showBlockOverrides, setShowBlockOverrides] = useState(false);
 
     const isAdmin = user?.role === ROLES.ADMIN;
+    const isGM = user?.role === ROLES.GM;
+    // GM is view-only here (no create/edit/toggle/delete resource actions).
+    const canManageResources = [ROLES.ADMIN].includes(user?.role);
     const isWarden = user?.role === ROLES.WARDEN;
-    const canView = isAdmin || isWarden;
+    const canView = canManageResources || isGM || isWarden;
 
     const { sortedData: sortedConfigs, sortField, sortDirection, handleSort } = useSortableTable(
         configs,
@@ -670,7 +667,7 @@ export default function ResourceConfig() {
                 </div>
                 <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Access Denied</h2>
                 <p style={{ color: 'var(--text-secondary)' }}>
-                    Only Administrators can access Resource Configuration.
+                    Only Administrators and GMs can access Resource Configuration.
                     Your role ({user?.role || 'unknown'}) does not have access.
                 </p>
             </div>
@@ -776,7 +773,7 @@ export default function ResourceConfig() {
                         Manage thresholds, cost rates, and block-level overrides for all monitored resources
                     </p>
                 </div>
-                {isAdmin && (
+                {canManageResources && (
                     <div className="flex gap-2 flex-shrink-0">
                         <Button variant="secondary" onClick={() => setShowOverrideModal(true)}>
                             <Building2 size={16} className="mr-2" /> Block Override
@@ -797,7 +794,7 @@ export default function ResourceConfig() {
             </div>
 
             {/* ── Warden note ───────────────────────────────────────────── */}
-            {isWarden && !isAdmin && (
+            {isWarden && !canManageResources && (
                 <div className="flex items-start gap-3 rounded-lg p-4 border"
                     style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-secondary)' }}>
                     <AlertTriangle size={18} className="text-amber-500 mt-0.5 flex-shrink-0" />
@@ -810,10 +807,10 @@ export default function ResourceConfig() {
             {/* ── Configs Table ─────────────────────────────────────────── */}
             <Card
                 title="Resource Settings"
-                description={isAdmin ? 'Click Edit on any row to modify thresholds and cost rates inline.' : 'Read-only view of all resource configurations.'}
+                description={canManageResources ? 'Click Edit on any row to modify thresholds and cost rates inline.' : 'Read-only view of all resource configurations.'}
             >
                 {/* Edit mode hint */}
-                {isAdmin && !loading && configs.length > 0 && (
+                {canManageResources && !loading && configs.length > 0 && (
                     <div
                         className="flex items-center gap-2 mb-4 rounded-lg px-3 py-2 text-xs"
                         style={{ backgroundColor: 'var(--color-primary)' + '10', color: 'var(--color-primary)', border: '1px solid var(--color-primary)' + '30' }}
@@ -867,7 +864,7 @@ export default function ResourceConfig() {
                                         <td colSpan="8" className="py-10">
                                             <EmptyState
                                                 title="No resource configurations"
-                                                description={isAdmin
+                                                description={canManageResources
                                                     ? "Click 'Add Resource' to create the first configuration."
                                                     : "No configurations have been set up yet."}
                                             />
@@ -878,7 +875,7 @@ export default function ResourceConfig() {
                                         <ResourceRow
                                             key={config.resource}
                                             config={config}
-                                            isAdmin={isAdmin}
+                                            isAdmin={canManageResources}
                                             onSave={handleSaveResource}
                                             onToggle={handleToggle}
                                             onDelete={handleDeleteResource}
@@ -903,7 +900,7 @@ export default function ResourceConfig() {
                                     <th>Monthly Override</th>
                                     <th>Global Default (Daily)</th>
                                     <th>Type</th>
-                                    {isAdmin && <th>Actions</th>}
+                                    {canManageResources && <th>Actions</th>}
                                 </tr>
                             </thead>
                             <tbody>
@@ -934,7 +931,7 @@ export default function ResourceConfig() {
                                                 {fmtQty(config.dailyThreshold, config.unit)}
                                             </td>
                                             <td><Badge variant="warning">Override</Badge></td>
-                                            {isAdmin && (
+                                            {canManageResources && (
                                                 <td>
                                                     <button
                                                         onClick={() => handleDeleteOverride(config.resource, blockId, ov.blockName || blockId)}
@@ -990,9 +987,9 @@ export default function ResourceConfig() {
                 onConfirm={confirmDelete}
                 title={deleteTarget?.type === 'resource' ? 'Delete Resource' : 'Remove Block Override'}
                 message={deleteTarget?.type === 'resource'
-                    ? `Are you sure you want to delete the configuration for ${deleteTarget.resource}? This will remove all threshold settings and historical overrides for this resource.`
+                    ? `This will permanently delete this resource from the system.`
                     : `Are you sure you want to remove the override for ${deleteTarget?.resource} on ${deleteTarget?.blockName}? This block will revert to using the global threshold settings.`}
-                confirmText="Delete"
+                confirmText={deleteTarget?.type === 'resource' ? "Delete Permanently" : "Remove Override"}
                 type="danger"
             />
         </div>

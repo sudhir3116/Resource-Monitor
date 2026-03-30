@@ -1,17 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../services/api'
 
-const DEFAULT_RESOURCES = [
-    { name: 'Electricity', unit: 'kWh', color: '#F59E0B', icon: '⚡', isActive: true },
-    { name: 'Water', unit: 'Liters', color: '#3B82F6', icon: '💧', isActive: true },
-    { name: 'LPG', unit: 'kg', color: '#EF4444', icon: '🔥', isActive: true },
-    { name: 'Diesel', unit: 'Liters', color: '#8B5CF6', icon: '⛽', isActive: true },
-    { name: 'Solar', unit: 'kWh', color: '#10B981', icon: '☀️', isActive: true },
-    { name: 'Waste', unit: 'kg', color: '#6B7280', icon: '♻️', isActive: true },
-]
-
-// Global cache shared across all hook instances
-let globalResources = DEFAULT_RESOURCES
+// Global cache shared across all hook instances.
+// Important: we intentionally start empty and do NOT fall back to hardcoded
+// defaults when the backend has no active resources.
+let globalResources = []
 let globalListeners = []
 let lastFetch = 0
 const CACHE_TTL = 30000 // 30 seconds
@@ -23,23 +16,33 @@ const notifyListeners = (resources) => {
 
 const fetchFromAPI = async () => {
     try {
-        const res = await api.get('/api/resource-config')
+        const res = await api.get('/api/config/thresholds')
         const raw = res.data?.data || res.data?.resources || []
         const active = Array.isArray(raw) ? raw.filter(r => r.isActive !== false) : []
-        if (active.length > 0) {
-            lastFetch = Date.now()
-            notifyListeners(active)
-            return active
-        }
+        lastFetch = Date.now()
+
+        // Map the resource configs into the shape expected by the UI.
+        // If there are no active resources, propagate an empty array.
+        const mapped = (Array.isArray(active) ? active : []).map(r => ({
+            name: r.resource || r.name,
+            unit: r.unit || 'units',
+            color: r.color || '#64748b',
+            icon: r.icon || '📊',
+            isActive: r.isActive
+        }))
+
+        notifyListeners(mapped)
+        return mapped
     } catch (e) {
-        // Keep existing on error
+        console.error('Failed fetching dynamic resources:', e.message);
+        // Keep existing on error (typically empty on fresh sessions)
     }
     return globalResources
 }
 
 export const useResources = () => {
     const [resources, setResources] = useState(globalResources)
-    const [loading, setLoading] = useState(globalResources === DEFAULT_RESOURCES)
+    const [loading, setLoading] = useState(true)
 
     useEffect(() => {
         // Register this instance as a listener

@@ -5,13 +5,14 @@ import { AuthContext } from '../../context/AuthContext';
 import {
     Zap, Droplets, Flame, Wind, Sun, Trash2,
     RefreshCw, TrendingUp, TrendingDown,
-    PieChart as PieChartIcon, Activity, Bell
+    PieChart as PieChartIcon, Activity, Bell, History
 } from 'lucide-react';
 import Card, { MetricCard } from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { logger } from '../../utils/logger';
+import { getSocket } from '../../utils/socket';
 
 const GMDashboard = () => {
     const { user } = useContext(AuthContext);
@@ -20,22 +21,43 @@ const GMDashboard = () => {
     const [trendData, setTrendData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [activeAlerts, setActiveAlerts] = useState(0);
+    const [recentActivity, setRecentActivity] = useState(0);
+    const [recentAlerts, setRecentAlerts] = useState([]);
+    const [recentComplaints, setRecentComplaints] = useState([]);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            const [summaryRes, trendRes] = await Promise.all([
+            const [summaryRes, trendRes, alertCountRes, recentAlertsRes, recentComplaintsRes] = await Promise.all([
                 api.get('/api/usage/summary'),
-                api.get('/api/usage/trends?range=7d')
+                api.get('/api/usage/trends?range=7d'),
+                api.get('/api/alerts/count'),
+                api.get('/api/alerts?limit=5'),
+                api.get('/api/complaints?page=1&limit=5')
             ]);
 
-            if (summaryRes.data?.success) {
-                setSummaryData(summaryRes.data.data);
-            }
-            if (trendRes.data?.success) {
-                setTrendData(trendRes.data.data || []);
-            }
+            if (summaryRes.data?.success) setSummaryData(summaryRes.data.data);
+            else setSummaryData(summaryRes.data?.data || {});
+
+            if (trendRes.data?.success) setTrendData(trendRes.data.data || []);
+            else setTrendData(trendRes.data?.data || []);
+
+            const counts = alertCountRes.data?.counts || {};
+            const pending = counts.pending ?? 0;
+            const investigating = counts.investigating ?? 0;
+            const escalated = counts.escalated ?? 0;
+            setActiveAlerts(pending + investigating + escalated);
+
+            const alertsArr = recentAlertsRes.data?.alerts || recentAlertsRes.data?.data || [];
+            const complaintsArr = recentComplaintsRes.data?.data || [];
+            setRecentAlerts(Array.isArray(alertsArr) ? alertsArr : []);
+            setRecentComplaints(Array.isArray(complaintsArr) ? complaintsArr : []);
+            setRecentActivity(
+                (Array.isArray(alertsArr) ? alertsArr.length : 0) +
+                (Array.isArray(complaintsArr) ? complaintsArr.length : 0)
+            );
         } catch (err) {
             logger.error('GM Dashboard Data Fetch Failed:', err);
             setError('Failed to load dashboard data. Please try again.');
@@ -46,6 +68,24 @@ const GMDashboard = () => {
 
     useEffect(() => {
         fetchData();
+    }, [fetchData]);
+
+    // Real-time updates: usage/alerts affect dashboard KPIs and charts.
+    useEffect(() => {
+        const socket = getSocket();
+        if (!socket) return;
+
+        socket.on('usage:refresh', fetchData);
+        socket.on('alerts:refresh', fetchData);
+        socket.on('dashboard:refresh', fetchData);
+        socket.on('resources:refresh', fetchData);
+
+        return () => {
+            socket.off('usage:refresh', fetchData);
+            socket.off('alerts:refresh', fetchData);
+            socket.off('dashboard:refresh', fetchData);
+            socket.off('resources:refresh', fetchData);
+        };
     }, [fetchData]);
 
     if (loading && !summaryData) {
@@ -72,12 +112,12 @@ const GMDashboard = () => {
 
     const totals = summaryData?.totals || {};
     const summary = summaryData?.summary || {};
-    const alertsCount = summaryData?.alertsCount || 0;
+    const grandTotal = summaryData?.grandTotal || 0;
 
     const getMetricData = (name) => {
         const data = summary[name] || {};
         return {
-            value: data.total > 0 ? `${data.total.toLocaleString()} ${data.unit}` : 'No data disponible',
+            value: data.total > 0 ? `${data.total.toLocaleString()} ${data.unit}` : 'No data',
             color: data.color || '#64748b',
             icon: name === 'Electricity' ? <Zap /> :
                 name === 'Water' ? <Droplets /> :
@@ -89,7 +129,7 @@ const GMDashboard = () => {
 
     const distributionData = Object.entries(summary)
         .map(([name, data]) => ({ name, value: data.total }))
-        .filter(d => d.value > 0);
+        .filter(d => typeof d.value === 'number' && d.value > 0);
 
     return (
         <div className="p-6 space-y-8 max-w-7xl mx-auto">
@@ -106,13 +146,32 @@ const GMDashboard = () => {
                     <Button variant="secondary" size="sm" onClick={() => navigate('/gm/usage')}>
                         View Detailed Usage &rarr;
                     </Button>
-                    <Badge variant={alertsCount > 0 ? "danger" : "success"} className="px-4 py-1 flex items-center gap-2">
-                        <Bell size={14} /> {alertsCount} Active Alerts
+                    <Badge variant={activeAlerts > 0 ? "danger" : "success"} className="px-4 py-1 flex items-center gap-2">
+                        <Bell size={14} /> {activeAlerts} Active Alerts
                     </Badge>
                     <Button variant="secondary" size="sm" onClick={fetchData}>
                         <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
                     </Button>
                 </div>
+            </div>
+
+            {/* KPI row */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <MetricCard
+                    icon={<Activity size={16} />}
+                    label="Total Usage"
+                    value={grandTotal > 0 ? grandTotal.toLocaleString() : 'No data'}
+                />
+                <MetricCard
+                    icon={<Bell size={16} />}
+                    label="Active Alerts"
+                    value={activeAlerts}
+                />
+                <MetricCard
+                    icon={<History size={16} />}
+                    label="Recent Activity"
+                    value={recentActivity}
+                />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
