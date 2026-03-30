@@ -61,12 +61,9 @@ export default function UsageList() {
   const navigate = useNavigate();
 
   const canEdit = user && [ROLES.ADMIN, ROLES.WARDEN].includes(user.role);
-  // Only Admin can delete usage records (Wardens/GM are view-only here)
   const canDelete = user && [ROLES.ADMIN].includes(user.role);
   const showActions = canEdit || canDelete;
-  const isWarden = user?.role === ROLES.WARDEN;
   const isExecutive = user && [ROLES.DEAN, ROLES.ADMIN, ROLES.GM].includes(user.role);
-  // Show block filter only to roles that can see all blocks (not warden — backend already scopes)
   const showBlockFilter = isExecutive;
 
   useEffect(() => {
@@ -78,7 +75,6 @@ export default function UsageList() {
         ]);
         setDynamicResources(configRes.data.data || []);
 
-        // Fetch blocks for Dean/Admin/GM block filter (NOT warden — they're scoped server-side)
         if (showBlockFilter) {
           const blockRes = await api.get('/api/admin/blocks').catch(() => ({ data: { data: [] } }));
           setBlocks(blockRes.data.data || []);
@@ -95,20 +91,24 @@ export default function UsageList() {
     init();
 
     const socket = getSocket();
+    const refresh = () => load();
+
     if (socket) {
-      socket.on('usage:refresh', load);
-      socket.on('usage:new', load);
+      socket.on('usage:refresh', refresh);
+      socket.on('usage:added', refresh);
     }
+
+    window.addEventListener('usage:added', refresh);
 
     return () => {
       if (socket) {
-        socket.off('usage:refresh', load);
-        socket.off('usage:new', load);
+        socket.off('usage:refresh', refresh);
+        socket.off('usage:added', refresh);
       }
+      window.removeEventListener('usage:added', refresh);
     };
   }, []);
 
-  // Re-fetch when filters change
   useEffect(() => {
     load();
   }, [resourceFilter, blockFilter, startDate, endDate, sortMode]);
@@ -129,7 +129,6 @@ export default function UsageList() {
         params.set('endDate', endDate);
       }
 
-      // Map frontend sort modes to backend expectations
       if (sortMode === 'highest_consumption') {
         params.set('sort', '-usage_value');
       } else if (sortMode === 'oldest') {
@@ -263,14 +262,10 @@ export default function UsageList() {
               ×
             </button>
           </span>
-          <span className="text-xs text-gray-400">
-            (click × to show all resources)
-          </span>
         </div>
       )}
       <Card>
         <div className="flex flex-col gap-3">
-          {/* Row 1: Search + Resource (always visible) */}
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
@@ -294,13 +289,11 @@ export default function UsageList() {
             </select>
           </div>
 
-          {/* Row 2: Executive-only filters (Dean / Admin / GM, NOT warden) */}
           {showBlockFilter && (
             <div className="flex flex-col md:flex-row gap-3 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
               <div className="flex items-center gap-1 text-xs font-medium" style={{ color: 'var(--text-secondary)', minWidth: 70 }}>
                 <Filter size={13} /> Filters
               </div>
-              {/* Block filter */}
               <select
                 className="input text-sm"
                 style={{ minWidth: 150 }}
@@ -313,23 +306,19 @@ export default function UsageList() {
                 ))}
               </select>
 
-              {/* Date range */}
               <input
                 type="date"
                 className="input text-sm"
                 value={startDate}
                 onChange={e => setStartDate(e.target.value)}
-                title="Start date"
               />
               <input
                 type="date"
                 className="input text-sm"
                 value={endDate}
                 onChange={e => setEndDate(e.target.value)}
-                title="End date"
               />
 
-              {/* Sort */}
               <select
                 className="input text-sm"
                 style={{ minWidth: 180 }}
@@ -342,7 +331,6 @@ export default function UsageList() {
                 <option value="block_name">Sort: Block Name</option>
               </select>
 
-              {/* Clear filters */}
               {(blockFilter || startDate || endDate) && (
                 <Button
                   variant="secondary"
@@ -357,7 +345,6 @@ export default function UsageList() {
         </div>
       </Card>
 
-      {/* Table */}
       <Card>
         {loading ? (
           <TableSkeleton rows={5} columns={5} />
@@ -368,69 +355,58 @@ export default function UsageList() {
             <table className="table">
               <thead>
                 <tr>
-                  <th onClick={() => handleSort('resource_type')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'resource_type' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                  <th onClick={() => handleSort('resource_type')} className={`cursor-pointer ${sortField === 'resource_type' ? 'text-blue-600' : ''}`}>
                     Resource <SortIcon field="resource_type" sortField={sortField} sortDirection={sortDirection} />
                   </th>
-                  <th onClick={() => handleSort('blockId.name')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'blockId.name' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                  <th onClick={() => handleSort('blockId.name')} className={`cursor-pointer ${sortField === 'blockId.name' ? 'text-blue-600' : ''}`}>
                     Location <SortIcon field="blockId.name" sortField={sortField} sortDirection={sortDirection} />
                   </th>
-                  <th onClick={() => handleSort('usage_value')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'usage_value' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                  <th onClick={() => handleSort('usage_value')} className={`cursor-pointer ${sortField === 'usage_value' ? 'text-blue-600' : ''}`}>
                     Value <SortIcon field="usage_value" sortField={sortField} sortDirection={sortDirection} />
                   </th>
-                  <th onClick={() => handleSort('usage_date')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'usage_date' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                  <th onClick={() => handleSort('usage_date')} className={`cursor-pointer ${sortField === 'usage_date' ? 'text-blue-600' : ''}`}>
                     Date <SortIcon field="usage_date" sortField={sortField} sortDirection={sortDirection} />
                   </th>
-                  <th onClick={() => handleSort('createdBy.name')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'createdBy.name' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                  <th onClick={() => handleSort('createdBy.name')} className={`cursor-pointer ${sortField === 'createdBy.name' ? 'text-blue-600' : ''}`}>
                     Logged By <SortIcon field="createdBy.name" sortField={sortField} sortDirection={sortDirection} />
                   </th>
                   {showActions && <th className="text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody>
-                {finalUsages.map(u => (
-                  <tr key={u._id}>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        {getResourceIcon(u.resource_type)}
-                        <span className="font-medium">{u.resource_type}</span>
-                      </div>
-                    </td>
-                    <td className="text-sm font-medium">{u.blockId?.name || '-'}</td>
-                    <td>
-                      <span className="font-bold">{u.usage_value}</span>
-                      <span className="text-xs text-slate-500 ml-1">{u.unit || 'units'}</span>
-                    </td>
-                    <td>{timeAgo(u.usage_date)}</td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <div className="h-6 w-6 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-[10px] font-bold text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
-                          {u.createdBy?.name?.charAt(0) || '?'}
-                        </div>
-                        <span className="text-sm font-medium">{u.createdBy?.name || 'System'}</span>
-                      </div>
-                    </td>
-                    {showActions && (
-                      <td className="text-right">
-                        <div className="flex justify-end gap-2">
-                          {canEdit && (
-                            <Button size="sm" variant="secondary" onClick={() => navigate(
-                              user?.role === 'warden' ? `/warden/usage/${u._id}/edit`
-                                : user?.role === 'admin' ? `/admin/usage/${u._id}/edit`
-                                  : `/usage/${u._id}/edit`
-                            )}>
-                              <Edit2 size={14} />
-                            </Button>
-                          )}
-                          {canDelete && (
-                            <Button size="sm" variant="danger" onClick={() => confirmDelete(u)}>
-                              <Trash2 size={14} />
-                            </Button>
-                          )}
-                        </div>
+                {finalUsages.map(u => {
+                  const resName = u.resource_type;
+                  const resUnit = u.unit || 'units';
+                  const resValue = u.usage_value ?? 0;
+
+                  return (
+                    <tr key={u._id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="py-4 font-bold">{resName}</td>
+                      <td className="py-4">{u.blockId?.name || 'N/A'}</td>
+                      <td className="py-4">
+                        {resValue.toLocaleString()} <span className="text-[10px] text-slate-400">{resUnit}</span>
                       </td>
-                    )}
-                  </tr>
-                ))}
+                      <td>{timeAgo(u.usage_date)}</td>
+                      <td>{u.createdBy?.name || 'System'}</td>
+                      {showActions && (
+                        <td className="text-right">
+                          <div className="flex justify-end gap-2">
+                            {canEdit && (
+                              <Button size="sm" variant="secondary" onClick={() => navigate(`/usage/${u._id}/edit`)}>
+                                <Edit2 size={14} />
+                              </Button>
+                            )}
+                            {canDelete && (
+                              <Button size="sm" variant="danger" onClick={() => confirmDelete(u)}>
+                                <Trash2 size={14} />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -443,10 +419,9 @@ export default function UsageList() {
         onConfirm={handleDelete}
         title="Delete Usage Record"
         message={deleteItem
-          ? `Are you sure you want to delete the ${deleteItem.resource_type} usage record of ${deleteItem.usage_value} units recorded on ${new Date(deleteItem.usage_date).toLocaleDateString()}?\n\nThis action cannot be undone.`
+          ? `Are you sure you want to delete the ${deleteItem.resource_type} usage record of ${deleteItem.usage_value} units recorded on ${new Date(deleteItem.usage_date).toLocaleDateString()}?`
           : "Are you sure you want to delete this record?"}
       />
     </div>
   );
 }
-

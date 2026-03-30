@@ -1,6 +1,8 @@
 import React from 'react'
+import { useResources } from '../hooks/useResources'
 
 export default function UsageFilter({ filters, onFilterChange }) {
+    const { resources } = useResources()
     // Fallback to empty object if filters prop is missing
     const currentFilters = filters || {
         resource: '',
@@ -24,12 +26,11 @@ export default function UsageFilter({ filters, onFilterChange }) {
                 <label>Resource</label>
                 <select name="resource" value={currentFilters.resource || ''} onChange={handleChange}>
                     <option value="">All Resources</option>
-                    <option value="Electricity">⚡ Electricity</option>
-                    <option value="Water">💧 Water</option>
-                    <option value="Solar">☀️ Solar</option>
-                    <option value="LPG">🔥 LPG</option>
-                    <option value="Diesel">🛢 Diesel</option>
-                    <option value="Waste">♻ Waste</option>
+                    {(Array.isArray(resources) ? resources : []).map(r => (
+                        <option key={r?._id || r?.name} value={r?.name || ''}>
+                            {r?.icon ? `${r.icon} ` : ''}{r?.name || 'Unknown'}
+                        </option>
+                    ))}
                 </select>
             </div>
 

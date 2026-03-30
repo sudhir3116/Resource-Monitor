@@ -128,27 +128,35 @@ export default function AdminDashboard() {
     useEffect(() => {
         fetchData();
         const socket = getSocket();
+        const refresh = () => fetchData();
+
         if (socket) {
-            socket.on('dashboard:refresh', fetchData);
-            socket.on('users:refresh', fetchData);
-            socket.on('alerts:refresh', fetchData);
-            socket.on('resources:refresh', fetchData);
-            socket.on('dashboard:alert_created', fetchData);
-            socket.on('dashboard:alert_resolved', fetchData);
-            socket.on('dashboard:complaint_added', fetchData);
-            socket.on('complaints:refresh', fetchData);
+            socket.on('dashboard:refresh', refresh);
+            socket.on('users:refresh', refresh);
+            socket.on('alerts:refresh', refresh);
+            socket.on('resources:refresh', refresh);
+            socket.on('usage:added', refresh);
+            socket.on('dashboard:alert_created', refresh);
+            socket.on('dashboard:alert_resolved', refresh);
+            socket.on('dashboard:complaint_added', refresh);
+            socket.on('complaints:refresh', refresh);
         }
+
+        window.addEventListener('usage:added', refresh);
+
         return () => {
             if (socket) {
-                socket.off('dashboard:refresh', fetchData);
-                socket.off('users:refresh', fetchData);
-                socket.off('alerts:refresh', fetchData);
-                socket.off('resources:refresh', fetchData);
-                socket.off('dashboard:alert_created', fetchData);
-                socket.off('dashboard:alert_resolved', fetchData);
-                socket.off('dashboard:complaint_added', fetchData);
-                socket.off('complaints:refresh', fetchData);
+                socket.off('dashboard:refresh', refresh);
+                socket.off('users:refresh', refresh);
+                socket.off('alerts:refresh', refresh);
+                socket.off('resources:refresh', refresh);
+                socket.off('usage:added', refresh);
+                socket.off('dashboard:alert_created', refresh);
+                socket.off('dashboard:alert_resolved', refresh);
+                socket.off('dashboard:complaint_added', refresh);
+                socket.off('complaints:refresh', refresh);
             }
+            window.removeEventListener('usage:added', refresh);
         };
     }, [fetchData]);
 

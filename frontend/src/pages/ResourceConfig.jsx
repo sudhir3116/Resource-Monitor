@@ -31,7 +31,6 @@ const RESOURCE_META = {
     Waste: { icon: <Trash2 size={16} />, color: '#f43f5e', bg: 'rgba(244,63,94,0.12)' },
 };
 
-const ALL_RESOURCES = ['Electricity', 'Water', 'LPG', 'Diesel', 'Solar', 'Waste'];
 const UNIT_OPTIONS = ['kWh', 'Liters', 'kg', 'units', 'meals', 'cubic meters'];
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────────── */
@@ -437,51 +436,54 @@ function BlockOverrideModal({ isOpen, onClose, resources, blocks, onSave }) {
                     </h3>
                     <button onClick={onClose} className="p-1 rounded" style={{ color: 'var(--text-secondary)' }}><X size={18} /></button>
                 </div>
-                <div className="space-y-4">
+                <div className="space-y-5">
                     <div>
-                        <label className="form-label">Resource</label>
-                        <select className={`form-input ${errors.resource ? 'border-red-500' : ''}`}
+                        <label className="form-label">Target Resource</label>
+                        <select className={`form-input h-12 ${errors.resource ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
                             value={form.resource} onChange={e => setForm(p => ({ ...p, resource: e.target.value }))}>
                             <option value="">Select resource…</option>
                             {resources.map(r => <option key={r.resource} value={r.resource}>{r.resource}</option>)}
                         </select>
-                        {errors.resource && <p className="text-red-500 text-xs mt-1">{errors.resource}</p>}
+                        {errors.resource && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.resource}</p>}
                     </div>
                     <div>
-                        <label className="form-label">Block</label>
-                        <select className={`form-input ${errors.blockId ? 'border-red-500' : ''}`}
-                            value={form.blockId} onChange={e => setForm(p => ({ ...p, blockId: e.target.value }))}>
-                            <option value="">Select block…</option>
-                            {blocks.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
-                        </select>
-                        {errors.blockId && <p className="text-red-500 text-xs mt-1">{errors.blockId}</p>}
+                        <label className="form-label">Target Block</label>
+                        <div className="relative">
+                            <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                            <select className={`form-input pl-10 h-12 ${errors.blockId ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
+                                value={form.blockId} onChange={e => setForm(p => ({ ...p, blockId: e.target.value }))}>
+                                <option value="">Select block…</option>
+                                {blocks.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
+                            </select>
+                        </div>
+                        {errors.blockId && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.blockId}</p>}
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="form-label">Daily Override</label>
-                            <input type="number" min="0" placeholder="Leave blank = inherit"
-                                className={`form-input ${errors.dailyThreshold ? 'border-red-500' : ''}`}
+                            <input type="number" min="0" placeholder="Inherit global"
+                                className={`form-input h-12 ${errors.dailyThreshold ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
                                 value={form.dailyThreshold}
                                 onChange={e => setForm(p => ({ ...p, dailyThreshold: e.target.value }))} />
-                            {errors.dailyThreshold && <p className="text-red-500 text-xs mt-1">{errors.dailyThreshold}</p>}
+                            {errors.dailyThreshold && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.dailyThreshold}</p>}
                         </div>
                         <div>
                             <label className="form-label">Monthly Override</label>
-                            <input type="number" min="0" placeholder="Leave blank = inherit"
-                                className={`form-input ${errors.monthlyThreshold ? 'border-red-500' : ''}`}
+                            <input type="number" min="0" placeholder="Inherit global"
+                                className={`form-input h-12 ${errors.monthlyThreshold ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
                                 value={form.monthlyThreshold}
                                 onChange={e => setForm(p => ({ ...p, monthlyThreshold: e.target.value }))} />
-                            {errors.monthlyThreshold && <p className="text-red-500 text-xs mt-1">{errors.monthlyThreshold}</p>}
+                            {errors.monthlyThreshold && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.monthlyThreshold}</p>}
                         </div>
                     </div>
-                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        Leave blank to inherit the global threshold for that resource.
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-dashed border-slate-200 dark:border-slate-800">
+                        Notice: Leave blank to inherit the global threshold for that resource.
                     </p>
                 </div>
-                <div className="flex justify-end gap-3 mt-6">
-                    <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
-                    <Button variant="primary" onClick={handleSubmit} disabled={saving}>
-                        {saving ? <RefreshCw size={14} className="animate-spin mr-1" /> : <Save size={14} className="mr-1" />}
+                <div className="flex items-center justify-end gap-3 mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
+                    <Button variant="secondary" onClick={onClose} disabled={saving} className="px-6">Cancel</Button>
+                    <Button variant="primary" onClick={handleSubmit} disabled={saving} className="px-8 h-12 shadow-lg shadow-blue-500/20">
+                        {saving ? <RefreshCw size={14} className="animate-spin mr-2" /> : <Save size={14} className="mr-2" />}
                         {saving ? 'Saving…' : 'Set Override'}
                     </Button>
                 </div>
@@ -550,60 +552,72 @@ function AddResourceModal({ isOpen, onClose, existingResources, onSave }) {
                     </h3>
                     <button onClick={onClose} className="p-1 rounded" style={{ color: 'var(--text-secondary)' }}><X size={18} /></button>
                 </div>
-                <div className="space-y-4">
+                <div className="space-y-5">
                     <div>
-                        <label className="form-label">Resource Name</label>
-                        <input
-                            type="text"
-                            className={`form-input ${errors.resource ? 'border-red-500' : ''}`}
-                            placeholder="e.g. Natural Gas"
-                            value={form.resource}
-                            onChange={e => setForm(p => ({ ...p, resource: e.target.value }))}
-                        />
-                        {errors.resource && <p className="text-red-500 text-xs mt-1">{errors.resource}</p>}
+                        <label className="form-label">Global Resource Name</label>
+                        <div className="relative">
+                            <Activity className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                            <input
+                                type="text"
+                                className={`form-input pl-10 h-12 ${errors.resource ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
+                                placeholder="e.g. Natural Gas"
+                                value={form.resource}
+                                onChange={e => setForm(p => ({ ...p, resource: e.target.value }))}
+                            />
+                        </div>
+                        {errors.resource && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.resource}</p>}
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="form-label">Unit</label>
-                            <select className={`form-input ${errors.unit ? 'border-red-500' : ''}`}
+                            <label className="form-label">Measurement Unit</label>
+                            <select className={`form-input h-12 ${errors.unit ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
                                 value={form.unit} onChange={e => setForm(p => ({ ...p, unit: e.target.value }))}>
                                 {UNIT_OPTIONS.map(u => <option key={u}>{u}</option>)}
                             </select>
-                            {errors.unit && <p className="text-red-500 text-xs mt-1">{errors.unit}</p>}
+                            {errors.unit && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.unit}</p>}
                         </div>
                         <div>
-                            <label className="form-label">Cost per unit (₹)</label>
-                            <input type="number" min="0" step="0.01" placeholder="0.00"
-                                className={`form-input ${errors.costPerUnit ? 'border-red-500' : ''}`}
-                                value={form.costPerUnit}
-                                onChange={e => setForm(p => ({ ...p, costPerUnit: e.target.value }))} />
-                            {errors.costPerUnit && <p className="text-red-500 text-xs mt-1">{errors.costPerUnit}</p>}
+                            <label className="form-label">Rate (₹ / Unit)</label>
+                            <div className="relative">
+                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                <input type="number" min="0" step="0.01" placeholder="0.00"
+                                    className={`form-input pl-10 h-12 ${errors.costPerUnit ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
+                                    value={form.costPerUnit}
+                                    onChange={e => setForm(p => ({ ...p, costPerUnit: e.target.value }))} />
+                            </div>
+                            {errors.costPerUnit && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.costPerUnit}</p>}
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="form-label">Daily Threshold</label>
-                            <input type="number" min="0.01" placeholder="e.g. 50"
-                                className={`form-input ${errors.dailyThreshold ? 'border-red-500' : ''}`}
-                                value={form.dailyThreshold}
-                                onChange={e => setForm(p => ({ ...p, dailyThreshold: e.target.value }))} />
-                            {errors.dailyThreshold && <p className="text-red-500 text-xs mt-1">{errors.dailyThreshold}</p>}
+                            <div className="relative">
+                                <TrendingUp className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                <input type="number" min="0.01" placeholder="e.g. 50"
+                                    className={`form-input pl-10 h-12 ${errors.dailyThreshold ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
+                                    value={form.dailyThreshold}
+                                    onChange={e => setForm(p => ({ ...p, dailyThreshold: e.target.value }))} />
+                            </div>
+                            {errors.dailyThreshold && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.dailyThreshold}</p>}
                         </div>
                         <div>
                             <label className="form-label">Monthly Threshold</label>
-                            <input type="number" min="0.01" placeholder="e.g. 1500"
-                                className={`form-input ${errors.monthlyThreshold ? 'border-red-500' : ''}`}
-                                value={form.monthlyThreshold}
-                                onChange={e => setForm(p => ({ ...p, monthlyThreshold: e.target.value }))} />
-                            {errors.monthlyThreshold && <p className="text-red-500 text-xs mt-1">{errors.monthlyThreshold}</p>}
+                            <div className="relative">
+                                <Activity className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                <input type="number" min="0.01" placeholder="e.g. 1500"
+                                    className={`form-input pl-10 h-12 ${errors.monthlyThreshold ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
+                                    value={form.monthlyThreshold}
+                                    onChange={e => setForm(p => ({ ...p, monthlyThreshold: e.target.value }))} />
+                            </div>
+                            {errors.monthlyThreshold && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.monthlyThreshold}</p>}
                         </div>
                     </div>
                 </div>
-                <div className="flex justify-end gap-3 mt-6">
-                    <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
-                    <Button variant="primary" onClick={handleSubmit} disabled={saving}>
-                        {saving ? <RefreshCw size={14} className="animate-spin mr-1" /> : <Plus size={14} className="mr-1" />}
-                        {saving ? 'Creating…' : 'Create'}
+                <div className="flex items-center justify-end gap-3 mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
+                    <Button variant="secondary" onClick={onClose} disabled={saving} className="px-6">Cancel</Button>
+                    <Button variant="primary" onClick={handleSubmit} disabled={saving} className="px-8 h-12 shadow-lg shadow-blue-500/20">
+                        {saving ? <RefreshCw size={14} className="animate-spin mr-2" /> : <Plus size={14} className="mr-2" />}
+                        {saving ? 'Creating…' : 'Initialize Resource'}
                     </Button>
                 </div>
             </div>
@@ -625,11 +639,11 @@ export default function ResourceConfig() {
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [showBlockOverrides, setShowBlockOverrides] = useState(false);
 
-    const isAdmin = user?.role === ROLES.ADMIN;
-    const isGM = user?.role === ROLES.GM;
+    const isAdmin = user?.role === 'admin';
+    const isGM = user?.role === 'gm';
     // GM is view-only here (no create/edit/toggle/delete resource actions).
-    const canManageResources = [ROLES.ADMIN].includes(user?.role);
-    const isWarden = user?.role === ROLES.WARDEN;
+    const canManageResources = ['admin'].includes(user?.role);
+    const isWarden = user?.role === 'warden';
     const canView = canManageResources || isGM || isWarden;
 
     const { sortedData: sortedConfigs, sortField, sortDirection, handleSort } = useSortableTable(

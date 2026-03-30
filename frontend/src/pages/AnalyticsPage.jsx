@@ -4,19 +4,12 @@ import {
     TrendingUp,
     TrendingDown,
     Calendar,
-    Zap,
-    Droplets,
-    Flame,
-    Wind,
-    Utensils,
-    Trash2,
     Activity,
     BarChart3,
     PieChart as PieIcon,
     Filter,
     RefreshCw,
     Info,
-    Sun
 } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -43,16 +36,6 @@ import { logger } from '../utils/logger';
 import { getSocket } from '../utils/socket';
 
 
-const RESOURCE_META = {
-    Electricity: { icon: <Zap size={20} />, color: '#f59e0b', bg: 'bg-amber-500/10' },
-    Water: { icon: <Droplets size={20} />, color: '#3b82f6', bg: 'bg-blue-500/10' },
-    Solar: { icon: <Sun size={20} />, color: '#eab308', bg: 'bg-yellow-500/10' },
-    LPG: { icon: <Flame size={20} />, color: '#f97316', bg: 'bg-orange-500/10' },
-    Diesel: { icon: <Wind size={20} />, color: '#64748b', bg: 'bg-slate-500/10' },
-    Food: { icon: <Utensils size={20} />, color: '#10b981', bg: 'bg-emerald-500/10' },
-    Waste: { icon: <Trash2 size={20} />, color: '#ef4444', bg: 'bg-rose-500/10' },
-};
-
 export default function AnalyticsPage() {
     const { addToast } = useToast();
     const [loading, setLoading] = useState(true);
@@ -65,15 +48,16 @@ export default function AnalyticsPage() {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const [configRes, summaryRes, trendRes, leaderboardRes] = await Promise.all([
-                api.get('/api/config/thresholds'),
+            const [resourcesRes, summaryRes, trendRes, leaderboardRes] = await Promise.all([
+                api.get('/api/resources'),
                 api.get('/api/usage/summary'),
                 api.get(`/api/usage/trends?range=${timeRange}`).catch(() => ({ data: { data: [] } })),
                 api.get('/api/analytics/leaderboard').catch(() => ({ data: { leaderboard: [] } }))
             ]);
 
-            const activeConfigs = (configRes.data.data || []).filter(c => c.isActive !== false);
-            setDynamicResources(activeConfigs);
+            const resources = resourcesRes.data?.data || resourcesRes.data?.resources || [];
+            const activeResources = (Array.isArray(resources) ? resources : []).filter(r => r?.isActive === true);
+            setDynamicResources(activeResources);
 
             const summaryDataObj = summaryRes.data?.data?.summary || {};
             const mappedSummary = Object.entries(summaryDataObj).map(([key, val]) => ({
@@ -86,18 +70,15 @@ export default function AnalyticsPage() {
             setSummaryData(mappedSummary);
             setTrendData(Array.isArray(trendRes.data?.data) ? trendRes.data.data : []);
 
-            const rawLeaderboard =
-                leaderboardRes.data?.leaderboard ||
-                leaderboardRes.data?.data?.leaderboard ||
-                [];
+            const rawLeaderboard = (leaderboardRes.data?.leaderboard ||
+                leaderboardRes.data?.data?.leaderboard || []) || [];
 
-            const mappedComparison = Array.isArray(rawLeaderboard)
-                ? rawLeaderboard.map(b => ({
-                    block: b.blockName || b.block || 'Unknown',
-                    score: Number(b.score ?? 0),
-                    efficiency: Number(b.score ?? 0),
-                }))
-                : [];
+            const mappedComparison = (Array.isArray(rawLeaderboard) ? rawLeaderboard : [])
+                .map(b => ({
+                    block: b?.blockName || b?.block || 'Unknown',
+                    score: Number(b?.score ?? 0),
+                    efficiency: Number(b?.score ?? 0),
+                })) || [];
 
             setBlockComparison(mappedComparison);
         } catch (err) {
@@ -115,18 +96,26 @@ export default function AnalyticsPage() {
     // Realtime: refresh charts when usage / alerts change.
     useEffect(() => {
         const socket = getSocket();
-        if (!socket) return;
+        const refresh = () => fetchData();
+        if (socket) {
+            socket.on('usage:refresh', refresh);
+            socket.on('alerts:refresh', refresh);
+            socket.on('dashboard:refresh', refresh);
+            socket.on('resources:refresh', refresh);
+            socket.on('usage:added', refresh);
+        }
 
-        socket.on('usage:refresh', fetchData);
-        socket.on('alerts:refresh', fetchData);
-        socket.on('dashboard:refresh', fetchData);
-        socket.on('resources:refresh', fetchData);
+        window.addEventListener('usage:added', refresh);
 
         return () => {
-            socket.off('usage:refresh', fetchData);
-            socket.off('alerts:refresh', fetchData);
-            socket.off('dashboard:refresh', fetchData);
-            socket.off('resources:refresh', fetchData);
+            if (socket) {
+                socket.off('usage:refresh', refresh);
+                socket.off('alerts:refresh', refresh);
+                socket.off('dashboard:refresh', refresh);
+                socket.off('resources:refresh', refresh);
+                socket.off('usage:added', refresh);
+            }
+            window.removeEventListener('usage:added', refresh);
         };
     }, [fetchData]);
 
@@ -161,7 +150,13 @@ export default function AnalyticsPage() {
     }, [trendSeries, safeTrendData]);
 
     const getResourceMeta = (type) => {
-        return RESOURCE_META[type] || { icon: <Activity size={20} />, color: '#64748b', bg: 'bg-slate-500/10' };
+        const match = (Array.isArray(resourcesForCharts) ? resourcesForCharts : [])
+            .find(r => (r?.name || r?.resource) === type);
+        return {
+            icon: match?.icon || '📊',
+            color: match?.color || '#64748b',
+            bg: 'bg-slate-500/10'
+        };
     };
 
     const getScoreColor = (score) => {
@@ -210,7 +205,7 @@ export default function AnalyticsPage() {
                     return (
                         <Card key={res._id || res.name} className="relative overflow-hidden group">
                             <div className={`absolute top-0 right-0 p-3 ${meta.bg} rounded-bl-3xl opacity-50 group-hover:scale-110 transition-transform`}>
-                                {meta.icon}
+                                <span className="text-lg">{meta.icon || '📊'}</span>
                             </div>
                             <div className="space-y-1">
                                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{resName}</span>

@@ -18,10 +18,10 @@ const VALID_TRANSITIONS = {
 };
 
 // Role permission sets
-const CAN_RESOLVE = [ROLES.ADMIN, ROLES.WARDEN];
-const CAN_REVIEW = [ROLES.ADMIN, ROLES.WARDEN];
-const CAN_ESCALATE = [ROLES.DEAN, ROLES.ADMIN];
-const CAN_SEE_ALL = [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN];
+const CAN_RESOLVE = [ROLES.ADMIN, ROLES.WARDEN, ROLES.GM];
+const CAN_REVIEW = [ROLES.ADMIN, ROLES.WARDEN, ROLES.GM];
+const CAN_ESCALATE = [ROLES.ADMIN, ROLES.GM];
+const CAN_SEE_ALL = [ROLES.ADMIN, ROLES.WARDEN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL];
 
 /**
  * Notify connected clients that complaint lists/stats must refresh.
@@ -296,7 +296,7 @@ const escalateComplaint = async (req, res) => {
         if (!CAN_ESCALATE.includes(req.user.role)) {
             return res.status(403).json({
                 success: false,
-                error: `Access denied. Only Dean, Principal, and Admin can escalate complaints. Your role: '${req.user.role}'`
+                error: `Access denied. Only Admin/GM can escalate complaints. Your role: '${req.user.role}'`
             });
         }
 

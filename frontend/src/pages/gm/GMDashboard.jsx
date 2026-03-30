@@ -73,18 +73,24 @@ const GMDashboard = () => {
     // Real-time updates: usage/alerts affect dashboard KPIs and charts.
     useEffect(() => {
         const socket = getSocket();
+        const refresh = () => fetchData();
         if (!socket) return;
 
-        socket.on('usage:refresh', fetchData);
-        socket.on('alerts:refresh', fetchData);
-        socket.on('dashboard:refresh', fetchData);
-        socket.on('resources:refresh', fetchData);
+        socket.on('usage:refresh', refresh);
+        socket.on('alerts:refresh', refresh);
+        socket.on('dashboard:refresh', refresh);
+        socket.on('resources:refresh', refresh);
+        socket.on('usage:added', refresh);
+
+        window.addEventListener('usage:added', refresh);
 
         return () => {
-            socket.off('usage:refresh', fetchData);
-            socket.off('alerts:refresh', fetchData);
-            socket.off('dashboard:refresh', fetchData);
-            socket.off('resources:refresh', fetchData);
+            socket.off('usage:refresh', refresh);
+            socket.off('alerts:refresh', refresh);
+            socket.off('dashboard:refresh', refresh);
+            socket.off('resources:refresh', refresh);
+            socket.off('usage:added', refresh);
+            window.removeEventListener('usage:added', refresh);
         };
     }, [fetchData]);
 

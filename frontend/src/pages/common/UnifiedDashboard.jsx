@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import api from '../../services/api';
 import {
-    Zap, Droplets, Flame, Wind, Trash2, Sun,
     AlertTriangle, Bell, RefreshCw, Plus, Activity,
     TrendingUp, TrendingDown, History, PieChart as PieChartIcon
 } from 'lucide-react';
@@ -61,24 +60,6 @@ const ROLE_LABELS = {
     student: 'Student',
 };
 
-// ── Resource visual metadata ───────────────────────────────────────────────────
-const RESOURCE_META = {
-    Electricity: { icon: <Zap size={20} />, color: '#f59e0b', bg: 'bg-amber-500/10', unit: 'kWh' },
-    Water: { icon: <Droplets size={20} />, color: '#3b82f6', bg: 'bg-blue-500/10', unit: 'L' },
-    Solar: { icon: <Sun size={20} />, color: '#eab308', bg: 'bg-yellow-500/10', unit: 'kWh' },
-    LPG: { icon: <Flame size={20} />, color: '#f97316', bg: 'bg-orange-500/10', unit: 'kg' },
-    Diesel: { icon: <Wind size={20} />, color: '#64748b', bg: 'bg-slate-500/10', unit: 'L' },
-    Waste: { icon: <Trash2 size={20} />, color: '#ef4444', bg: 'bg-rose-500/10', unit: 'kg' },
-};
-
-// ── Chart gradient defs ────────────────────────────────────────────────────────
-const CHART_GRADIENTS = Object.entries(RESOURCE_META).map(([name, meta]) => (
-    <linearGradient key={name} id={`unified-grad-${name}`} x1="0" y1="0" x2="0" y2="1">
-        <stop offset="5%" stopColor={meta.color} stopOpacity={0.15} />
-        <stop offset="95%" stopColor={meta.color} stopOpacity={0} />
-    </linearGradient>
-));
-
 export default function UnifiedDashboard() {
     const { user } = useContext(AuthContext);
     const navigate = useNavigate();
@@ -86,7 +67,8 @@ export default function UnifiedDashboard() {
     const role = (user?.role || '').toLowerCase();
     const blockId = user?.block || user?.blockId;
     const perms = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.student;
-    const isDean = role === 'dean';
+    // Executive read-only roles (Dean & Principal)
+    const isExecReadOnly = ['dean', 'principal'].includes(role);
 
     // ── State ──────────────────────────────────────────────────────────────────
     const [usageSummary, setUsageSummary] = useState(null);
@@ -120,16 +102,16 @@ export default function UnifiedDashboard() {
                 api.get(`/api/usage/summary${blockParam ? `?${blockParam.slice(1)}` : ''}`),
                 // [1] Trends
                 api.get(`/api/usage/trends?range=${timeRange}${blockParam}`),
-                // [2] Resource configs
-                api.get('/api/resource-config'),
+                // [2] Resources (NEW: single source of truth)
+                api.get('/api/resources'),
                 // [3] Alerts — all roles except student
                 role !== 'student'
                     ? api.get('/api/alerts?limit=5')
                     : Promise.resolve({ data: { data: [], alerts: [] } }),
             ];
 
-            // Dean: also fetch audit logs
-            if (isDean) {
+            // Dean/Principal: also fetch audit logs
+            if (isExecReadOnly) {
                 requests.push(api.get('/api/audit-logs?limit=5')); // [4]
             }
 
@@ -151,10 +133,11 @@ export default function UnifiedDashboard() {
                 setTrendData(Array.isArray(raw) ? raw : []);
             }
 
-            // [2] Resource configs
+            // [2] Resources (NEW)
             if (results[2].status === 'fulfilled') {
-                const configs = results[2].value.data?.data || [];
-                setDynamicResources(configs.filter(r => r.isActive));
+                const resources = results[2].value.data?.data || [];
+                const activeResources = (Array.isArray(resources) ? resources : []).filter(r => r?.isActive === true);
+                setDynamicResources(activeResources);
             }
 
             // [3] Alerts
@@ -164,9 +147,9 @@ export default function UnifiedDashboard() {
                 setRecentAlerts(Array.isArray(alertArr) ? alertArr.slice(0, 5) : []);
             }
 
-            // [4] Dean: audit logs OR Warden: leaderboard
+            // Executive: audit logs OR Warden: leaderboard
             if (results[4]?.status === 'fulfilled') {
-                if (isDean) {
+                if (isExecReadOnly) {
                     const logsRes = results[4].value.data;
                     const logsArr = logsRes?.data || logsRes?.logs || [];
                     setRecentLogs(Array.isArray(logsArr) ? logsArr : []);
@@ -186,17 +169,30 @@ export default function UnifiedDashboard() {
         } finally {
             setLoading(false);
         }
-    }, [role, blockId, timeRange, perms.seesAllBlocks, isDean]);
+    }, [role, blockId, timeRange, perms.seesAllBlocks, isExecReadOnly]);
 
-    useEffect(() => { fetchData(); }, [fetchData]);
+    useEffect(() => {
+        fetchData();
+        const refresh = () => fetchData();
+        window.addEventListener('usage:added', refresh);
+        return () => window.removeEventListener('usage:added', refresh);
+    }, [fetchData]);
 
     // ── Computed values ────────────────────────────────────────────────────────
     const totals = usageSummary?.totals || {};
     const summary = usageSummary?.summary || {};
     const alertsCount = usageSummary?.alertsCount || recentAlerts.length || 0;
 
-    const getResourceMeta = (type) =>
-        RESOURCE_META[type] || { icon: <Activity size={20} />, color: '#64748b', bg: 'bg-slate-500/10', unit: 'units' };
+    const getResourceMeta = (type) => {
+        const match = (Array.isArray(dynamicResources) ? dynamicResources : [])
+            .find(r => r?.name === type);
+        return {
+            icon: match?.icon || '📊',
+            color: match?.color || '#64748b',
+            bg: 'bg-slate-500/10',
+            unit: match?.unit || 'units'
+        };
+    };
 
     // MetricCard value helper
     const metricValue = (resName) => {
@@ -266,9 +262,20 @@ export default function UnifiedDashboard() {
     }
 
     // Which resources to show as metric cards
-    const resourcesForCards = dynamicResources.length > 0
-        ? dynamicResources.slice(0, role === 'gm' ? 6 : 3)
-        : ['Electricity', 'Water', 'LPG'].map(r => ({ name: r }));
+    const resourcesForCards = (Array.isArray(dynamicResources) ? dynamicResources : []).slice(0, role === 'gm' ? 6 : 3);
+
+    const chartResources = (Array.isArray(dynamicResources) ? dynamicResources : []);
+    const CHART_GRADIENTS = chartResources.map((r) => {
+        const name = r?.name || 'resource';
+        const color = r?.color || '#64748b';
+        const safeId = String(name).replace(/[^a-zA-Z0-9_-]/g, '_');
+        return (
+            <linearGradient key={safeId} id={`unified-grad-${safeId}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={color} stopOpacity={0.15} />
+                <stop offset="95%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+        );
+    });
 
     // ── Render ─────────────────────────────────────────────────────────────────
     return (
@@ -285,8 +292,7 @@ export default function UnifiedDashboard() {
                     <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
                         {role === 'gm' && 'Campus-wide resource monitoring and analytics'}
                         {role === 'warden' && 'Monitor and manage resource usage for your assigned block'}
-                        {role === 'dean' && <>Campus-wide resource analytics and financial performance. <a href="/dean/analytics" onClick={(e) => { e.preventDefault(); navigate('/dean/analytics'); }} className="text-blue-500 hover:underline">For detailed data, visit Analytics →</a></>}
-                        {role === 'principal' && 'Campus-wide summary of resource consumption'}
+                        {isExecReadOnly && <>Campus-wide resource analytics and financial performance. <a href={`/${role}/analytics`} onClick={(e) => { e.preventDefault(); navigate(`/${role}/analytics`); }} className="text-blue-500 hover:underline">For detailed data, visit Analytics →</a></>}
                         {role === 'student' && 'Overview of your block\'s resource consumption'}
                     </p>
                 </div>
@@ -361,7 +367,7 @@ export default function UnifiedDashboard() {
                     return (
                         <MetricCard
                             key={resName}
-                            icon={meta.icon}
+                            icon={<span className="text-xl">{meta.icon || '📊'}</span>}
                             label={resName}
                             value={metricValue(resName)}
                         />
@@ -401,12 +407,24 @@ export default function UnifiedDashboard() {
                                             borderRadius: '12px'
                                         }} />
                                     <Legend iconType="circle" />
-                                    {Object.entries(RESOURCE_META).map(([name, meta]) => (
-                                        <Area key={name} type="monotone" dataKey={name}
-                                            name={name} stroke={meta.color}
-                                            fill={`url(#unified-grad-${name})`}
-                                            fillOpacity={1} strokeWidth={2.5} dot={false} />
-                                    ))}
+                                    {chartResources.map((r) => {
+                                        const name = r?.name;
+                                        if (!name) return null;
+                                        const safeId = String(name).replace(/[^a-zA-Z0-9_-]/g, '_');
+                                        return (
+                                            <Area
+                                                key={name}
+                                                type="monotone"
+                                                dataKey={name}
+                                                name={name}
+                                                stroke={r?.color || '#64748b'}
+                                                fill={`url(#unified-grad-${safeId})`}
+                                                fillOpacity={1}
+                                                strokeWidth={2.5}
+                                                dot={false}
+                                            />
+                                        );
+                                    })}
                                 </AreaChart>
                             </ResponsiveContainer>
                         )}
@@ -546,8 +564,8 @@ export default function UnifiedDashboard() {
                 </div>
             )}
 
-            {/* ═══════════════ Dean: Alerts + Audit Logs side-by-side ══════════ */}
-            {isDean && (
+            {/* ═══════════════ Executive: Alerts + Audit Logs side-by-side ══════════ */}
+            {isExecReadOnly && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <Card title="Recent Alerts" icon={<Bell size={18} />}
                         description="Latest pending resource threshold alerts">
@@ -574,7 +592,7 @@ export default function UnifiedDashboard() {
                                 ))
                             )}
                             <Button variant="link" size="sm" className="w-full text-blue-500"
-                                onClick={() => navigate('/dean/alerts')}>
+                                onClick={() => navigate(`/${role}/alerts`)}>
                                 View All Alerts
                             </Button>
                         </div>
@@ -605,7 +623,7 @@ export default function UnifiedDashboard() {
                                 ))
                             )}
                             <Button variant="link" size="sm" className="w-full text-blue-500"
-                                onClick={() => navigate('/dean/audit-logs')}>
+                                onClick={() => navigate(`/${role}/audit-logs`)}>
                                 View Audit Trail
                             </Button>
                         </div>

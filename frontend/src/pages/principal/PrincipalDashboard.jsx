@@ -94,6 +94,24 @@ export default function PrincipalDashboard() {
 
     useEffect(() => {
         fetchData();
+        const refresh = () => fetchData();
+        window.addEventListener('usage:added', refresh);
+        const socket = getSocket();
+        if (socket) {
+            socket.on('usage:refresh', refresh);
+            socket.on('usage:added', refresh);
+            socket.on('alerts:refresh', refresh);
+            socket.on('dashboard:refresh', refresh);
+        }
+        return () => {
+            window.removeEventListener('usage:added', refresh);
+            if (socket) {
+                socket.off('usage:refresh', refresh);
+                socket.off('usage:added', refresh);
+                socket.off('alerts:refresh', refresh);
+                socket.off('dashboard:refresh', refresh);
+            }
+        };
     }, [fetchData]);
 
     const { sortedData: sortedLeaderboard, sortField, sortDirection, handleSort } = useSortableTable(

@@ -65,18 +65,18 @@ const DailyReportWarden = () => {
     setLoading(true);
     try {
       const [configRes, todayRes, blocksRes] = await Promise.allSettled([
-        api.get('/api/config/thresholds'),
+        api.get('/api/resources'),
         user?.role === 'warden' ? api.get('/api/daily-reports/today/check') : Promise.reject(new Error('Not a warden')),
         (user?.role === 'admin' || user?.role === 'gm') ? api.get('/api/admin/blocks') : Promise.resolve({ status: 'rejected' })
       ]);
 
       if (configRes.status === 'fulfilled') {
-        const resources = (configRes.value.data.data || []).filter(r => r.isActive);
+        const resources = (configRes.value.data.data || configRes.value.data.resources || []).filter(r => r?.isActive === true);
         setDynamicResources(resources);
         setFormData(prev => ({
           ...prev,
           resourceCheck: resources.map(r => ({
-            resource: r.resource,
+            resource: r.name,
             checked: false,
             currentReading: 0,
             notes: ''
@@ -128,6 +128,9 @@ const DailyReportWarden = () => {
 
   useEffect(() => {
     fetchData();
+    const refresh = () => fetchData();
+    window.addEventListener('usage:added', refresh);
+    return () => window.removeEventListener('usage:added', refresh);
   }, [fetchData]);
 
   useEffect(() => {
@@ -211,9 +214,9 @@ const DailyReportWarden = () => {
           <div className="lg:col-span-2 space-y-8">
             <Card title="Operational Status" description="Report any infrastructure or student-related issues">
               <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Students Present</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-3">
+                    <label className="form-label">Active Student Headcount</label>
                     <div className="relative">
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                       <input
@@ -221,16 +224,16 @@ const DailyReportWarden = () => {
                         placeholder="Current headcount"
                         value={formData.studentsPresent}
                         onChange={(e) => setFormData({ ...formData, studentsPresent: parseInt(e.target.value) })}
-                        className="form-input pl-10 h-12"
+                        className="form-input pl-10 h-14 text-lg font-bold"
                       />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Overall Block Condition</label>
+                  <div className="space-y-3">
+                    <label className="form-label">Overall Block Health</label>
                     <select
                       value={formData.overallStatus}
                       onChange={(e) => setFormData({ ...formData, overallStatus: e.target.value })}
-                      className="form-input h-12"
+                      className="form-input h-14 text-sm font-bold"
                     >
                       <option value="NORMAL">Normal Operation</option>
                       <option value="ISSUES_FOUND">Minor Issues Identified</option>
@@ -239,25 +242,25 @@ const DailyReportWarden = () => {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Infrastructure Issues</label>
+                <div className="space-y-3">
+                  <label className="form-label">Infrastructure & Maintenance Issues</label>
                   <textarea
                     value={formData.issues}
                     onChange={(e) => setFormData({ ...formData, issues: e.target.value })}
                     rows="3"
-                    className="form-input min-h-[100px] py-3"
-                    placeholder="Describe any leaks, power failures, or damage..."
+                    className="form-input min-h-[120px] py-4 leading-relaxed"
+                    placeholder="Describe any leaks, power failures, or damage in detail..."
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Maintenance Summary</label>
+                <div className="space-y-3">
+                  <label className="form-label">Daily Maintenance Operations</label>
                   <textarea
                     value={formData.maintenanceDone}
                     onChange={(e) => setFormData({ ...formData, maintenanceDone: e.target.value })}
                     rows="3"
-                    className="form-input min-h-[100px] py-3"
-                    placeholder="Detail any routine maintenance or repairs completed today..."
+                    className="form-input min-h-[120px] py-4 leading-relaxed"
+                    placeholder="Detail routine maintenance tasks or repairs completed today..."
                   />
                 </div>
 

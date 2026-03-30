@@ -6,7 +6,7 @@
 
 const Recommendation = require('../models/Recommendation');
 const Usage = require('../models/Usage');
-const ResourceConfig = require('../models/ResourceConfig');
+const SystemConfig = require('../models/SystemConfig');
 const mongoose = require('mongoose');
 
 /**
@@ -21,7 +21,7 @@ exports.getRecommendations = async (options = {}) => {
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    let usageFilter = { 
+    let usageFilter = {
         deleted: { $ne: true },
         usage_date: { $gte: thirtyDaysAgo, $lte: now }
     };
@@ -46,10 +46,10 @@ exports.getRecommendations = async (options = {}) => {
         { $sort: { total: -1 } }
     ]);
 
-    // Get thresholds from ResourceConfig
-    const configs = await ResourceConfig.find({ isActive: { $ne: false } }).lean();
+    // Get thresholds from SystemConfig (source of truth)
+    const configs = await SystemConfig.find({ isActive: { $ne: false } }).lean();
     const configMap = {};
-    configs.forEach(c => configMap[c.name] = c);
+    configs.forEach(c => configMap[c.resource] = c);
 
     // Generate recommendations based on usage
     usageStats.forEach(stat => {
@@ -59,7 +59,8 @@ exports.getRecommendations = async (options = {}) => {
 
         // Water conservation
         if (resource === 'Water' && dailyAvg > 0) {
-            if (dailyAvg > (config?.dailyLimit || 200) * 0.8) {
+            const dailyLimit = config?.dailyThreshold || config?.dailyLimitPerPerson || 200;
+            if (dailyAvg > dailyLimit * 0.8) {
                 recommendations.push({
                     resource,
                     type: 'conservation',
@@ -99,7 +100,8 @@ exports.getRecommendations = async (options = {}) => {
 
         // Electricity conservation
         if (resource === 'Electricity' && dailyAvg > 0) {
-            if (dailyAvg > (config?.dailyLimit || 100) * 0.8) {
+            const dailyLimit = config?.dailyThreshold || config?.dailyLimitPerPerson || 100;
+            if (dailyAvg > dailyLimit * 0.8) {
                 recommendations.push({
                     resource,
                     type: 'conservation',
@@ -141,7 +143,8 @@ exports.getRecommendations = async (options = {}) => {
 
         // LPG conservation
         if (resource === 'LPG' && dailyAvg > 0) {
-            if (dailyAvg > (config?.dailyLimit || 20) * 0.8) {
+            const dailyLimit = config?.dailyThreshold || config?.dailyLimitPerPerson || 20;
+            if (dailyAvg > dailyLimit * 0.8) {
                 recommendations.push({
                     resource,
                     type: 'conservation',
@@ -179,7 +182,7 @@ exports.getRecommendations = async (options = {}) => {
                 ],
                 impact: '↓ 40-50% of waste volume',
                 priority: 2,
-                score: Math.round((dailyAvg / (config?.dailyLimit || 50)) * 100)
+                score: Math.round((dailyAvg / (config?.dailyThreshold || config?.dailyLimitPerPerson || 50)) * 100)
             });
         }
     });
@@ -432,9 +435,9 @@ exports.getEfficiencyScore = async (options = {}) => {
         }
     ]);
 
-    const configs = await ResourceConfig.find({ isActive: { $ne: false } }).lean();
+    const configs = await SystemConfig.find({ isActive: { $ne: false } }).lean();
     const configMap = {};
-    configs.forEach(c => configMap[c.name] = c);
+    configs.forEach(c => configMap[c.resource] = c);
 
     let score = 100;
     const factors = [];
@@ -443,8 +446,9 @@ exports.getEfficiencyScore = async (options = {}) => {
         const config = configMap[stat._id];
         if (!config) return;
 
-        const percentageOfLimit = (stat.total / (config.monthlyLimit || 1000)) * 100;
-        
+        const monthlyLimit = config.monthlyThreshold || config.monthlyLimitPerPerson || 1000;
+        const percentageOfLimit = (stat.total / monthlyLimit) * 100;
+
         if (percentageOfLimit > 150) {
             score -= 20;
             factors.push({ resource: stat._id, impact: 'Very High Usage', penalty: -20 });

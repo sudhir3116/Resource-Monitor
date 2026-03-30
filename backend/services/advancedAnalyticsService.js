@@ -5,7 +5,7 @@
  */
 
 const Usage = require('../models/Usage');
-const ResourceConfig = require('../models/ResourceConfig');
+const SystemConfig = require('../models/SystemConfig');
 const Block = require('../models/Block');
 const mongoose = require('mongoose');
 
@@ -295,7 +295,7 @@ exports.monthOverMonthComparison = async (options = {}) => {
     }
 
     // Calculate trend
-    const trend = comparison.length > 1 
+    const trend = comparison.length > 1
         ? ((comparison[0].total - comparison[1].total) / comparison[1].total * 100)
         : 0;
 
@@ -395,13 +395,13 @@ exports.resourceEfficiency = async (options = {}) => {
         { $sort: { total: -1 } }
     ]);
 
-    const configs = await ResourceConfig.find({ isActive: { $ne: false } }).lean();
+    const configs = await SystemConfig.find({ isActive: { $ne: false } }).lean();
     const configMap = {};
-    configs.forEach(c => configMap[c.name] = c);
+    configs.forEach(c => configMap[c.resource] = c);
 
     const efficiency = resourceStats.map(stat => {
         const config = configMap[stat._id] || {};
-        const monthlyLimit = config.monthlyLimit || 0;
+        const monthlyLimit = config.monthlyThreshold || config.monthlyLimitPerPerson || 0;
         const utilizationPercent = monthlyLimit ? (stat.total / monthlyLimit) * 100 : 0;
 
         return {

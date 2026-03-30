@@ -13,14 +13,7 @@ import {
     ChevronDown,
     FileSpreadsheet,
     FileJson,
-    Zap,
-    Droplets,
-    Flame,
-    Wind,
-    Utensils,
-    Trash2,
     Activity,
-    Sun
 } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -29,15 +22,6 @@ import EmptyState from '../components/common/EmptyState';
 import { useToast } from '../context/ToastContext';
 import { logger } from '../utils/logger';
 import { exportToCSV, exportToExcel, exportToJSON, exportToPDF } from '../utils/export';
-
-const RESOURCE_META = {
-    Electricity: { icon: <Zap size={16} />, color: 'text-amber-500' },
-    Water: { icon: <Droplets size={16} />, color: 'text-blue-500' },
-    Solar: { icon: <Sun size={16} />, color: 'text-yellow-500' },
-    LPG: { icon: <Flame size={16} />, color: 'text-orange-500' },
-    Diesel: { icon: <Wind size={16} />, color: 'text-slate-500' },
-    Waste: { icon: <Trash2 size={16} />, color: 'text-rose-500' },
-};
 
 export default function Reports() {
     const { addToast } = useToast();
@@ -60,10 +44,10 @@ export default function Reports() {
         try {
             const [blockRes, configRes] = await Promise.all([
                 api.get('/api/admin/blocks').catch(() => ({ data: { data: [] } })),
-                api.get('/api/config/thresholds').catch(() => ({ data: { data: [] } }))
+                api.get('/api/resources').catch(() => ({ data: { data: [] } }))
             ]);
             setBlocks(blockRes.data.data || []);
-            setDynamicResources(configRes.data.data || []);
+            setDynamicResources(configRes.data?.data || configRes.data?.resources || []);
         } catch (err) {
             logger.error('Failed to fetch filter options', err);
         }
@@ -98,6 +82,12 @@ export default function Reports() {
     useEffect(() => {
         fetchFilters();
         fetchData();
+        const refresh = () => {
+            fetchFilters();
+            fetchData();
+        };
+        window.addEventListener('usage:added', refresh);
+        return () => window.removeEventListener('usage:added', refresh);
     }, [fetchData, fetchFilters]);
 
     const summary = useMemo(() => {
@@ -158,7 +148,9 @@ export default function Reports() {
     };
 
     const getResourceIcon = (type) => {
-        return RESOURCE_META[type]?.icon || <Activity size={16} />;
+        const match = (Array.isArray(dynamicResources) ? dynamicResources : [])
+            .find(r => r?.name === type);
+        return match?.icon ? <span className="text-base">{match.icon}</span> : <Activity size={16} />;
     };
 
     return (

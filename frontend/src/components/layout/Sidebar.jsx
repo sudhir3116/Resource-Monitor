@@ -47,6 +47,7 @@ const NAV_CONFIG = {
     dean: [
         { label: 'Dashboard', icon: '📊', path: '/dean/dashboard' },
         { label: 'Alerts', icon: '🔔', path: '/dean/alerts' },
+        { label: 'Complaints', icon: '📝', path: '/dean/complaints' },
         { label: 'Analytics', icon: '📈', path: '/dean/analytics' },
         { label: 'Notice Board', icon: '📌', path: '/dean/notices' },
         { label: 'Reports', icon: '📤', path: '/dean/reports' },
@@ -54,9 +55,12 @@ const NAV_CONFIG = {
     ],
     principal: [
         { label: 'Dashboard', icon: '📊', path: '/principal/dashboard' },
+        { label: 'Alerts', icon: '🔔', path: '/principal/alerts' },
+        { label: 'Complaints', icon: '📝', path: '/principal/complaints' },
         { label: 'Analytics', icon: '📈', path: '/principal/analytics' },
         { label: 'Notice Board', icon: '📌', path: '/principal/notices' },
         { label: 'Reports', icon: '📤', path: '/principal/reports' },
+        { label: 'Audit Logs', icon: '🗃️', path: '/principal/audit-logs' },
     ],
 }
 

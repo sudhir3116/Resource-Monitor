@@ -53,7 +53,13 @@ const emitResourcesRefresh = async () => {
  */
 exports.getThresholds = async (req, res) => {
     try {
-        const configs = await SystemConfig.find({})
+        const role = req.user?.role?.toLowerCase();
+        const filter = {};
+        if (role !== 'admin' && role !== 'gm') {
+            filter.isActive = true;
+        }
+
+        const configs = await SystemConfig.find(filter)
             .sort({ resource: 1 })
             .populate('updatedBy', 'name email')
             .populate('createdBy', 'name email');

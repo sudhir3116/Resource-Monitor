@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext, useCallback } from 'react';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { ThemeContext } from '../../context/ThemeContext';
-import { Activity, Zap, Droplets, Leaf, Flame, Wind, Trash2, RefreshCw, Sun } from 'lucide-react';
+import { Activity, Leaf, RefreshCw } from 'lucide-react';
 import {
   LineChart,
   Line,
@@ -19,24 +19,6 @@ import EmptyState from '../../components/common/EmptyState';
 import { logger } from '../../utils/logger';
 import Button from '../../components/common/Button';
 
-const RESOURCE_META = {
-  Electricity: { icon: <Zap size={20} className="text-amber-500" />, emoji: '⚡', color: '#F59E0B' },
-  Water: { icon: <Droplets size={20} className="text-blue-500" />, emoji: '💧', color: '#3B82F6' },
-  LPG: { icon: <Flame size={20} className="text-orange-500" />, emoji: '🔥', color: '#EF4444' },
-  Diesel: { icon: <Wind size={20} className="text-slate-500" />, emoji: '⛽', color: '#8B5CF6' },
-  Solar: { icon: <Sun size={20} className="text-yellow-500" />, emoji: '☀️', color: '#10B981' },
-  Waste: { icon: <Trash2 size={20} className="text-rose-500" />, emoji: '♻️', color: '#6B7280' },
-};
-
-const CHART_COLORS = {
-  Electricity: '#F59E0B',
-  Water: '#3B82F6',
-  LPG: '#EF4444',
-  Diesel: '#8B5CF6',
-  Solar: '#10B981',
-  Waste: '#6B7280',
-};
-
 const StudentDashboard = () => {
   const { user, loading: authLoading } = useAuth();
   const [summary, setSummary] = useState({});
@@ -46,7 +28,13 @@ const StudentDashboard = () => {
   const [error, setError] = useState(null);
   const { theme } = useContext(ThemeContext);
 
-  const resourceNames = ['Electricity', 'Water', 'Solar'];
+  const [resources, setResources] = useState([]);
+  useEffect(() => {
+    api.get('/api/resources').then(res => {
+      const active = (res.data?.data || res.data?.resources || []).filter(r => r?.isActive === true);
+      setResources(active);
+    });
+  }, []);
 
   const fetchData = useCallback(async () => {
     if (authLoading || !user) return;
@@ -92,10 +80,18 @@ const StudentDashboard = () => {
 
   useEffect(() => {
     fetchData();
+    const refresh = () => fetchData();
+    window.addEventListener('usage:added', refresh);
+    return () => window.removeEventListener('usage:added', refresh);
   }, [fetchData]);
 
   const getResourceMeta = (type) => {
-    return RESOURCE_META[type] || { icon: <Activity size={20} />, emoji: '📊', color: '#64748b' };
+    const match = (Array.isArray(resources) ? resources : []).find(r => r?.name === type);
+    return {
+      icon: match?.icon || '📊',
+      color: match?.color || '#64748b',
+      unit: match?.unit || 'units',
+    };
   };
 
   const displayValue = (name) => {
@@ -129,7 +125,11 @@ const StudentDashboard = () => {
     );
   }
 
-  const sustainabilityScore = summary?.Electricity?.total > 0 || summary?.Water?.total > 0 ? 85 : 0;
+  const sustainabilityScore = (() => {
+    const totals = Object.values(summary || {}).map(v => Number(v?.total || 0));
+    const any = totals.some(v => v > 0);
+    return any ? 85 : 0;
+  })();
 
   const sustainabilityColor = (score) => {
     if (score >= 80) return 'text-emerald-500';
@@ -161,10 +161,11 @@ const StudentDashboard = () => {
 
       {/* Resource Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {Object.entries(summary && Object.keys(summary).length > 0 ? summary : {})
-          .filter(([, d]) => d.total > 0 || d.dailyThreshold > 0)
-          .map(([name, data]) => {
-            const meta = getResourceMeta(name);
+        {(Array.isArray(resources) ? resources : []).map((r) => {
+          const name = r?.name;
+          if (!name) return null;
+          const data = summary?.[name] || {};
+          const meta = getResourceMeta(name);
             const pct = data.dailyThreshold && data.total > 0
               ? Math.round((data.total / data.dailyThreshold) * 100)
               : 0;
@@ -176,9 +177,7 @@ const StudentDashboard = () => {
                   borderLeftColor: meta.color
                 }}>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xl">
-                    {meta.emoji}
-                  </span>
+                  <span className="text-xl">{meta.icon || '📊'}</span>
                   <span className="font-medium text-sm"
                     style={{
                       color: 'var(--text-primary)'
@@ -202,22 +201,22 @@ const StudentDashboard = () => {
                 </p>
                 {data.dailyThreshold > 0 &&
                   data.total > 0 && (
-                  <div className="w-full h-1 rounded-full mt-2 overflow-hidden"
-                    style={{
-                      backgroundColor: 'var(--bg-secondary)'
-                    }}>
-                    <div
-                      className="h-full rounded-full"
+                    <div className="w-full h-1 rounded-full mt-2 overflow-hidden"
                       style={{
-                        width: `${Math.min(pct, 100)}%`,
-                        backgroundColor: meta.color
-                      }}
-                    />
-                  </div>
-                )}
+                        backgroundColor: 'var(--bg-secondary)'
+                      }}>
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${Math.min(pct, 100)}%`,
+                          backgroundColor: meta.color
+                        }}
+                      />
+                    </div>
+                  )}
               </Card>
             );
-          })}
+        })}
       </div>
 
       {Object.keys(summary).length === 0 && (
@@ -312,15 +311,15 @@ const StudentDashboard = () => {
                       }}
                     />
                     <Legend />
-                    {resourceNames.map(name => (
+                    {resources.map(r => (
                       <Line
-                        key={name}
+                        key={r.name}
                         type="monotone"
-                        dataKey={name}
-                        stroke={CHART_COLORS[name]}
+                        dataKey={r.name}
+                        stroke={r?.color || '#64748b'}
                         strokeWidth={2}
                         dot={false}
-                        name={name}
+                        name={r.name}
                       />
                     ))}
                   </LineChart>

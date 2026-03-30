@@ -45,17 +45,25 @@ export default function WardenDashboard() {
     useEffect(() => {
         fetchStats();
         const socket = getSocket();
+        const refresh = () => fetchStats();
+
         if (socket) {
-            socket.on('dashboard:refresh', fetchStats);
-            socket.on('dashboard:usage_added', fetchStats);
-            socket.on('alerts:refresh', fetchStats);
+            socket.on('dashboard:refresh', refresh);
+            socket.on('dashboard:usage_added', refresh);
+            socket.on('usage:added', refresh);
+            socket.on('alerts:refresh', refresh);
         }
+
+        window.addEventListener('usage:added', refresh);
+
         return () => {
             if (socket) {
-                socket.off('dashboard:refresh', fetchStats);
-                socket.off('dashboard:usage_added', fetchStats);
-                socket.off('alerts:refresh', fetchStats);
+                socket.off('dashboard:refresh', refresh);
+                socket.off('dashboard:usage_added', refresh);
+                socket.off('usage:added', refresh);
+                socket.off('alerts:refresh', refresh);
             }
+            window.removeEventListener('usage:added', refresh);
         };
     }, [fetchStats]);
 
@@ -74,7 +82,7 @@ export default function WardenDashboard() {
 
     const summary = summaryData?.summary || {};
     const alertsCount = summaryData?.alertsCount || 0;
-    const resourceEntries = Object.entries(summary);
+    const resourceEntries = Object.entries(summary || {}) || [];
 
     return (
         <div className="space-y-6">

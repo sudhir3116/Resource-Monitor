@@ -121,6 +121,24 @@ export default function ExecutiveDashboard() {
 
     useEffect(() => {
         fetchData();
+        const refresh = () => fetchData();
+        window.addEventListener('usage:added', refresh);
+        const socket = getSocket();
+        if (socket) {
+            socket.on('usage:refresh', refresh);
+            socket.on('usage:added', refresh);
+            socket.on('alerts:refresh', refresh);
+            socket.on('dashboard:refresh', refresh);
+        }
+        return () => {
+            window.removeEventListener('usage:added', refresh);
+            if (socket) {
+                socket.off('usage:refresh', refresh);
+                socket.off('usage:added', refresh);
+                socket.off('alerts:refresh', refresh);
+                socket.off('dashboard:refresh', refresh);
+            }
+        };
     }, [fetchData]);
 
     const { sortedData: sortedLeaderboard, sortField, sortDirection, handleSort } = useSortableTable(
@@ -142,14 +160,16 @@ export default function ExecutiveDashboard() {
 
     const distributionData = useMemo(() => {
         if (!usageSummary || Object.keys(usageSummary).length === 0) return [];
-        return dynamicResources.map(res => {
-            const resName = res.name;
-            const data = usageSummary[resName] || {};
-            return {
-                name: resName,
-                value: data.total || 0
-            };
-        }).filter(d => d.value > 0);
+        return (Array.isArray(dynamicResources) ? dynamicResources : [])
+            .map(res => {
+                const resName = res?.name;
+                const data = usageSummary[resName] || {};
+                return {
+                    name: resName,
+                    value: data?.total || 0
+                };
+            })
+            .filter(d => d?.value > 0) || [];
     }, [usageSummary, dynamicResources]);
 
     if (loading && !stats) {
@@ -208,9 +228,9 @@ export default function ExecutiveDashboard() {
                             : 0;
                         const pctColor =
                             pct >= 150 ? '#EF4444'
-                            : pct >= 100 ? '#F97316'
-                            : pct >= 80 ? '#F59E0B'
-                            : '#10B981';
+                                : pct >= 100 ? '#F97316'
+                                    : pct >= 80 ? '#F59E0B'
+                                        : '#10B981';
                         const meta = getResourceMeta(name);
 
                         return (

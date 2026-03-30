@@ -124,26 +124,9 @@ function App() {
                 <Dashboard />
               </ProtectedRoute>
             } />
-            <Route path="/admin/usage" element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <Resources />
-              </ProtectedRoute>
-            } />
-            <Route path="/admin/usage/all" element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <UsageList />
-              </ProtectedRoute>
-            } />
-            <Route path="/admin/usage/new" element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <UsageForm />
-              </ProtectedRoute>
-            } />
-            <Route path="/admin/usage/:id/edit" element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <UsageForm />
-              </ProtectedRoute>
-            } />
+            {/* Admin can see records, but only Warden can log new ones per strict instruction */}
+            <Route path="/admin/usage" element={<ProtectedRoute allowedRoles={['admin']}><Resources /></ProtectedRoute>} />
+            <Route path="/admin/usage/all" element={<ProtectedRoute allowedRoles={['admin']}><UsageList /></ProtectedRoute>} />
             <Route path="/admin/alerts" element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <Alerts />
@@ -375,6 +358,7 @@ function App() {
                 <Reports />
               </ProtectedRoute>
             } />
+            <Route path="/dean/complaints" element={<ProtectedRoute allowedRoles={['dean']}><Complaints /></ProtectedRoute>} />
             <Route path="/dean/audit-logs" element={
               <ProtectedRoute allowedRoles={['dean']}>
                 <AuditLogs />
@@ -399,42 +383,34 @@ function App() {
                 <AnnouncementBoard />
               </ProtectedRoute>
             } />
-            <Route path="/principal/reports" element={
-              <ProtectedRoute allowedRoles={['principal']}>
-                <Reports />
-              </ProtectedRoute>
-            } />
+            <Route path="/principal/reports" element={<ProtectedRoute allowedRoles={['principal']}><Reports /></ProtectedRoute>} />
+            <Route path="/principal/alerts" element={<ProtectedRoute allowedRoles={['principal']}><Alerts /></ProtectedRoute>} />
+            <Route path="/principal/complaints" element={<ProtectedRoute allowedRoles={['principal']}><Complaints /></ProtectedRoute>} />
+            <Route path="/principal/audit-logs" element={<ProtectedRoute allowedRoles={['principal']}><AuditLogs /></ProtectedRoute>} />
 
             {/* ════════════════════════════════════════════════════════════════ */}
             {/* LEGACY ROUTES — kept for backward compatibility                 */}
             {/* ════════════════════════════════════════════════════════════════ */}
             <Route path="/usage" element={
-              <ProtectedRoute allowedRoles={['admin', 'gm', 'warden', 'dean']}>
+              <ProtectedRoute allowedRoles={['admin', 'gm', 'warden', 'dean', 'principal']}>
                 <Resources />
               </ProtectedRoute>
             } />
             <Route path="/usage/all" element={
-              <ProtectedRoute allowedRoles={['admin', 'gm', 'warden', 'dean']}>
+              <ProtectedRoute allowedRoles={['admin', 'gm', 'warden', 'dean', 'principal']}>
                 <UsageList />
               </ProtectedRoute>
             } />
-            <Route path="/usage/new" element={
-              <ProtectedRoute allowedRoles={['admin', 'warden']}>
-                <UsageForm />
-              </ProtectedRoute>
-            } />
-            <Route path="/usage/:id/edit" element={
-              <ProtectedRoute allowedRoles={['admin', 'warden']}>
-                <UsageForm />
-              </ProtectedRoute>
-            } />
+            {/* Only Warden can add/edit usage records as per strict task rule */}
+            <Route path="/usage/new" element={<ProtectedRoute allowedRoles={['warden']}><UsageForm /></ProtectedRoute>} />
+            <Route path="/usage/:id/edit" element={<ProtectedRoute allowedRoles={['warden']}><UsageForm /></ProtectedRoute>} />
             <Route path="/alerts" element={
-              <ProtectedRoute allowedRoles={['admin', 'gm', 'warden', 'dean']}>
+              <ProtectedRoute allowedRoles={['admin', 'gm', 'warden', 'dean', 'principal']}>
                 <Alerts />
               </ProtectedRoute>
             } />
             <Route path="/alerts/rules" element={
-              <ProtectedRoute allowedRoles={['admin', 'gm', 'warden', 'dean']}>
+              <ProtectedRoute allowedRoles={['admin', 'gm', 'warden', 'dean', 'principal']}>
                 <AlertsList />
               </ProtectedRoute>
             } />
@@ -454,7 +430,7 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="/complaints" element={
-              <ProtectedRoute allowedRoles={['admin', 'gm', 'warden', 'student']}>
+              <ProtectedRoute allowedRoles={['admin', 'gm', 'warden', 'student', 'dean', 'principal']}>
                 <Complaints />
               </ProtectedRoute>
             } />

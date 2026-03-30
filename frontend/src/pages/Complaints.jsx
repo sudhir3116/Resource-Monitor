@@ -104,9 +104,9 @@ function ComplaintRow({ complaint, user, onReview, onResolve, onEscalate, action
     const isResolved = complaint.status === 'resolved';
     const isEscalated = complaint.status === 'escalated';
 
-    const canResolve = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role) && !isResolved;
-    const canReview = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role) && complaint.status === 'open';
-    const canEscalate = [ROLES.DEAN, ROLES.ADMIN].includes(user?.role) && !isResolved && !isEscalated;
+    const canResolve = [ROLES.ADMIN, ROLES.WARDEN, ROLES.GM].includes(user?.role) && !isResolved;
+    const canReview = [ROLES.ADMIN, ROLES.WARDEN, ROLES.GM].includes(user?.role) && complaint.status === 'open';
+    const canEscalate = [ROLES.ADMIN, ROLES.GM].includes(user?.role) && !isResolved && !isEscalated;
 
     return (
         <div className="rounded-lg border p-4 transition-all" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
@@ -206,9 +206,9 @@ function ComplaintDetailModal({ isOpen, onClose, complaint, user, onReview, onRe
     const isResolved = complaint?.status === 'resolved';
     const isEscalated = complaint?.status === 'escalated';
 
-    const canResolve = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role) && complaint && !isResolved;
-    const canReview = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role) && complaint && complaint.status === 'open';
-    const canEscalate = [ROLES.DEAN, ROLES.ADMIN].includes(user?.role) && complaint && !isResolved && !isEscalated;
+    const canResolve = [ROLES.ADMIN, ROLES.WARDEN, ROLES.GM].includes(user?.role) && complaint && !isResolved;
+    const canReview = [ROLES.ADMIN, ROLES.WARDEN, ROLES.GM].includes(user?.role) && complaint && complaint.status === 'open';
+    const canEscalate = [ROLES.ADMIN, ROLES.GM].includes(user?.role) && complaint && !isResolved && !isEscalated;
 
     useEffect(() => {
         if (isOpen) setShowHistory(false);
@@ -344,10 +344,13 @@ export default function Complaints() {
     const [escalateTarget, setEscalateTarget] = useState(null);
 
     const canSubmit = true; // All roles can submit
-    const isAdminOrWarden = [ROLES.ADMIN, ROLES.WARDEN].includes(user?.role);
-    const isAdmin = user?.role === ROLES.ADMIN;
-    const isGM = user?.role === ROLES.GM;
-    const canSeeStats = [ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL].includes(user?.role);
+    const isAdminOrWarden = ['admin', 'warden'].includes(user?.role);
+    const isAdmin = user?.role === 'admin';
+    const isGM = user?.role === 'gm';
+    const isDean = user?.role === 'dean';
+    const isPrincipal = user?.role === 'principal';
+    const isExecutiveReadOnly = isDean || isPrincipal;
+    const canSeeStats = ['admin', 'warden', 'gm', 'dean', 'principal'].includes(user?.role);
 
     const setActioning = (id, val) => setActioningIds(prev => {
         const s = new Set(prev); val ? s.add(id) : s.delete(id); return s;
@@ -486,7 +489,7 @@ export default function Complaints() {
                         Submit and track resource-related complaints
                     </p>
                 </div>
-                {!isGM && (
+                {!isGM && !isExecutiveReadOnly && (
                     <Button variant="primary" onClick={() => setShowForm(v => !v)}>
                         {showForm ? <X size={16} className="mr-2" /> : <Plus size={16} className="mr-2" />}
                         {showForm ? 'Cancel' : 'New Complaint'}
@@ -592,7 +595,7 @@ export default function Complaints() {
                     title="No complaints found"
                     description="No complaints match the current filters."
                 />
-            ) : (isAdmin || isGM) ? (
+            ) : (isAdmin || isGM || isExecutiveReadOnly) ? (
                 <div className="overflow-x-auto">
                     <table className="table">
                         <thead>

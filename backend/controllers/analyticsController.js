@@ -774,9 +774,14 @@ const getBlockAnalytics = async (req, res) => {
             createdAt: { $gte: startDate }
         }).sort({ createdAt: -1 });
 
-        // Group data by resource type
+        // Group data by resource type (no hardcoded resource list)
         const resourceStats = {};
-        const resources = ['Electricity', 'Water', 'LPG', 'Diesel', 'Solar', 'Waste'];
+        const SystemConfig = require('../models/SystemConfig');
+        const activeConfigs = await SystemConfig.find({ isActive: { $ne: false } }).select('resource').lean();
+        const configuredResources = Array.isArray(activeConfigs) ? activeConfigs.map(c => c.resource).filter(Boolean) : [];
+        const resources = configuredResources.length > 0
+            ? configuredResources
+            : [...new Set((usageData || []).map(u => u?.resource_type).filter(Boolean))];
 
         resources.forEach(resource => {
             const resourceUsage = usageData.filter(u => u.resource_type === resource);

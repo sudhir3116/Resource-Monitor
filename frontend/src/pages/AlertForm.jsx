@@ -53,15 +53,15 @@ export default function AlertForm() {
     setLoading(true);
     try {
       const [configRes, ruleRes] = await Promise.allSettled([
-        api.get('/api/config/thresholds'),
+        api.get('/api/resources'),
         id ? api.get(`/api/alerts/rules`) : Promise.resolve({ status: 'rejected' })
       ]);
 
       if (configRes.status === 'fulfilled') {
-        const resources = (configRes.value.data.data || []).filter(r => r.isActive);
+        const resources = (configRes.value.data.data || configRes.value.data.resources || []).filter(r => r?.isActive === true);
         setDynamicResources(resources);
         if (!id && resources.length > 0) {
-          setForm(prev => ({ ...prev, resource_type: resources[0].resource }));
+          setForm(prev => ({ ...prev, resource_type: resources[0].name }));
         }
       }
 

@@ -70,38 +70,63 @@ mongoose.connect(process.env.MONGO_URI, {
 }).then(() => {
   if (process.env.NODE_ENV !== 'production') console.log("MongoDB connected");
 
-  // ── Seed ResourceConfig on startup (upsert — safe to run every time) ─────────
-  const ResourceConfig = require('./models/ResourceConfig');
+  // ── Seed SystemConfig on startup (the single source of truth) ─────────────────
+  const SystemConfig = require('./models/SystemConfig');
   const Usage = require('./models/Usage');
 
-  const seedResourceConfig = async () => {
+  const seedSystemConfig = async () => {
     try {
       const defaults = [
-        { name: 'Electricity', unit: 'kWh',    dailyLimit: 400,   monthlyLimit: 12000,  icon: '⚡', color: '#F59E0B', isActive: true },
-        { name: 'Water',       unit: 'Liters', dailyLimit: 20000, monthlyLimit: 600000, icon: '💧', color: '#3B82F6', isActive: true },
-        { name: 'LPG',         unit: 'kg',     dailyLimit: 45,    monthlyLimit: 1350,   icon: '🔥', color: '#EF4444', isActive: true },
-        { name: 'Diesel',      unit: 'Liters', dailyLimit: 70,    monthlyLimit: 2100,   icon: '⛽', color: '#8B5CF6', isActive: true },
-        { name: 'Solar',       unit: 'kWh',    dailyLimit: 200,   monthlyLimit: 6000,   icon: '☀️', color: '#10B981', isActive: true },
-        { name: 'Waste',       unit: 'kg',     dailyLimit: 80,    monthlyLimit: 2400,   icon: '♻️', color: '#6B7280', isActive: true },
+        { resource: 'Electricity', unit: 'kWh', dailyThreshold: 400, monthlyThreshold: 12000, costPerUnit: 8.5, icon: '⚡', color: '#F59E0B', isActive: true },
+        { resource: 'Water', unit: 'Liters', dailyThreshold: 20000, monthlyThreshold: 600000, costPerUnit: 0.05, icon: '💧', color: '#3B82F6', isActive: true },
+        { resource: 'LPG', unit: 'kg', dailyThreshold: 45, monthlyThreshold: 1350, costPerUnit: 65, icon: '🔥', color: '#EF4444', isActive: true },
+        { resource: 'Diesel', unit: 'Liters', dailyThreshold: 70, monthlyThreshold: 2100, costPerUnit: 95, icon: '⛽', color: '#8B5CF6', isActive: true },
+        { resource: 'Solar', unit: 'kWh', dailyThreshold: 200, monthlyThreshold: 6000, costPerUnit: 0, icon: '☀️', color: '#10B981', isActive: true },
+        { resource: 'Waste', unit: 'kg', dailyThreshold: 80, monthlyThreshold: 2400, costPerUnit: 2, icon: '♻️', color: '#6B7280', isActive: true },
       ];
       for (const r of defaults) {
-        await ResourceConfig.findOneAndUpdate(
-          { name: r.name },
+        await SystemConfig.findOneAndUpdate(
+          { resource: r.resource },
           { $setOnInsert: r },
           { upsert: true }
-        ).catch(() => {});
+        ).catch(() => { });
       }
-      console.log('✅ ResourceConfig seeded');
+      console.log('✅ SystemConfig seeded');
     } catch (e) {
       console.error('Seed error:', e.message);
     }
   };
-  seedResourceConfig();
+  seedSystemConfig();
 
   // ⭐ MIGRATION: Change 'Food' to 'Solar' in usages (for legacy data)
   Usage.updateMany({ resource_type: 'Food' }, { $set: { resource_type: 'Solar' } })
     .then(r => r.nModified > 0 && console.log(`[MIGRATION] Migrated ${r.nModified} food records to solar.`))
     .catch(err => console.error('Migration error:', err));
+
+  const normalizeUsageResourceTypes = async () => {
+    try {
+      const RC = require('./models/ResourceConfig')
+      const configs = await RC.find({ isDeleted: { $ne: true } }).lean()
+      for (const cfg of configs) {
+        const result = await Usage.updateMany(
+          {
+            resource_type: {
+              $regex: new RegExp(`^${cfg.name}$`, 'i'),
+              $ne: cfg.name
+            }
+          },
+          { $set: { resource_type: cfg.name } }
+        )
+        if (result.modifiedCount > 0) {
+          console.log(`✅ Fixed ${result.modifiedCount} records: → "${cfg.name}"`)
+        }
+      }
+      console.log('✅ Resource type normalization done')
+    } catch (e) {
+      console.error('Normalization error:', e.message)
+    }
+  }
+  normalizeUsageResourceTypes()
 
   const PORT = process.env.PORT || 5000;
   // Create HTTP server and attach socket.io so controllers can emit events
@@ -195,6 +220,7 @@ app.use("/api/daily-reports", require("./routes/dailyReportRoutes"));
 app.use("/api/student", require("./routes/studentRoutes"));
 app.use("/api/students", require("./routes/studentRoutes"));
 app.use("/api/resource-config", require("./routes/resourceConfigRoutes"));
+app.use("/api/resources", require("./routes/resourcesRoutes"));
 
 // Health Check endpoints — must be before the 404 catch-all
 app.get('/', (req, res) => res.json({ status: 'OK', message: 'API Running', port: process.env.PORT }));

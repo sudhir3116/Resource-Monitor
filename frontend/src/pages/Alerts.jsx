@@ -53,23 +53,23 @@ export default function Alerts() {
     const [selectedAlertIds, setSelectedAlertIds] = useState([]);
     const [bulkBusy, setBulkBusy] = useState(false);
 
-    const isStudent = user?.role === ROLES.STUDENT;
-    const isWarden = user?.role === ROLES.WARDEN;
-    const isAdmin = user?.role === ROLES.ADMIN;
-    const isDean = user?.role === ROLES.DEAN;
-    const isPrincipal = user?.role === ROLES.PRINCIPAL;
-    const isGM = user?.role === ROLES.GM;
-    // GM is view-only for alerts (no lifecycle updates).
+    const isStudent = user?.role === 'student';
+    const isWarden = user?.role === 'warden';
+    const isAdmin = user?.role === 'admin';
+    const isDean = user?.role === 'dean';
+    const isPrincipal = user?.role === 'principal';
+    const isGM = user?.role === 'gm';
     // Wardens can investigate (flag for review) but cannot close alerts.
     const isExecutive = isAdmin || isDean || isPrincipal || isGM;
-    const canModifyAlerts = isAdmin;
+    const canModifyAlerts = isAdmin || isGM;
 
     const canResolve = canModifyAlerts;
     const canDismiss = canModifyAlerts;
     const canEscalate = canModifyAlerts;
     const canReopen = canModifyAlerts;
     const canInvestigate = isWarden || canModifyAlerts;
-    const canAcknowledge = isDean || isPrincipal || canModifyAlerts;
+    // Dean/Principal are read-only in alert lifecycle actions.
+    const canAcknowledge = canModifyAlerts;
 
     const fetchAlerts = useCallback(async () => {
         try {

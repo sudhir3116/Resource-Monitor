@@ -25,7 +25,7 @@ router.post('/', [body('title').notEmpty().withMessage('title is required'), bod
 
 // ── Stats: Admin, Warden, Dean, Principal ─────────────────────────────────
 router.get('/stats',
-    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN),
+    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL),
     getComplaintStatistics
 );
 
@@ -47,18 +47,18 @@ router.put('/:id/resolve',
     resolveComplaint
 );
 
-// ── Escalate: Dean, Principal, Admin only ─────────────────────────────────
+// ── Escalate: Admin, GM only ──────────────────────────────────────────────
 router.put('/:id/escalate',
-    authorizeRoles(ROLES.DEAN, ROLES.ADMIN),
+    authorizeRoles(ROLES.ADMIN, ROLES.GM),
     [param('id').isMongoId().withMessage('Invalid id')],
     runValidations,
     auditMiddleware('ESCALATE_COMPLAINT', 'Complaint'),
     escalateComplaint
 );
 
-// ── Generic status update: Admin, Warden, Dean, Principal ─────────────────
+// ── Generic status update: Admin, Warden, GM ──────────────────────────────
 router.put('/:id/status',
-    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN),
+    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.GM),
     [param('id').isMongoId().withMessage('Invalid id')],
     runValidations,
     auditMiddleware('UPDATE', 'Complaint'),
@@ -67,7 +67,7 @@ router.put('/:id/status',
 
 // ── PATCH status update (alternative endpoint) ──────────────────────────────
 router.patch('/:id/status',
-    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.DEAN),
+    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.GM),
     [param('id').isMongoId().withMessage('Invalid id')],
     runValidations,
     auditMiddleware('UPDATE', 'Complaint'),

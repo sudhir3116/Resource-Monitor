@@ -17,9 +17,15 @@ exports.getUsageSummary = async (options = {}) => {
     // ── Build match stage ──────────────────────────────────────────────────────
     const matchStage = { deleted: { $ne: true } };
 
+    const extractObjId = (raw) => {
+        if (!raw) return null;
+        const s = raw?._id?.toString() || raw?.toString() || null;
+        if (!s || s.length !== 24) return null;
+        try { return new mongoose.Types.ObjectId(s); } catch (e) { return null; }
+    };
+
     if (['warden', 'student'].includes(normalizedRole)) {
         if (!blockId) {
-            // Warden/student with no block: return empty summary
             const noConfigs = await SystemConfig.find({ isActive: { $ne: false } }).lean();
             const emptySummary = {};
             noConfigs.forEach(cfg => {
@@ -38,10 +44,11 @@ exports.getUsageSummary = async (options = {}) => {
                 filteredByBlock: true
             };
         }
-        matchStage.blockId = new mongoose.Types.ObjectId(blockId.toString());
+        const bObjId = extractObjId(blockId);
+        if (bObjId) matchStage.blockId = bObjId;
     } else if (blockId) {
-        // High-level roles can filter by block if provided
-        matchStage.blockId = new mongoose.Types.ObjectId(blockId.toString());
+        const bObjId = extractObjId(blockId);
+        if (bObjId) matchStage.blockId = bObjId;
     }
 
     if (startDate || endDate) {
@@ -56,7 +63,7 @@ exports.getUsageSummary = async (options = {}) => {
         { $match: matchStage },
         {
             $group: {
-                _id: '$resource_type',
+                _id: { $toLower: '$resource_type' },
                 total: { $sum: '$usage_value' },
                 count: { $sum: 1 },
                 avgValue: { $avg: '$usage_value' },
@@ -70,7 +77,7 @@ exports.getUsageSummary = async (options = {}) => {
 
     const [results, configs] = await Promise.all([
         Usage.aggregate(pipeline),
-        SystemConfig.find({ isActive: { $ne: false } }).lean()
+        SystemConfig.find({ isActive: true }).lean()
     ]);
 
     // Build config map
@@ -99,22 +106,22 @@ exports.getUsageSummary = async (options = {}) => {
 
     // Fill with actual aggregation results
     results.forEach(r => {
-        if (!r._id) return;
-        const cfg = configMap[r._id] || {};
-        // Update existing entry or create new one for unconfigured resources
-        summary[r._id] = {
+        const key = Object.keys(summary).find(
+            k => k.toLowerCase() === (r._id || '').toLowerCase()
+        );
+        if (!key) return;
+
+        const cfg = configMap[key] || {};
+        summary[key] = {
+            ...summary[key],
             total: Math.round(r.total * 100) / 100,
             current: Math.round(r.total * 100) / 100,
             cost: Math.round((r.cost || 0) * 100) / 100,
             count: r.count,
             avgValue: Math.round((r.avgValue || 0) * 100) / 100,
             maxValue: Math.round((r.maxValue || 0) * 100) / 100,
-            unit: cfg.unit || 'units',
-            dailyLimit: cfg.dailyThreshold || cfg.dailyLimit || 0,
-            monthlyLimit: cfg.monthlyThreshold || cfg.monthlyLimit || 0,
-            icon: cfg.icon || '📊',
-            color: cfg.color || '#64748b',
-            lastDate: r.lastDate
+            lastDate: r.lastDate,
+            estimatedCost: Math.round(r.total * (cfg.costPerUnit || cfg.rate || 0) * 100) / 100
         };
     });
 
@@ -183,6 +190,10 @@ exports.getUsageTrends = async (options = {}) => {
         matchStage.blockId = new mongoose.Types.ObjectId(blockId.toString());
     }
 
+    // ── Filter by active resources ──────────────────────────────
+    const activeConfigs = await SystemConfig.find({ isActive: true }).select('resource').lean();
+    const activeNames = new Set(activeConfigs.map(c => c.resource?.toLowerCase()));
+
     const trends = await Usage.aggregate([
         { $match: matchStage },
         {
@@ -202,6 +213,10 @@ exports.getUsageTrends = async (options = {}) => {
     trends.forEach(t => {
         const date = t._id.date;
         const resource = t._id.resource;
+
+        // Skip if resource is no longer active
+        if (!activeNames.has(resource?.toLowerCase())) return;
+
         if (!trendMap[date]) trendMap[date] = { date };
         trendMap[date][resource] = Math.round(t.total * 100) / 100;
     });

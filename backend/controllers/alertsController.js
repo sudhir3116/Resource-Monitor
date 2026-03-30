@@ -46,11 +46,7 @@ async function _buildScopeFilter(reqUser) {
   const filter = {};
   const role = (reqUser.role || '').toLowerCase();
 
-  if (role === 'principal') {
-    throw new Error('Principal does not have access to raw alerts');
-  }
-
-  // Wardens and Students are scoped to their assigned block only
+  // Principal/Dean have campus visibility handled by default return below
   if (role === 'student' || role === 'warden') {
     const user = await User.findById(reqUser.id).lean();
     if (user?.block) {

@@ -1,394 +1,291 @@
-import React, { useEffect, useState, useContext, useMemo, useCallback } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import useResources from '../hooks/useResources';
 import { useToast } from '../context/ToastContext';
-import { AuthContext } from '../context/AuthContext';
-import { ROLES } from '../utils/roles';
-import {
-  Save,
-  ArrowLeft,
-  Zap,
-  Droplets,
-  Sun,
-  Flame,
-  Wind,
-  Trash2,
-  Calendar,
-  MapPin,
-  AlignLeft,
-  ShieldOff,
-  Lock,
-  Activity,
-  RefreshCw,
-  Box,
-  FileText
-} from 'lucide-react';
-import Card from '../components/common/Card';
-import Button from '../components/common/Button';
-import Badge from '../components/common/Badge';
-import { logger } from '../utils/logger';
-import EmptyState from '../components/common/EmptyState';
+import { ArrowLeft, Save, Activity, LayoutGrid, Calendar, FileText, MapPin, Gauge } from 'lucide-react';
 
-const RESOURCE_META = {
-  Electricity: { icon: <Zap size={20} />, color: '#f59e0b', bg: 'bg-amber-50 dark:bg-amber-900/20' },
-  Water: { icon: <Droplets size={20} />, color: '#3b82f6', bg: 'bg-blue-50 dark:bg-blue-900/20' },
-  LPG: { icon: <Flame size={20} />, color: '#f97316', bg: 'bg-orange-50 dark:bg-orange-900/20' },
-  Diesel: { icon: <Wind size={20} />, color: '#64748b', bg: 'bg-slate-50 dark:bg-slate-900/20' },
-  Solar: { icon: <Sun size={20} />, color: '#eab308', bg: 'bg-yellow-50 dark:bg-yellow-900/20' },
-  Waste: { icon: <Trash2 size={20} />, color: '#f43f5e', bg: 'bg-rose-50 dark:bg-rose-900/20' }
-};
-
-export default function UsageForm() {
-  const { id } = useParams();
+const UsageForm = () => {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const { addToast } = useToast();
-  const { user } = useContext(AuthContext);
+  const { resources, loading: resourcesLoading } = useResources();
 
-  const [loading, setLoading] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [blocks, setBlocks] = useState([]);
-  const [dynamicResources, setDynamicResources] = useState([]);
-
-  const getLocalISOString = () => {
-    const tzOffset = new Date().getTimezoneOffset() * 60000;
-    return new Date(Date.now() - tzOffset).toISOString().slice(0, 16);
-  };
-
-  const isWarden = user?.role === ROLES.WARDEN;
-  const wardenBlockId = user?.block?._id || user?.block || null;
-  const wardenBlockName = user?.block?.name || null;
-  // Role-scoped path prefix for navigation
-  const usageBasePath = user?.role === 'admin' ? '/admin/usage'
-    : user?.role === 'warden' ? '/warden/usage'
-      : '/usage';
-
-  const [form, setForm] = useState({
-    resource_type: '',
-    category: wardenBlockName || '',
-    usage_value: '',
-    usage_date: getLocalISOString(),
+  const [formData, setFormData] = useState({
+    value: '',
+    date: new Date().toISOString().split('T', 1)[0],
     notes: ''
   });
-  const [errors, setErrors] = useState({});
+  const [selectedResource, setSelectedResource] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
 
-  const canWrite = user && [ROLES.ADMIN, ROLES.WARDEN].includes(user.role);
+  const isWarden = user?.role === 'warden';
+  const role = (user?.role || '').toLowerCase();
+  const rawBlock = user?.block;
+  const blockName = rawBlock?.name || 'Your Block';
+  const blockId = rawBlock?._id?.toString() || rawBlock?.toString() || '';
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  // Route-scoped path prefix for navigation
+  const usageBasePath = role === 'admin' ? '/admin/usage'
+    : role === 'warden' ? '/warden/usage'
+      : '/usage';
+
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
+
+    const payload = {
+      blockId,
+      resource: selectedResource?._id, // Add ID for new schema
+      resource_type: selectedResource?.name,
+      usage_value: Number(formData.value),
+      unit: selectedResource?.unit || '',
+      usage_date: formData.date || new Date().toISOString(),
+      notes: formData.notes || ''
+    };
+
+    // Validate before sending
+    if (!payload.blockId) {
+      setError('No block assigned to your account. Contact Admin HQ.');
+      return;
+    }
+    if (!payload.resource_type) {
+      setError('Please select a resource type.');
+      return;
+    }
+    if (!payload.usage_value || payload.usage_value <= 0) {
+      setError('Enter a valid consumption value greater than 0.');
+      return;
+    }
+
     try {
-      const [configRes, blocksRes] = await Promise.allSettled([
-        api.get('/api/config/thresholds'),
-        (!isWarden) ? api.get('/api/admin/blocks') : Promise.resolve({ status: 'rejected' })
-      ]);
+      setSubmitting(true);
+      setError(null);
 
-      if (configRes.status === 'fulfilled') {
-        const configs = configRes.value.data.data || [];
-        const activeResources = configs.filter(c => c.isActive !== false);
-        setDynamicResources(activeResources);
+      const res = await api.post('/api/usage', payload);
 
-        if (!id && activeResources.length > 0) {
-          setForm(f => ({ ...f, resource_type: activeResources[0].name || activeResources[0].resource }));
-        }
-      }
-
-      if (blocksRes.status === 'fulfilled') {
-        setBlocks(blocksRes.value.data.data || []);
-        if (!id && !isWarden && blocksRes.value.data.data?.length > 0) {
-          setForm(f => ({ ...f, category: blocksRes.value.data.data[0].name }));
-        }
-      }
-
-      if (id) {
-        const res = await api.get(`/api/usage/${id}`);
-        const usage = res.data.usage;
-        setForm({
-          resource_type: usage.resource_type,
-          category: usage.category || '',
-          usage_value: usage.usage_value,
-          usage_date: new Date(usage.usage_date).toISOString().slice(0, 16),
-          notes: usage.notes || ''
+      if (res.data.success || res.status === 201) {
+        // Clear form
+        setFormData({
+          value: '',
+          date: new Date().toISOString().split('T', 1)[0],
+          notes: ''
         });
+        setSelectedResource(null);
+
+        // Show success toast
+        if (typeof addToast === 'function') {
+          addToast('Usage logged successfully!', 'success');
+        }
+
+        // Trigger refresh across all pages via globally recognized event
+        window.dispatchEvent(
+          new CustomEvent('usage:added', {
+            detail: {
+              resource_type: payload.resource_type,
+              blockId: payload.blockId
+            }
+          })
+        );
+
+        // Navigate back to usage list based on role
+        const paths = {
+          admin: '/admin/usage',
+          warden: '/warden/usage',
+          gm: '/gm/usage'
+        };
+        navigate(paths[role] || '/usage/all');
+      } else {
+        setError(res.data.message || 'Transmission failed. Data not saved.');
       }
     } catch (err) {
-      logger.error('Form fetchData error:', err);
+      const msg = err.response?.data?.message || err.message || 'Failed to connect to server';
+      setError(msg);
+      console.error('UsageForm submit error:', err);
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
-  }, [id, isWarden]);
-
-  useEffect(() => {
-    if (canWrite) fetchData();
-  }, [fetchData, canWrite]);
-
-  const selectedResource = dynamicResources.find(r => r.name === form.resource_type);
-  const selectedResourceMissing = !!form.resource_type && !selectedResource;
-
-  const validate = () => {
-    const newErrors = {};
-    if (!form.resource_type) newErrors.resource_type = 'Please select a resource.';
-    if (!form.usage_value || form.usage_value <= 0) newErrors.usage_value = 'Value must be positive.';
-    if (!form.usage_date) newErrors.usage_date = 'Date is required.';
-    else if (new Date(form.usage_date) > new Date()) newErrors.usage_date = 'Date cannot be in the future.';
-    if (isWarden && !wardenBlockId) newErrors.block = 'Assignment missing — contact Administrative HQ.';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
   };
 
-  async function handleSubmit(e) {
-    if (e) e.preventDefault();
-    if (!validate()) return;
-
-    setIsSubmitting(true);
-    try {
-      const selectedBlock = blocks.find(b => b.name === form.category);
-      const payload = {
-        resource_type: form.resource_type,
-        usage_value: Number(form.usage_value),
-        usage_date: new Date(form.usage_date),
-        unit: dynamicResources.find(r => r.name === form.resource_type)?.unit || 'units',
-        notes: form.notes,
-      };
-
-      if (isWarden && wardenBlockId) {
-        payload.blockId = wardenBlockId;
-      } else if (selectedBlock) {
-        payload.blockId = selectedBlock._id;
-      }
-
-      if (id) await api.put(`/api/usage/${id}`, payload);
-      else await api.post('/api/usage', payload);
-
-      addToast(id ? 'Vector recalibrated successfully' : 'Usage sequence initialized', 'success');
-      navigate(`${usageBasePath}/all`);
-    } catch (err) {
-      addToast(err.response?.data?.message || err.message || 'Transmission failed', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  const getMeta = (type) => RESOURCE_META[type] || { icon: <Activity size={20} />, color: '#64748b', bg: 'bg-slate-50' };
-
-  if (!canWrite) {
+  if (resourcesLoading) {
     return (
-      <div className="max-w-xl mx-auto py-20 text-center">
-        <EmptyState
-          title="Unauthorized Uplink"
-          description={`Your current role (${user?.role}) lacks write permissions for this sector.`}
-          action={<Button onClick={() => navigate('/usage/all')} variant="secondary"><ArrowLeft className="mr-2" /> Return to Data Stream</Button>}
-        />
+      <div className="flex flex-col items-center justify-center p-20 space-y-4">
+        <Activity className="animate-spin text-blue-600" size={32} />
+        <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Initializing Link...</p>
       </div>
     );
   }
 
-  if (loading) return (
-    <div className="max-w-3xl mx-auto py-20 flex flex-col items-center justify-center space-y-4">
-      <RefreshCw className="animate-spin text-blue-600" size={40} />
-      <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Initializing Secure Link...</p>
-    </div>
-  );
-
   return (
-    <div className="max-w-4xl mx-auto pb-32 pt-10 px-4">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
-        <div className="space-y-2">
-          <Link to={`${usageBasePath}/all`} className="flex items-center text-xs font-bold text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 uppercase tracking-[0.2em] transition-colors mb-4 group">
-            <ArrowLeft size={14} className="mr-2 group-hover:-translate-x-1 transition-transform" /> Back to Records
-          </Link>
-          <h1 className="text-4xl font-extrabold tracking-tight" style={{ color: 'var(--text-primary)' }}>
-            {id ? 'Refactor' : 'Log'} <span className="text-blue-600">Resource Unit</span>
-          </h1>
-          <p className="text-slate-500">Record institutional consumption metrics with high-precision data entry.</p>
-        </div>
-        <div className="flex bg-slate-100 dark:bg-slate-800/50 p-1 rounded-2xl border border-slate-200 dark:border-slate-800">
-          <Badge variant="secondary" className="px-4 py-2 text-xs font-black uppercase tracking-wider">
-            Authority: {user.role.toUpperCase()}
-          </Badge>
-        </div>
+    <div className="max-w-4xl mx-auto p-4 md:p-8">
+      <div className="mb-8">
+        <Link to={`${usageBasePath}/all`} className="inline-flex items-center text-xs font-bold text-slate-400 hover:text-blue-600 uppercase tracking-widest transition-colors mb-4 group">
+          <ArrowLeft size={14} className="mr-2 group-hover:-translate-x-1 transition-transform" /> Records List
+        </Link>
+        <h1 className="text-3xl font-black text-slate-900 flex items-center gap-3">
+          <Gauge className="text-blue-600" /> Log Consumption
+        </h1>
+        <p className="text-slate-500 mt-2">Enter latest resource metrics for accurate system analytics.</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-8">
-        <Card className="overflow-visible border-b-4 border-blue-600">
-          <div className="space-y-12">
-
-            {/* Resource Selector */}
-            <div className="space-y-6">
-              <label className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em] flex items-center gap-2">
-                <Box size={14} className="text-blue-600" /> Resource Vector
-              </label>
-
-              {dynamicResources.length === 0 ? (
-                form.resource_type ? (
-                  <div className="p-6 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl text-center text-slate-500 italic">
-                    Selected resource was deactivated or deleted.
-                    <div className="mt-2 text-xs text-slate-400">
-                      Label: <strong style={{ color: 'var(--text-primary)' }}>Deleted Resource</strong>
-                    </div>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* 1. Resource Selection */}
+        <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 md:p-8 shadow-xl backdrop-blur-md">
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] flex items-center gap-2 mb-8">
+            <LayoutGrid size={14} className="text-blue-500" /> 01. SECURE CHANNEL SELECTION
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+            {resources.map(r => (
+              <button
+                key={r.name}
+                type="button"
+                onClick={() => {
+                  setSelectedResource(r);
+                  setError(null);
+                }}
+                className={`group flex flex-col items-center justify-center p-6 rounded-2xl border-2 transition-all duration-300 relative overflow-hidden ${selectedResource?.name === r.name
+                  ? 'border-blue-500 bg-blue-600/10 shadow-[0_0_20px_rgba(59,130,246,0.2)] scale-105 z-10'
+                  : 'border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30'
+                  }`}
+              >
+                {selectedResource?.name === r.name && (
+                  <div className="absolute top-0 right-0 p-1 bg-blue-500 rounded-bl-lg">
+                    <Save size={10} className="text-white" />
                   </div>
-                ) : (
-                  <div className="p-8 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl text-center text-slate-500 italic">
-                    No active resource channels available. Contact System Admin to enable sensors.
-                  </div>
-                )
-              ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {dynamicResources.map(res => {
-                    const meta = getMeta(res.name);
-                    const isActive = form.resource_type === res.name;
-                    return (
-                      <button
-                        key={res._id}
-                        type="button"
-                        onClick={() => setForm({ ...form, resource_type: res.name })}
-                        className={`group relative flex flex-col items-center justify-center p-6 rounded-3xl border-2 transition-all duration-300 ${isActive
-                          ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-600/10 shadow-lg shadow-blue-600/10 scale-[1.02]'
-                          : 'border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700 bg-white dark:bg-slate-900/50'
-                          }`}
-                      >
-                        <div className={`p-4 rounded-2xl mb-4 transition-transform group-hover:scale-110 ${isActive ? 'bg-blue-600 text-white' : 'bg-slate-50 dark:bg-slate-800 text-slate-500'}`}>
-                          {meta.icon}
-                        </div>
-                        <span className={`text-xs font-black uppercase tracking-widest ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500'}`}>
-                          {res.name}
-                        </span>
-                        {isActive && <div className="absolute top-3 right-3 h-2 w-2 rounded-full bg-blue-600 animate-ping" />}
-                      </button>
-                    );
-                  })}
+                )}
+                <span className={`text-4xl mb-3 transition-transform duration-300 group-hover:scale-110 ${selectedResource?.name === r.name ? 'grayscale-0' : 'grayscale'}`}>
+                  {r.icon || '📊'}
+                </span>
+                <span className={`text-[10px] font-black uppercase tracking-widest text-center transition-colors ${selectedResource?.name === r.name ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-600'}`}>
+                  {r.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
 
-                  {selectedResourceMissing && (
-                    <button
-                      type="button"
-                      disabled
-                      className="group relative flex flex-col items-center justify-center p-6 rounded-3xl border-2 border-slate-200 bg-white/50 dark:bg-slate-900/30 text-slate-400 cursor-not-allowed"
-                      title="This resource is no longer active"
-                    >
-                      <div className="p-4 rounded-2xl mb-4 bg-slate-100 dark:bg-slate-800 text-slate-500">
-                        <Activity size={22} />
-                      </div>
-                      <span className="text-xs font-black uppercase tracking-widest text-slate-500">
-                        Deleted Resource
-                      </span>
-                      <span className="text-[10px] mt-1 text-slate-400">
-                        {form.resource_type}
-                      </span>
-                    </button>
-                  )}
-                </div>
-              )}
-              {errors.resource_type && <p className="text-rose-500 text-xs font-bold pl-2">System Alert: {errors.resource_type}</p>}
-            </div>
-
-            {/* Main Metrics */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-              <div className="space-y-4">
-                <label className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em] flex items-center gap-2">
-                  <Activity size={14} className="text-blue-600" /> Consumption Value
-                </label>
-                <div className="relative group">
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    className={`form-input h-16 px-8 text-2xl font-black transition-all ${errors.usage_value ? 'border-rose-500 ring-rose-500/10' : 'focus:border-blue-600 focus:ring-blue-600/10'}`}
-                    value={form.usage_value}
-                    onChange={e => setForm({ ...form, usage_value: e.target.value })}
-                  />
-                  <div className="absolute right-8 top-1/2 -translate-y-1/2 text-slate-400 font-black text-xs uppercase tracking-widest pointer-events-none group-focus-within:text-blue-600 transition-colors">
-                    {dynamicResources.find(r => r.name === form.resource_type)?.unit || 'units'}
-                  </div>
-                </div>
-                {errors.usage_value && <p className="text-rose-500 text-xs font-bold pl-2">{errors.usage_value}</p>}
-              </div>
-
-              <div className="space-y-4">
-                <label className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em] flex items-center gap-2">
-                  <Calendar size={14} className="text-blue-600" /> Temporal Reference
-                </label>
-                <input
-                  type="datetime-local"
-                  className={`form-input h-16 px-8 font-bold ${errors.usage_date ? 'border-rose-500' : ''}`}
-                  value={form.usage_date}
-                  onChange={e => setForm({ ...form, usage_date: e.target.value })}
-                />
-                {errors.usage_date && <p className="text-rose-500 text-xs font-bold pl-2">{errors.usage_date}</p>}
-              </div>
-            </div>
-
-            {/* Location Selector */}
-            <div className="space-y-4">
-              <label className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em] flex items-center gap-2">
-                <MapPin size={14} className="text-blue-600" /> Deployment Sector
-              </label>
-
-              {isWarden ? (
-                <div className="relative group h-16 flex items-center px-8 rounded-3xl bg-slate-50/50 dark:bg-slate-800/30 border-2 border-slate-100 dark:border-slate-800 text-slate-500 cursor-not-allowed overflow-hidden">
-                  <Lock size={16} className="absolute left-6 text-slate-400" />
-                  <span className="font-bold tracking-tight pl-6 flex-1">
-                    {wardenBlockName || 'Unassigned — Contact Command Center'}
-                  </span>
-                  <Badge variant="secondary" className="bg-white/50 dark:bg-slate-800/80">FIXED SECTOR</Badge>
-                  <div className="absolute bottom-0 left-0 h-[2px] bg-slate-300 dark:bg-slate-700 w-full" />
-                </div>
-              ) : (
-                <select
-                  className="form-input h-16 px-8 font-bold tracking-tight cursor-pointer"
-                  value={form.category}
-                  onChange={e => setForm({ ...form, category: e.target.value })}
-                >
-                  <option value="" disabled>Select Sector...</option>
-                  {blocks.map(b => (
-                    <option key={b._id} value={b.name}>{b.name}</option>
-                  ))}
-                  {blocks.length === 0 && (
-                    <>
-                      <option>Hostel Block A</option>
-                      <option>Hostel Block B</option>
-                      <option>Hostel Block C</option>
-                      <option>Mess Hall</option>
-                    </>
-                  )}
-                </select>
-              )}
-              {errors.block && <p className="text-rose-500 text-xs font-bold pl-2">{errors.block}</p>}
-            </div>
-
-            {/* Description */}
-            <div className="space-y-4">
-              <label className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em] flex items-center gap-2">
-                <AlignLeft size={14} className="text-blue-600" /> Operational Notes
-              </label>
-              <textarea
-                rows="4"
-                className="form-input p-6 text-sm font-medium leading-relaxed resize-none"
-                placeholder="Enter any qualitative observations or sensor anomalies..."
-                value={form.notes}
-                onChange={e => setForm({ ...form, notes: e.target.value })}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* 2. Consumption Value */}
+          <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 md:p-8 shadow-lg backdrop-blur-md">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] flex items-center gap-2 mb-6">
+              <Activity size={14} className="text-blue-500" /> 02. METRIC QUANTITY
+            </label>
+            <div className="relative group">
+              <input
+                type="number"
+                step="any"
+                placeholder="0.00"
+                value={formData.value}
+                onChange={e => setFormData(p => ({ ...p, value: e.target.value }))}
+                className="w-full h-16 px-6 text-3xl font-black rounded-xl bg-slate-900 text-white border-2 border-slate-800 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none placeholder:text-slate-700"
+                required
               />
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
+                <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
+                  {selectedResource?.unit || 'units'}
+                </span>
+              </div>
+            </div>
+            <p className="mt-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              {selectedResource ? `Recording ${selectedResource.name} intake` : 'Select a resource to proceed'}
+            </p>
+          </div>
+
+          {/* 3. Date Selection */}
+          <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 md:p-8 shadow-lg backdrop-blur-md">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] flex items-center gap-2 mb-6">
+              <Calendar size={14} className="text-blue-500" /> 03. LOG PERIOD
+            </label>
+            <input
+              type="date"
+              value={formData.date}
+              max={new Date().toISOString().split('T', 1)[0]}
+              onChange={e => setFormData(p => ({ ...p, date: e.target.value }))}
+              className="w-full h-16 px-6 text-xl font-bold rounded-xl bg-slate-900 text-white border-2 border-slate-800 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none cursor-pointer appearance-none"
+            />
+          </div>
+        </div>
+
+        {/* 4. Block Info */}
+        <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 md:p-8 shadow-lg backdrop-blur-md">
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] flex items-center gap-2 mb-6">
+            <MapPin size={14} className="text-blue-500" /> 04. SECTOR IDENTIFICATION
+          </label>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-6 p-6 bg-slate-900 rounded-2xl border border-slate-800">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 shadow-inner">
+                <LayoutGrid className="text-blue-500" size={24} />
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-0.5">Deployment Sector</p>
+                <p className="text-xl font-bold text-white">{blockName}</p>
+              </div>
+            </div>
+            <div className="sm:ml-auto">
+              <div className="flex items-center gap-2 px-4 py-2 bg-slate-800 rounded-full border border-slate-700">
+                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
+                  {isWarden ? 'Auto-Assigned HQ' : 'System Context'}
+                </span>
+              </div>
             </div>
           </div>
-        </Card>
+        </div>
 
-        <div className="flex gap-4">
-          <Button
-            type="button"
-            variant="secondary"
-            className="flex-1 h-14 font-black uppercase tracking-widest text-xs"
-            onClick={() => navigate(`${usageBasePath}/all`)}
-          >
-            Abort Protocol
-          </Button>
-          <Button
+        {/* 5. Notes */}
+        <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 md:p-8 shadow-lg backdrop-blur-md">
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] flex items-center gap-2 mb-6">
+            <FileText size={14} className="text-blue-500" /> 05. CORE OBSERVATIONS
+          </label>
+          <textarea
+            rows="3"
+            placeholder="Log entries, anomaly reports, or sensor diagnostics..."
+            value={formData.notes}
+            onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))}
+            className="w-full p-6 text-sm font-medium rounded-xl bg-slate-900 text-white border-2 border-slate-800 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none resize-none placeholder:text-slate-700"
+          />
+        </div>
+
+        {error && (
+          <div className="p-5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-500 text-sm font-bold flex items-center gap-4 animate-in slide-in-from-top-4">
+            <div className="w-10 h-10 rounded-full bg-rose-500/20 flex items-center justify-center shrink-0">
+              <Activity size={18} />
+            </div>
+            <p className="uppercase tracking-wide leading-tight">Critical Warning: {error}</p>
+          </div>
+        )}
+
+        <div className="pt-6">
+          <button
             type="submit"
-            variant="primary"
-            className="flex-[2] h-14 font-black uppercase tracking-[0.2em] text-xs shadow-xl shadow-blue-600/20"
-            disabled={isSubmitting || (isWarden && !wardenBlockId)}
+            disabled={submitting || !selectedResource || !formData.value}
+            className={`w-full h-20 rounded-2xl text-xs font-black uppercase tracking-[0.3em] shadow-2xl transition-all active:scale-[0.97] flex items-center justify-center gap-4 ${submitting || !selectedResource || !formData.value
+              ? 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
+              : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20 border-b-4 border-blue-800'
+              }`}
           >
-            {isSubmitting ? <RefreshCw className="animate-spin mr-2" size={16} /> : <Save className="mr-2" size={16} />}
-            {id ? 'Commit Unit Update' : 'Initialize Data Log'}
-          </Button>
+            {submitting ? (
+              <>
+                <Activity className="animate-spin" size={20} /> SYNCING LOGGED DATA...
+              </>
+            ) : (
+              <>
+                <Save size={20} /> COMMIT LOG ENTRY
+              </>
+            )}
+          </button>
+          <div className="flex items-center justify-center gap-4 mt-8">
+            <div className="h-px w-10 bg-slate-800" />
+            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-[0.3em]">
+              Integrity protocol active • Secure Uplink
+            </p>
+            <div className="h-px w-10 bg-slate-800" />
+          </div>
         </div>
       </form>
     </div>
   );
-}
+};
+
+export default UsageForm;

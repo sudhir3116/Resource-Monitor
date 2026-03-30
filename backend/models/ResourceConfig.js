@@ -7,7 +7,9 @@ const resourceConfigSchema = new mongoose.Schema({
     monthlyLimit: { type: Number, default: 3000 },
     icon: { type: String },
     color: { type: String },
-    isActive: { type: Boolean, default: true }
+    isActive: { type: Boolean, default: true },
+    isDeleted: { type: Boolean, default: false },
+    costPerUnit: { type: Number, default: 0 }
 }, { timestamps: true });
 
 module.exports = mongoose.model('ResourceConfig', resourceConfigSchema);

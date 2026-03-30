@@ -8,7 +8,6 @@ const mailer = require('../utils/mailer')
 const { checkThresholds } = require('../services/thresholdService')
 const mongoose = require('mongoose')
 const SystemConfig = require('../models/SystemConfig')
-const ResourceConfig = require('../models/ResourceConfig')
 const { RESOURCE_UNITS } = require('../config/constants')
 const { parseSortParam, buildDateRangeFilter, parsePagination } = require('../utils/queryBuilder')
 const exportService = require('../services/exportService')
@@ -131,252 +130,168 @@ const sendAlertEmail = async (userId, subject, message) => {
 
 exports.createUsage = async (req, res) => {
   try {
-    // ── Role Guard ──────────────────────────────────────────────────────────────
-    const callerRole = req.user?.role;
-    const WRITE_ROLES = ['admin', 'warden'];
-    if (!callerRole || !WRITE_ROLES.includes(callerRole)) {
-      return res.status(403).json({
-        success: false,
-        message: `Access denied. Only Wardens and Admins can log usage. Your role: '${callerRole || 'unknown'}'`
-      });
-    }
+    const user = req.user
+    const role = (user.role || '').toLowerCase()
 
-    const resource_type = req.body.resourceType || req.body.resource_type || req.body.resource
-    const category = req.body.category || 'General'
-    const rawValue = req.body.amount ?? req.body.usage_value
-    const usage_date = req.body.date || req.body.usage_date || new Date()
+    // Accept both naming formats
+    const resource_type =
+      req.body.resource_type ||
+      req.body.resourceType ||
+      req.body.resource || ''
+
+    const usage_value =
+      Number(req.body.usage_value ||
+        req.body.value ||
+        req.body.amount || 0)
+
+    const usage_date = req.body.usage_date ||
+      req.body.date ||
+      new Date()
+
     const notes = req.body.notes || ''
 
-    // ── Numeric & Positive Validation ─────────────────────────────────────────
-    if (!resource_type) return res.status(400).json({ success: false, message: 'Resource type is required' })
-    if (rawValue === undefined || rawValue === null || rawValue === '') {
-      return res.status(400).json({ success: false, message: 'Usage value is required' })
+    // Validate
+    if (!resource_type.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Resource type is required'
+      })
     }
-    const usage_value = Number(rawValue)
-    if (isNaN(usage_value)) return res.status(400).json({ success: false, message: 'Usage value must be a number' })
-    if (usage_value <= 0) return res.status(400).json({ success: false, message: 'Usage value must be greater than zero' })
-    if (!usage_date) return res.status(400).json({ success: false, message: 'Date is required' })
-
-    // ── Prevent Future Dates ──────────────────────────────────────────────────
-    if (new Date(usage_date) > new Date()) {
-      return res.status(400).json({ success: false, message: 'Usage date cannot be in the future' });
-    }
-
-    const userId = req.userId || req.user?.id || null
-    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' })
-
-    const user = await User.findById(userId);
-
-    // ── Cross-Block Validation for Wardens ───────────────────────────────────
-    // The request may specify a blockId explicitly, or we default to the warden's own block.
-    const requestedBlockId = req.body.blockId || req.body.block_id || null;
-
-    if (callerRole === 'warden') {
-      const wardenBlock = user?.block ? user.block.toString() : null;
-
-      if (!wardenBlock) {
-        return res.status(403).json({
-          success: false,
-          message: 'Access denied: You are not assigned to any block. Contact the admin.'
-        });
-      }
-
-      if (requestedBlockId && requestedBlockId !== wardenBlock) {
-        return res.status(403).json({
-          success: false,
-          message: 'Access denied: Cannot add usage for another block. You can only log usage for your assigned block.'
-        });
-      }
+    if (!usage_value || usage_value <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Value must be > 0'
+      })
     }
 
-    // Resolve final blockId: warden always uses their own block
-    const resolvedBlockId = callerRole === 'warden'
-      ? user?.block || null
-      : (requestedBlockId || user?.block || null);
+    // Get blockId
+    let blockId = req.body.blockId ||
+      req.body.block
 
-    // Calculate cost based on resource configuration
-    let costPerUnit = 0;
-    let currency = '₹';
-    let resourceConfig = null;
+    // Warden always uses their own block
+    if (role === 'warden') {
+      const rawBlock = user.block
+      const bId =
+        rawBlock?._id?.toString() ||
+        rawBlock?.toString() || null
+      if (bId) blockId = bId
+    }
 
+    if (!blockId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Block is required'
+      })
+    }
+
+    // Validate block exists
+    let blockObjectId
     try {
-      // Validate against new ResourceConfig
-      resourceConfig = await ResourceConfig.findOne({ name: resource_type, isActive: true });
-      if (!resourceConfig) {
-        return res.status(400).json({ success: false, message: `Invalid or inactive resource type: ${resource_type}` });
-      }
-      // Assuming a costPerUnit might be added to ResourceConfig later, defaulting to 0
-      costPerUnit = resourceConfig.costPerUnit || 0;
-      currency = resourceConfig.currency || '₹';
-    } catch (configErr) {
-      console.error('Error fetching resource config:', configErr);
+      blockObjectId =
+        new mongoose.Types.ObjectId(
+          blockId.toString()
+        )
+    } catch (e) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid block ID'
+      })
     }
 
-    const cost = usage_value * costPerUnit;
-
-    const usage = await Usage.create({
-      userId,
-      blockId: resolvedBlockId,
-      resource_type,
-      category,
-      usage_value,
-      unit: req.body.unit || resourceConfig?.unit || '',
-      usage_date,
-      notes,
-      cost,
-      currency,
-      createdBy: userId
-    })
-
-    // ⭐ TRACE: Log usage created
-    console.log(`\n[TRACE:CREATE_USAGE] Usage saved successfully`);
-    console.log(`  ├─ recordId: ${usage._id}`);
-    console.log(`  ├─ userId: ${userId}`);
-    console.log(`  ├─ blockId: ${resolvedBlockId || 'null'}`);
-    console.log(`  ├─ resource: ${resource_type}`);
-    console.log(`  ├─ value: ${usage_value}`);
-    console.log(`  └─ date: ${usage_date}\n`);
-
-    // ⭐ CRITICAL FIX: Pass blockId to trigger block-scoped alert checks
-    console.log(`[TRACE:CALLING_THRESHOLD_CHECK] Starting threshold checks...\n`);
-    await checkThresholds(userId, resource_type, usage_date, resolvedBlockId);
-
-    // After saving usage record (requested threshold auto-alert check):
-    if (resolvedBlockId) {
-      // config already fetched above as resourceConfig
-      const config = resourceConfig;
-
-      if (config) {
-        const today = new Date(usage_date);
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-
-        // Sum today's usage for this resource + block
-        const todayTotal = await Usage.aggregate([
+    // Validate and normalize resource
+    const ResourceConfig =
+      require('../models/ResourceConfig')
+    const config =
+      await ResourceConfig.findOne({
+        $or: [
           {
-            $match: {
-              blockId: resolvedBlockId,
-              resource_type: resource_type,
-              usage_date: { $gte: today, $lt: tomorrow },
-              deleted: { $ne: true }
+            name: {
+              $regex: new RegExp(
+                `^${resource_type.trim()}$`, 'i'
+              )
             }
           },
-          { $group: { _id: null, total: { $sum: '$usage_value' } } }
-        ]);
+          { resource: { $regex: new RegExp(`^${resource_type.trim()}$`, 'i') } }
+        ],
+        isActive: true,
+        isDeleted: { $ne: true }
+      })
 
-        const total = todayTotal[0]?.total || 0;
-        const limit = config.dailyLimit || 100;
-        const percentage = (total / limit) * 100;
+    if (!config) {
+      return res.status(400).json({
+        success: false,
+        message:
+          `Resource "${resource_type}"` +
+          ` not found or inactive`
+      })
+    }
 
-        if (percentage >= 100) {
-          // Determine severity
-          let severity = 'Medium';
-          if (percentage >= 200) severity = 'Critical';
-          else if (percentage >= 150) severity = 'High';
-          else if (percentage >= 100) severity = 'Medium';
+    // Use exact canonical name from config
+    const canonicalResourceType = config.name || config.resource
+    const unit =
+      req.body.unit || config.unit || 'units'
 
-          // Create alert (avoid duplicate for same day)
-          await Alert.findOneAndUpdate(
-            {
-              block: resolvedBlockId,
-              resourceType: resource_type,
-              alertType: 'daily',
-              createdAt: { $gte: today, $lt: tomorrow }
-            },
-            {
-              $setOnInsert: {
-                block: resolvedBlockId,
-                resourceType: resource_type,
-                alertType: 'daily',
-                severity: severity,
-                status: 'OPEN',
-                message: `Daily ${resource_type} limit exceeded. Used: ${total} / Limit: ${limit}`,
-                totalUsage: total,
-                dailyLimit: limit,
-                calculatedPercentage: percentage
-              }
-            },
-            { upsert: true, new: true }
-          );
-        }
+    // Create record
+    const usage = await Usage.create({
+      blockId: blockObjectId,
+      resource: config._id,
+      resource_type: canonicalResourceType,
+      usage_value,
+      unit,
+      usage_date: new Date(usage_date),
+      notes,
+      createdBy:
+        new mongoose.Types.ObjectId(
+          (user.id || user._id).toString()
+        ),
+      deleted: false
+    })
+
+    // Populate for response
+    const populated = await Usage
+      .findById(usage._id)
+      .populate('blockId', 'name location')
+      .populate('createdBy', 'name role')
+      .lean()
+
+    // Emit socket event for real-time sync
+    const io = req.app.get('io') ||
+      global.io
+    if (io) {
+      io.emit('usage:added', {
+        blockId: blockId.toString(),
+        resource_type: canonicalResourceType
+      })
+    }
+
+    // Trigger threshold check async
+    const {
+      checkThresholds
+    } = require('../services/thresholdService')
+    if (typeof checkThresholds === 'function') {
+      try {
+        await checkThresholds(usage)
+      } catch (e) {
+        console.error('Threshold error:', e.message)
       }
     }
 
-    // ⭐ Emit socket event so UI refreshes immediately
-    try {
-      const socketUtil = require('../utils/socket');
-      const socketManager = require('../socket/socketManager');
-      const io = socketUtil.getIO && socketUtil.getIO();
-      if (io) {
-        io.emit('alerts:refresh');
-        io.emit('usage:refresh');
-        io.emit('dashboard:refresh');
+    return res.status(201).json({
+      success: true,
+      message: 'Usage logged successfully',
+      data: populated || usage
+    })
 
-        const usageData = { block: resolvedBlockId, resource: resource_type, value: usage_value, timestamp: new Date() };
-        socketManager.emitToRole(io, 'admin', 'usage:new', usage);
-        socketManager.emitToRole(io, 'gm', 'usage:new', usage);
-        socketManager.emitToRole(io, 'warden', 'usage:new', usage);
-        if (resolvedBlockId) socketManager.emitToBlock(io, resolvedBlockId, 'usage:new', usage);
-        socketManager.emitToRole(io, 'admin', 'dashboard:usage_added', usageData);
-        socketManager.emitToRole(io, 'gm', 'dashboard:usage_added', usageData);
-        socketManager.emitToRole(io, 'warden', 'dashboard:usage_added', usageData);
-      }
-    } catch (e) { /* non-fatal */ }
-
-    try {
-      const { ALERT_STATUS } = require('../config/constants');
-      const rules = await AlertRule.find({ userId, resource_type, active: true })
-      for (const rule of rules) {
-        let triggered = false
-        if (rule.comparison === 'gt' && usage_value > rule.threshold_value) triggered = true
-        if (rule.comparison === 'lt' && usage_value < rule.threshold_value) triggered = true
-        if (rule.comparison === 'eq' && usage_value === Number(rule.threshold_value)) triggered = true
-
-        if (triggered) {
-          const message = `Custom Rule Triggered: ${resource_type} (${rule.comparison} ${rule.threshold_value}) met by value ${usage_value}.`
-          await AlertLog.create({
-            userId, alertRuleId: rule._id, resource_type, usage_value, threshold_value: rule.threshold_value, comparison: rule.comparison, message
-          })
-          await Alert.create({
-            user: userId,
-            block: resolvedBlockId,
-            resourceType: resource_type,
-            alertType: 'manual',
-            amount: usage_value,
-            message,
-            severity: 'Medium',
-            status: ALERT_STATUS.ACTIVE
-          });
-          await sendAlertEmail(userId, `Custom Alert Rule: ${resource_type}`, message);
-        }
-      }
-    } catch (e) {
-      console.error('AlertRule error', e)
-    }
-
-    // AUDIT LOG
-    try {
-      await AuditLog.create({
-        action: 'CREATE',
-        resourceType: 'Usage',
-        resourceId: usage._id,
-        userId: userId,
-        changes: {
-          after: usage.toObject()
-        },
-        description: `Logged new usage: ${usage_value} ${resource_type}`
-      });
-    } catch (err) {
-      console.error('AuditLog error', err);
-    }
-
-    res.status(201).json({ success: true, message: 'Usage logged successfully', usage })
   } catch (err) {
-    console.error('createUsage error', err)
-    res.status(500).json({ success: false, message: err.message })
+    console.error('createUsage:', err)
+    return res.status(500).json({
+      success: false,
+      message: err.message ||
+        'Failed to create usage'
+    })
   }
 }
+
 
 exports.getUsages = async (req, res) => {
   try {
@@ -437,7 +352,11 @@ exports.getUsages = async (req, res) => {
     }
 
     // Resource and category filters
-    if (resource && resource !== 'All') filter.resource_type = resource;
+    if (resource && resource !== 'All') {
+      const isObjectId = mongoose.Types.ObjectId.isValid(resource);
+      if (isObjectId) filter.resource = new mongoose.Types.ObjectId(resource);
+      else filter.resource_type = resource;
+    }
     if (category) filter.category = category;
 
     // Additional JSON filters
@@ -482,7 +401,8 @@ exports.getUsages = async (req, res) => {
       .limit(pageLimit)
       .populate('userId', 'name email role block')
       .populate('createdBy', 'name email role')
-      .populate('blockId', 'name location');
+      .populate('blockId', 'name location')
+      .populate('resource', 'resource unit costPerUnit category'); // Populate resource config info
 
     const total = await Usage.countDocuments(filter);
 
