@@ -265,6 +265,48 @@ exports.deleteBlock = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// UPDATE BLOCK
+// ─────────────────────────────────────────────────────────────────────────────
+exports.updateBlock = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const block = await Block.findById(id);
+        if (!block) return res.status(404).json({ success: false, message: 'Block not found' });
+
+        const { name, type, capacity, monthly_budget, status } = req.body;
+        const updates = {};
+        if (name && name.trim()) updates.name = name.trim();
+        if (type) updates.type = type;
+        if (capacity !== undefined) updates.capacity = Number(capacity) || 0;
+        if (monthly_budget !== undefined) updates.monthly_budget = Number(monthly_budget) || 0;
+        if (status) updates.status = status;
+
+        const updated = await Block.findByIdAndUpdate(id, updates, { new: true }).populate('warden', 'name email');
+
+        await AuditLog.create({
+            action: 'UPDATE',
+            resourceType: 'Block',
+            resourceId: id,
+            userId: req.user.id,
+            description: `Updated block: ${updated.name}`,
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+            changes: { before: block.toObject(), after: updated.toObject() }
+        });
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) io.emit('blocks:refresh');
+        } catch (e) { /* non-fatal */ }
+
+        res.json({ success: true, message: 'Block updated successfully', data: updated });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ASSIGN WARDEN TO BLOCK
 // ─────────────────────────────────────────────────────────────────────────────
 exports.assignWardenToBlock = async (req, res) => {
@@ -277,60 +319,64 @@ exports.assignWardenToBlock = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Block not found.' });
         }
 
+        // 1. Handle Unassignment
         if (!wardenId) {
-            // Unassign warden from this block
             const prevWardenId = block.warden;
             block.warden = undefined;
             await block.save();
             if (prevWardenId) {
                 await User.findByIdAndUpdate(prevWardenId, { $unset: { block: '' } });
             }
-            return res.json({ success: true, message: `Warden unassigned from block "${block.name}".` });
+            res.json({ success: true, message: `Warden unassigned from block "${block.name}".` });
+        } else {
+            // 2. Handle Assignment / Replacement
+            const warden = await User.findById(wardenId);
+            if (!warden || warden.role !== ROLES.WARDEN) {
+                return res.status(404).json({ success: false, message: 'Warden user not found or invalid role.' });
+            }
+
+            // Unassign THIS warden from any PREVIOUS block they were in
+            await clearBlockWarden(wardenId);
+
+            // Unassign the PREVIOUS warden of this target block (if any)
+            if (block.warden && block.warden.toString() !== wardenId) {
+                await User.findByIdAndUpdate(block.warden, { $unset: { block: '' } });
+            }
+
+            // Perform new assignment
+            warden.block = blockId;
+            await warden.save();
+
+            block.warden = wardenId;
+            await block.save();
+
+            await AuditLog.create({
+                action: 'UPDATE',
+                resourceType: 'Block',
+                resourceId: blockId,
+                userId: req.user.id,
+                description: `Assigned warden ${warden.email} to block "${block.name}"`,
+                ipAddress: req.ip,
+                userAgent: req.get('User-Agent'),
+                changes: { after: { warden: wardenId } }
+            });
+
+            const updated = await Block.findById(blockId).populate('warden', 'name email');
+            res.json({ success: true, message: `Warden "${warden.name}" assigned to block "${block.name}".`, data: updated });
         }
 
-        const warden = await User.findById(wardenId);
-        if (!warden) {
-            return res.status(404).json({ success: false, message: 'Warden user not found.' });
-        }
-        if (warden.role !== ROLES.WARDEN) {
-            return res.status(400).json({ success: false, message: `User "${warden.name}" is not a warden. Only users with the warden role can be assigned.` });
-        }
-
-        // Enforce one warden per block (exclude this warden from conflict check)
-        await enforceOneWardenPerBlock(blockId, ROLES.WARDEN, wardenId);
-
-        // Clear old block assignment for this warden
-        await clearBlockWarden(wardenId);
-
-        // Set new assignment
-        warden.block = blockId;
-        await warden.save();
-
-        block.warden = wardenId;
-        await block.save();
-
-        await AuditLog.create({
-            action: 'UPDATE',
-            resourceType: 'Block',
-            resourceId: blockId,
-            userId: req.user.id,
-            description: `Assigned warden ${warden.email} to block "${block.name}"`,
-            ipAddress: req.ip,
-            userAgent: req.get('User-Agent'),
-            changes: { after: { warden: wardenId } }
-        });
-
+        // Always emit refresh
         try {
             const socketUtil = require('../utils/socket');
             const io = socketUtil.getIO && socketUtil.getIO();
-            if (io) { io.emit('blocks:refresh'); io.emit('users:refresh'); }
+            if (io) {
+                io.emit('blocks:refresh');
+                io.emit('users:refresh');
+                io.emit('dashboard:refresh');
+            }
         } catch (e) { /* non-fatal */ }
-
-        const updated = await Block.findById(blockId).populate('warden', 'name email');
-        res.json({ success: true, message: `Warden "${warden.name}" assigned to block "${block.name}".`, data: updated });
     } catch (err) {
-        res.status(err.message.includes('already has an assigned warden') ? 409 : 500)
-            .json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: err.message });
     }
 };
 
@@ -434,6 +480,10 @@ exports.updateUser = async (req, res) => {
             if (!Object.values(ROLES).includes(newRole)) {
                 return res.status(400).json({ success: false, message: 'Invalid role.' });
             }
+            // If changing FROM warden, clear block assignment in Block model
+            if (existing.role === ROLES.WARDEN) {
+                await clearBlockWarden(id);
+            }
             updates.role = newRole;
         }
 
@@ -443,7 +493,9 @@ exports.updateUser = async (req, res) => {
 
         if (blockChanged || (newRole === ROLES.WARDEN && newBlock)) {
             // Enforce one warden per block (exclude current user)
-            await enforceOneWardenPerBlock(newBlock, newRole, id);
+            if (newBlock) {
+                await enforceOneWardenPerBlock(newBlock, newRole, id);
+            }
         }
 
         if (blockChanged) {
@@ -476,6 +528,15 @@ exports.updateUser = async (req, res) => {
                 after: { role: updated.role, block: updated.block, status: updated.status }
             }
         });
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                io.emit('users:refresh');
+                io.emit('dashboard:refresh');
+            }
+        } catch (e) { /* non-fatal */ }
 
         res.json({ success: true, message: 'User updated successfully', data: updated });
     } catch (err) {
@@ -513,6 +574,12 @@ exports.resetPassword = async (req, res) => {
         });
 
         res.json({ success: true, message: `Password reset successfully for ${user.name}.` });
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) io.emit('users:refresh');
+        } catch (e) { /* non-fatal */ }
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
@@ -545,6 +612,15 @@ exports.toggleStatus = async (req, res) => {
             userAgent: req.get('User-Agent'),
         });
 
+        try {
+            const socketUtil = require('../utils/socket');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                io.emit('users:refresh');
+                io.emit('dashboard:refresh');
+            }
+        } catch (e) { /* non-fatal */ }
+
         res.json({ success: true, message: `User ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully.`, data: { status: newStatus } });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
@@ -576,7 +652,24 @@ exports.bulkUpdateRole = async (req, res) => {
             }
         }));
 
+        // If moving out of WARDEN roles, clear block assignments in Block model
+        if (newRole !== ROLES.WARDEN) {
+            await Block.updateMany(
+                { warden: { $in: finalIds } },
+                { $unset: { warden: "" } }
+            );
+        }
+
         const result = await User.bulkWrite(operations);
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                io.emit('users:refresh');
+                io.emit('dashboard:refresh');
+            }
+        } catch (e) { /* non-fatal */ }
 
         res.json({
             success: true,
@@ -602,6 +695,15 @@ exports.bulkUpdateStatus = async (req, res) => {
             },
             { $set: { status } }
         );
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                io.emit('users:refresh');
+                io.emit('dashboard:refresh');
+            }
+        } catch (e) { /* non-fatal */ }
 
         res.json({
             success: true,
@@ -681,6 +783,16 @@ exports.bulkDelete = async (req, res) => {
             userAgent: req.get('User-Agent')
         });
 
+        try {
+            const socketUtil = require('../utils/socket');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                io.emit('users:refresh');
+                io.emit('dashboard:refresh');
+                io.emit('blocks:refresh'); // Wardens might have been cleared from blocks
+            }
+        } catch (e) { /* non-fatal */ }
+
         res.json({
             success: true,
             message: `Successfully deleted ${result.deletedCount} users.`,
@@ -719,6 +831,12 @@ exports.bulkResetPassword = async (req, res) => {
             message: `Password reset for ${result.modifiedCount} users.`,
             modifiedCount: result.modifiedCount
         });
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) io.emit('users:refresh');
+        } catch (e) { /* non-fatal */ }
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }

@@ -127,25 +127,24 @@ const login = asyncHandler(async (req, res) => {
 
   email = email.toLowerCase(); // Normalize email
 
-  const user = await User.findOne({ email });
+  console.log("Login attempt:", email);
+  const user = await User.findOne({ email }).populate('block', 'name');
+  console.log("User found:", user);
+
   if (!user) {
-    console.log(`❌ Login failed: User not found for email ${email}`);
-    res.status(401);
-    throw new Error("Invalid credentials");
+    return res.status(401).json({ message: "Invalid credentials" });
   }
 
-  // Validate password field exists before comparison
-  if (!user.password) {
-    console.log(`❌ Login failed: No password set for user ${email}`);
-    res.status(401);
-    throw new Error("Invalid credentials");
+  // Handle existing users with plain passwords (Task 5 from previous instruction, Task 1 from this one if needed)
+  if (!user.password.startsWith("$2b$") && !user.password.startsWith("$2a$")) {
+    const hashedPassword = await bcrypt.hash(user.password, 10);
+    user.password = hashedPassword;
+    await user.save();
   }
 
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
-    console.log(`❌ Login failed: Password mismatch for user ${email}`);
-    res.status(401);
-    throw new Error("Invalid credentials");
+    return res.status(401).json({ message: "Invalid credentials" });
   }
 
   const { accessToken, refreshToken } = GENERATE_TOKENS(user);
@@ -153,10 +152,8 @@ const login = asyncHandler(async (req, res) => {
 
   console.log('✅ Email/password login successful for:', user.email);
 
-  // Return full formatted user object for consistency
+  // Return full formatted user object for consistency with Task 5 requirement
   res.status(200).json({
-    success: true,
-    message: "Login successful",
     token: accessToken,
     user: formatUserResponse(user),
     data: formatUserResponse(user)

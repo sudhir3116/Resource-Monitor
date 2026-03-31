@@ -30,7 +30,7 @@ const announcementSchema = new mongoose.Schema({
     default: ['all'],
     enum: ['admin', 'gm', 'warden', 'dean', 'student', 'all'],
     validate: {
-      validator: function(v) {
+      validator: function (v) {
         return v && v.length > 0;
       },
       message: 'At least one target role must be selected'
@@ -74,7 +74,7 @@ const announcementSchema = new mongoose.Schema({
 announcementSchema.index({ createdAt: -1 });
 announcementSchema.index({ targetRole: 1 });
 announcementSchema.index({ targetBlock: 1 });
-announcementSchema.index({ expiresAt: 1 });
+announcementSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 announcementSchema.index({ pinned: -1, createdAt: -1 });
 
 module.exports = mongoose.model('Announcement', announcementSchema);

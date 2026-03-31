@@ -1,9 +1,9 @@
-import React, { useContext } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import { ROLES } from '../../utils/roles';
 import api from '../../services/api';
-import { Activity, User } from 'lucide-react';
+import { Activity, User, Bell, ChevronRight } from 'lucide-react';
 
 const NAV_CONFIG = {
     admin: [
@@ -44,41 +44,34 @@ const NAV_CONFIG = {
         { label: 'Complaints', icon: '📝', path: '/student/complaints' },
         { label: 'Notice Board', icon: '📌', path: '/student/notices' },
     ],
-    dean: [
-        { label: 'Dashboard', icon: '📊', path: '/dean/dashboard' },
-        { label: 'Alerts', icon: '🔔', path: '/dean/alerts' },
-        { label: 'Complaints', icon: '📝', path: '/dean/complaints' },
-        { label: 'Analytics', icon: '📈', path: '/dean/analytics' },
-        { label: 'Notice Board', icon: '📌', path: '/dean/notices' },
-        { label: 'Reports', icon: '📤', path: '/dean/reports' },
-        { label: 'Audit Logs', icon: '🗃️', path: '/dean/audit-logs' },
-    ],
-    principal: [
-        { label: 'Dashboard', icon: '📊', path: '/principal/dashboard' },
-        { label: 'Alerts', icon: '🔔', path: '/principal/alerts' },
-        { label: 'Complaints', icon: '📝', path: '/principal/complaints' },
-        { label: 'Analytics', icon: '📈', path: '/principal/analytics' },
-        { label: 'Notice Board', icon: '📌', path: '/principal/notices' },
-        { label: 'Reports', icon: '📤', path: '/principal/reports' },
-        { label: 'Audit Logs', icon: '🗃️', path: '/principal/audit-logs' },
-    ],
+    dean_principal: [
+        { label: 'Dashboard', icon: '📊', path: '/dashboard' }, // Fallback
+        { label: 'Alerts', icon: '🔔', path: '/alerts' },
+        { label: 'Complaints', icon: '📝', path: '/complaints' },
+        { label: 'Analytics', icon: '📈', path: '/analytics' },
+        { label: 'Notice Board', icon: '📌', path: '/notices' },
+        { label: 'Reports', icon: '📤', path: '/reports' },
+        { label: 'Audit Logs', icon: '🗃️', path: '/audit-logs' },
+    ]
 }
+
+// Add common aliases for dean/principal roles
+NAV_CONFIG['dean'] = NAV_CONFIG.dean_principal;
+NAV_CONFIG['principal'] = NAV_CONFIG.dean_principal;
 
 export default function Sidebar() {
     const { user } = useContext(AuthContext);
     const role = (user?.role || '').toLowerCase();
     const navItems = NAV_CONFIG[role] || [];
+    const [unreadAlerts, setUnreadAlerts] = useState(0);
 
-    const [unreadAlerts, setUnreadAlerts] = React.useState(0);
-
-    React.useEffect(() => {
+    useEffect(() => {
         if (user && user.role !== ROLES.STUDENT) {
             const fetchAlerts = async () => {
                 try {
-                    const res = await api.get('/api/alerts');
-                    if (res.data?.alerts) {
-                        const count = res.data.alerts.filter(a => a.status === 'Pending').length;
-                        setUnreadAlerts(count);
+                    const res = await api.get('/api/alerts/count');
+                    if (res.data?.counts) {
+                        setUnreadAlerts(res.data.counts.pending || 0);
                     }
                 } catch (e) { }
             };
@@ -89,63 +82,67 @@ export default function Sidebar() {
     }, [user]);
 
     return (
-        <div className="sidebar flex flex-col">
-            {/* Logo */}
-            <div className="p-6 border-b" style={{ borderColor: 'var(--border)' }}>
-                <Link to="/dashboard" className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg flex items-center justify-center"
-                        style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}>
-                        <Activity size={20} />
+        <aside className="sidebar flex flex-col h-full">
+            {/* Brand Logo Container */}
+            <div className="p-6 border-b border-[var(--border-color)]">
+                <Link to="/dashboard" className="flex items-center gap-3 group">
+                    <div className="h-10 w-10 rounded-xl flex items-center justify-center bg-[var(--accent)] text-white shadow-lg shadow-blue-500/20 group-hover:scale-105 transition-transform">
+                        <Activity size={24} />
                     </div>
-                    <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-                        EcoMonitor
-                    </span>
+                    <div className="flex flex-col">
+                        <span className="text-base font-black tracking-tight text-primary leading-none" style={{ whiteSpace: 'nowrap' }}>EcoMonitor</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-secondary opacity-60" style={{ whiteSpace: 'nowrap' }}>Control Center</span>
+                    </div>
                 </Link>
             </div>
 
-            {/* Navigation */}
-            <nav className="flex-1 p-4 overflow-y-auto">
-                <div className="space-y-1">
-                    {navItems.map((item) => (
-                        <NavLink
-                            key={item.path}
-                            to={item.path}
-                            className={({ isActive }) =>
-                                isActive ? 'nav-item nav-item-active' : 'nav-item'
-                            }
-                        >
-                            <span className="text-xl">{item.icon}</span>
-                            <span className="flex-1">{item.label}</span>
-                            {item.path.endsWith('/alerts') && unreadAlerts > 0 && (
-                                <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                                    {unreadAlerts > 99 ? '99+' : unreadAlerts}
-                                </span>
-                            )}
-                        </NavLink>
-                    ))}
-                </div>
+            {/* Navigation Section */}
+            <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-1">
+                {navItems.map((item) => (
+                    <NavLink
+                        key={item.path}
+                        to={item.path}
+                        className={({ isActive }) =>
+                            `flex items-center gap-3 py-2 px-3 rounded-lg transition-all text-sm font-medium group ${isActive
+                                ? 'bg-blue-500/10 text-blue-400'
+                                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]'
+                            }`
+                        }
+                    >
+                        <span className="text-lg opacity-80">{item.icon}</span>
+                        <span className="flex-1">{item.label}</span>
+
+                        {item.path.endsWith('/alerts') && unreadAlerts > 0 && (
+                            <span className="h-5 min-w-[20px] px-1.5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center animate-pulse">
+                                {unreadAlerts > 99 ? '99+' : unreadAlerts}
+                            </span>
+                        )}
+                        <ChevronRight size={14} className="opacity-0 group-hover:opacity-40 transition-opacity ml-auto" />
+                    </NavLink>
+                ))}
             </nav>
 
-            {/* User Profile */}
-            <div className="p-4 border-t" style={{ borderColor: 'var(--border)' }}>
+            {/* User Account / Settings */}
+            <div className="p-4 border-t border-[var(--border-color)] bg-[var(--bg-muted)]/30">
                 <NavLink
                     to="/profile"
                     className={({ isActive }) =>
-                        isActive ? 'nav-item nav-item-active' : 'nav-item'
+                        `nav-item group ${isActive ? 'active' : ''} !mx-0`
                     }
                 >
-                    <User size={20} />
+                    <div className="h-9 w-9 rounded-full bg-white dark:bg-slate-800 border-2 border-blue-500/20 flex items-center justify-center flex-shrink-0 text-blue-500 shadow-sm overflow-hidden">
+                        {user?.avatarURL ? <img src={user.avatarURL} alt="avatar" /> : <User size={18} />}
+                    </div>
                     <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                        <div className="text-sm font-bold text-primary truncate leading-tight">
                             {user?.name}
                         </div>
-                        <div className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
-                            {user?.role}
+                        <div className="text-[10px] font-black uppercase tracking-widest text-secondary opacity-60">
+                            {user?.role} Settings
                         </div>
                     </div>
                 </NavLink>
             </div>
-        </div>
+        </aside>
     );
 }
-

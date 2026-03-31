@@ -32,16 +32,18 @@ import TableSkeleton from '../components/common/TableSkeleton';
 import timeAgo from '../utils/timeAgo';
 import { logger } from '../utils/logger';
 
-const RESOURCE_META = {
-  Electricity: { icon: <Zap size={16} className="text-amber-500" /> },
-  Water: { icon: <Droplets size={16} className="text-blue-500" /> },
-  LPG: { icon: <Flame size={16} className="text-orange-500" /> },
-  Diesel: { icon: <Wind size={16} className="text-slate-500" /> },
-  Solar: { icon: <Sun size={16} className="text-yellow-500" /> },
-  Waste: { icon: <Trash2 size={16} className="text-rose-500" /> },
+import { useResources } from '../hooks/useResources';
+
+const renderResIcon = (resName, resources) => {
+  const r = (resources || []).find(rc => rc.name === resName);
+  const icon = r?.icon || r?.emoji || '📊';
+  const color = r?.color || '#3B82F6';
+  if (typeof icon === 'string' && icon.length <= 4) return <span style={{ color }}>{icon}</span>;
+  return <Activity size={16} style={{ color }} />;
 };
 
 export default function UsageList() {
+  const { resources: globalResources } = useResources();
   const [usages, setUsages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -187,7 +189,11 @@ export default function UsageList() {
   );
 
   const getResourceIcon = (type) => {
-    return RESOURCE_META[type]?.icon || <Activity size={16} className="text-slate-400" />;
+    const r = (globalResources || []).find(res => res.name === type);
+    const icon = r?.icon || r?.emoji || '📊';
+    const color = r?.color || '#3B82F6';
+    if (typeof icon === 'string' && icon.length <= 4) return <span style={{ color }}>{icon}</span>;
+    return <Activity size={16} style={{ color }} />;
   };
 
   const handleExport = () => {
@@ -209,17 +215,17 @@ export default function UsageList() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--border-color)]">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          <h1 className="text-xl font-semibold text-[var(--text-primary)]">
             {resourceFilter !== 'All'
               ? `${resourceFilter} Usage Details`
               : 'Usage Records'
             }
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+          <p className="text-[var(--text-secondary)] text-xs mt-1">
             {resourceFilter !== 'All'
               ? `Showing all ${resourceFilter} records`
               : 'View and manage resource consumption logs'
@@ -245,25 +251,25 @@ export default function UsageList() {
       </div>
 
       {/* Filters */}
-      {resourceFilter !== 'All' && (
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-sm text-gray-500 dark:text-gray-400">
-            Filtered by:
-          </span>
-          <span className="flex items-center gap-1 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full text-sm font-medium">
-            {resourceFilter}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-[var(--text-secondary)] font-medium">
+          Filter by:
+        </span>
+        <div className="flex gap-1 p-1 rounded-xl bg-[var(--bg-muted)]/50 border border-[var(--border-color)]">
+          {['All', ...(globalResources?.map(r => r.name) || [])].map(res => (
             <button
-              onClick={() => {
-                setResourceFilter('All');
-                navigate('/usage/all');
-              }}
-              className="ml-1 hover:text-blue-900 dark:hover:text-blue-200 font-bold text-base leading-none"
+              key={res}
+              onClick={() => setResourceFilter(res)}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${resourceFilter === res
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
             >
-              ×
+              {res}
             </button>
-          </span>
+          ))}
         </div>
-      )}
+      </div>
       <Card>
         <div className="flex flex-col gap-3">
           <div className="flex flex-col md:flex-row gap-4">

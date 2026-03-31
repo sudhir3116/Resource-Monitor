@@ -8,8 +8,10 @@ import EfficiencyRating from './EfficiencyRating';
 import Loading from '../Loading';
 import { Activity, Calendar, Download, RefreshCw, BarChart3, TrendingUp, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useResources } from '../../hooks/useResources';
 
 export default function DashboardAnalytics({ userRole }) {
+    const { resources } = useResources();
     const [period, setPeriod] = useState('daily');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -182,6 +184,7 @@ export default function DashboardAnalytics({ userRole }) {
                     {trends && (
                         <TrendChart
                             data={trends.trends}
+                            resources={resources}
                             title="Resource Usage Trends (Last 7 Days)"
                             height={400}
                         />

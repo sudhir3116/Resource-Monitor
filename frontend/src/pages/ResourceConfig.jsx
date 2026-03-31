@@ -19,19 +19,14 @@ import {
 } from 'lucide-react';
 import useSortableTable from '../hooks/useSortableTable';
 import SortIcon from '../components/common/SortIcon';
+import { motion, AnimatePresence } from 'framer-motion';
 
 
-/* ─── Resource meta ──────────────────────────────────────────────────────────── */
-const RESOURCE_META = {
-    Electricity: { icon: <Zap size={16} />, color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-    Water: { icon: <Droplets size={16} />, color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-    LPG: { icon: <Flame size={16} />, color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-    Diesel: { icon: <Wind size={16} />, color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
-    Solar: { icon: <Sun size={16} />, color: '#eab308', bg: 'rgba(234,179,8,0.12)' },
-    Waste: { icon: <Trash2 size={16} />, color: '#f43f5e', bg: 'rgba(244,63,94,0.12)' },
+const renderIcon = (emoji, color = '#3B82F6') => {
+    if (!emoji) return <Activity size={16} />;
+    if (typeof emoji === 'string' && emoji.length <= 4) return <span className="text-lg leading-none" style={{ color }}>{emoji}</span>;
+    return <Activity size={16} style={{ color }} />;
 };
-
-const UNIT_OPTIONS = ['kWh', 'Liters', 'kg', 'units', 'meals', 'cubic meters'];
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────────── */
 const fmt = (n, decimals = 2) =>
@@ -114,22 +109,26 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
     const [errors, setErrors] = useState({});
     const { addToast } = useToast();
 
-    const meta = RESOURCE_META[config.resource] || { color: '#64748b', bg: 'rgba(100,116,139,0.1)' };
+    /* No static metadata used here anymore — all dynamic */
 
     /* Build initial draft values (always as numbers) */
     const initialDraft = useCallback(() => ({
         costPerUnit: Number(config.costPerUnit) || 0,
-        dailyThreshold: Number(config.dailyThreshold) || 0,
-        monthlyThreshold: Number(config.monthlyThreshold) || 0,
+        dailyLimit: Number(config.dailyThreshold) || 0,
+        monthlyLimit: Number(config.monthlyThreshold) || 0,
         unit: config.unit || '',
+        emoji: config.icon || '📊',
+        color: config.color || '#3B82F6',
     }), [config]);
 
     /* Dirty check — compare to original values */
     const hasChanges = editing && (
         Number(draft.costPerUnit) !== Number(config.costPerUnit) ||
-        Number(draft.dailyThreshold) !== Number(config.dailyThreshold) ||
-        Number(draft.monthlyThreshold) !== Number(config.monthlyThreshold) ||
-        draft.unit !== config.unit
+        Number(draft.dailyLimit) !== Number(config.dailyThreshold) ||
+        Number(draft.monthlyLimit) !== Number(config.monthlyThreshold) ||
+        draft.unit !== config.unit ||
+        draft.emoji !== config.icon ||
+        draft.color !== config.color
     );
 
     const startEdit = () => { setDraft(initialDraft()); setErrors({}); setEditing(true); };
@@ -138,11 +137,12 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
     const validate = () => {
         const e = {};
         if (Number(draft.costPerUnit) < 0) e.costPerUnit = 'Must be ≥ 0';
-        if (Number(draft.dailyThreshold) <= 0) e.dailyThreshold = 'Must be > 0';
-        if (Number(draft.monthlyThreshold) <= 0) e.monthlyThreshold = 'Must be > 0';
-        if (Number(draft.dailyThreshold) > Number(draft.monthlyThreshold))
-            e.dailyThreshold = 'Daily cannot exceed monthly';
+        if (Number(draft.dailyLimit) <= 0) e.dailyLimit = 'Must be > 0';
+        if (Number(draft.monthlyLimit) <= 0) e.monthlyLimit = 'Must be > 0';
+        if (Number(draft.dailyLimit) > Number(draft.monthlyLimit))
+            e.dailyLimit = 'Daily cannot exceed monthly';
         if (!draft.unit.trim()) e.unit = 'Required';
+        if (!draft.emoji.trim()) e.emoji = 'Required';
         setErrors(e);
         return Object.keys(e).length === 0;
     };
@@ -151,11 +151,14 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
         if (!validate()) return;
         setSaving(true);
         try {
-            await onSave(config.resource, {
-                costPerUnit: Number(draft.costPerUnit),
-                dailyThreshold: Number(draft.dailyThreshold),
-                monthlyThreshold: Number(draft.monthlyThreshold),
+            await onSave(config._id, {
+                name: config.name,
+                rate: Number(draft.costPerUnit),
+                dailyLimit: Number(draft.dailyLimit),
+                monthlyLimit: Number(draft.monthlyLimit),
                 unit: draft.unit,
+                icon: draft.emoji,
+                color: draft.color
             });
             setEditing(false);
         } catch {
@@ -180,13 +183,13 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
                     <div className="flex items-center gap-2.5">
                         <span
                             className="inline-flex items-center justify-center h-8 w-8 rounded-lg flex-shrink-0"
-                            style={{ background: meta.bg, color: meta.color }}
+                            style={{ backgroundColor: (config.color || '#64748b') + '20' }}
                         >
-                            {meta.icon}
+                            {renderIcon(config.icon, config.color)}
                         </span>
                         <div>
                             <p className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-                                {config.resource}
+                                {config.name}
                             </p>
                         </div>
                     </div>
@@ -250,7 +253,7 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
                                 Edit
                             </Button>
                             <button
-                                onClick={() => onToggle(config.resource, !config.isActive)}
+                                onClick={() => onToggle(config._id, config.name, config.isActive)}
                                 title={config.isActive ? 'Deactivate' : 'Activate'}
                                 className={`flex items-center justify-center px-2 py-1 rounded-lg transition-colors text-xs font-medium border ${config.isActive
                                     ? 'bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:border-amber-900/50'
@@ -260,7 +263,7 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
                                 {config.isActive ? 'Deactivate' : 'Activate'}
                             </button>
                             <button
-                                onClick={() => onDelete(config.resource)}
+                                onClick={() => onDelete(config._id)}
                                 title="Delete Permanently"
                                 className="flex items-center justify-center h-7 w-7 rounded-lg transition-colors hover:bg-red-50 dark:hover:bg-red-900/20 group"
                                 style={{ backgroundColor: 'var(--bg-hover)' }}
@@ -280,15 +283,24 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
             {/* Resource (not editable) */}
             <td>
                 <div className="flex items-center gap-2.5">
-                    <span
-                        className="inline-flex items-center justify-center h-8 w-8 rounded-lg flex-shrink-0"
-                        style={{ background: meta.bg, color: meta.color }}
-                    >
-                        {meta.icon}
-                    </span>
+                    <div className="flex flex-col gap-1">
+                        <input
+                            type="text"
+                            placeholder="Emoji"
+                            value={draft.emoji}
+                            onChange={e => setDraft(p => ({ ...p, emoji: e.target.value }))}
+                            className="input text-xs p-1 h-7 w-12 text-center"
+                        />
+                        <input
+                            type="color"
+                            value={draft.color}
+                            onChange={e => setDraft(p => ({ ...p, color: e.target.value }))}
+                            className="h-6 w-12 p-0 border-0 bg-transparent cursor-pointer"
+                        />
+                    </div>
                     <div>
                         <p className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-                            {config.resource}
+                            {config.name}
                         </p>
                         <p className="text-xs" style={{ color: 'var(--color-primary)' }}>Editing</p>
                     </div>
@@ -298,20 +310,14 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
             {/* Unit */}
             <td>
                 <div className="flex flex-col gap-0.5">
-                    <select
+                    <input
+                        type="text"
+                        placeholder="e.g. kWh"
                         className={`input text-sm py-1.5 ${errors.unit ? 'border-red-500' : ''}`}
                         style={{ width: 110 }}
                         value={draft.unit}
                         onChange={e => setDraft(p => ({ ...p, unit: e.target.value }))}
-                    >
-                        {UNIT_OPTIONS.map(u => (
-                            <option key={u} value={u}>{u}</option>
-                        ))}
-                        {/* add current value if not in list */}
-                        {draft.unit && !UNIT_OPTIONS.includes(draft.unit) && (
-                            <option value={draft.unit}>{draft.unit}</option>
-                        )}
-                    </select>
+                    />
                     {errors.unit && <p className="text-red-400 text-xs">{errors.unit}</p>}
                 </div>
             </td>
@@ -330,22 +336,22 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
             {/* Daily Limit */}
             <td>
                 <InlineNumberInput
-                    value={draft.dailyThreshold}
+                    value={draft.dailyLimit}
                     min="0.01"
                     step="0.01"
-                    error={errors.dailyThreshold}
-                    onChange={e => setDraft(p => ({ ...p, dailyThreshold: e.target.value }))}
+                    error={errors.dailyLimit}
+                    onChange={e => setDraft(p => ({ ...p, dailyLimit: e.target.value }))}
                 />
             </td>
 
             {/* Monthly Limit */}
             <td>
                 <InlineNumberInput
-                    value={draft.monthlyThreshold}
+                    value={draft.monthlyLimit}
                     min="0.01"
                     step="0.01"
-                    error={errors.monthlyThreshold}
-                    onChange={e => setDraft(p => ({ ...p, monthlyThreshold: e.target.value }))}
+                    error={errors.monthlyLimit}
+                    onChange={e => setDraft(p => ({ ...p, monthlyLimit: e.target.value }))}
                 />
             </td>
 
@@ -413,6 +419,7 @@ function BlockOverrideModal({ isOpen, onClose, resources, blocks, onSave }) {
             if (form.monthlyThreshold) payload.monthlyThreshold = Number(form.monthlyThreshold);
             await api.put(`/api/config/thresholds/${form.resource}/block-override/${form.blockId}`, payload);
             addToast(`Block override set for ${form.resource}`, 'success');
+            await refetchResources();
             onSave();
             onClose();
             setForm({ resource: '', blockId: '', dailyThreshold: '', monthlyThreshold: '' });
@@ -436,13 +443,13 @@ function BlockOverrideModal({ isOpen, onClose, resources, blocks, onSave }) {
                     </h3>
                     <button onClick={onClose} className="p-1 rounded" style={{ color: 'var(--text-secondary)' }}><X size={18} /></button>
                 </div>
-                <div className="space-y-5">
+                <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-5">
                     <div>
                         <label className="form-label">Target Resource</label>
                         <select className={`form-input h-12 ${errors.resource ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
                             value={form.resource} onChange={e => setForm(p => ({ ...p, resource: e.target.value }))}>
                             <option value="">Select resource…</option>
-                            {resources.map(r => <option key={r.resource} value={r.resource}>{r.resource}</option>)}
+                            {resources.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
                         </select>
                         {errors.resource && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.resource}</p>}
                     </div>
@@ -461,14 +468,18 @@ function BlockOverrideModal({ isOpen, onClose, resources, blocks, onSave }) {
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="form-label">Daily Override</label>
-                            <input type="number" min="0" placeholder="Inherit global"
+                            <input
+                                type="number"
+                                min="0"
+                                placeholder="Inherit global"
                                 className={`form-input h-12 ${errors.dailyThreshold ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
                                 value={form.dailyThreshold}
-                                onChange={e => setForm(p => ({ ...p, dailyThreshold: e.target.value }))} />
+                                onChange={e => setForm(p => ({ ...p, dailyThreshold: e.target.value }))}
+                            />
                             {errors.dailyThreshold && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.dailyThreshold}</p>}
                         </div>
                         <div>
-                            <label className="form-label">Monthly Override</label>
+                            <label className="form-label">Monthly Limit Override</label>
                             <input type="number" min="0" placeholder="Inherit global"
                                 className={`form-input h-12 ${errors.monthlyThreshold ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
                                 value={form.monthlyThreshold}
@@ -477,16 +488,16 @@ function BlockOverrideModal({ isOpen, onClose, resources, blocks, onSave }) {
                         </div>
                     </div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-dashed border-slate-200 dark:border-slate-800">
-                        Notice: Leave blank to inherit the global threshold for that resource.
+                        Notice: Leave blank to inherit the global limit for that resource.
                     </p>
-                </div>
-                <div className="flex items-center justify-end gap-3 mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
-                    <Button variant="secondary" onClick={onClose} disabled={saving} className="px-6">Cancel</Button>
-                    <Button variant="primary" onClick={handleSubmit} disabled={saving} className="px-8 h-12 shadow-lg shadow-blue-500/20">
-                        {saving ? <RefreshCw size={14} className="animate-spin mr-2" /> : <Save size={14} className="mr-2" />}
-                        {saving ? 'Saving…' : 'Set Override'}
-                    </Button>
-                </div>
+
+                    <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+                        <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+                        <Button type="submit" variant="primary" disabled={saving}>
+                            {saving ? 'Saving...' : 'Set Override'}
+                        </Button>
+                    </div>
+                </form>
             </div>
         </div>
     );
@@ -494,47 +505,65 @@ function BlockOverrideModal({ isOpen, onClose, resources, blocks, onSave }) {
 
 /* ─── Add New Resource Modal ─────────────────────────────────────────────────── */
 function AddResourceModal({ isOpen, onClose, existingResources, onSave }) {
-    const [form, setForm] = useState({
-        resource: '', unit: 'kWh', costPerUnit: '', dailyThreshold: '', monthlyThreshold: ''
-    });
+    const { addToast } = useToast();
     const [saving, setSaving] = useState(false);
     const [errors, setErrors] = useState({});
-    const { addToast } = useToast();
 
-    const validate = () => {
-        const e = {};
-        if (!form.resource.trim()) e.resource = 'Resource name is required';
-        else if (existingResources.some(r => r.toLowerCase() === form.resource.trim().toLowerCase())) {
-            e.resource = 'Resource already exists';
+    const initialForm = {
+        name: '', unit: '', rate: '', dailyLimit: '', monthlyLimit: '',
+        emoji: '📊', color: '#3B82F6'
+    };
+    const [form, setForm] = useState(initialForm);
+
+    useEffect(() => {
+        if (isOpen) {
+            setForm(initialForm);
+            setErrors({});
         }
-        if (!form.unit.trim()) e.unit = 'Required';
-        if (form.costPerUnit === '' || Number(form.costPerUnit) < 0) e.costPerUnit = 'Must be ≥ 0';
-        if (!form.dailyThreshold || Number(form.dailyThreshold) <= 0) e.dailyThreshold = 'Must be > 0';
-        if (!form.monthlyThreshold || Number(form.monthlyThreshold) <= 0) e.monthlyThreshold = 'Must be > 0';
-        if (Number(form.dailyThreshold) > Number(form.monthlyThreshold))
-            e.dailyThreshold = 'Daily cannot exceed monthly';
+    }, [isOpen]);
+
+    const validateForm = () => {
+        let e = {};
+        if (!form.name?.trim()) e.name = "Name required";
+        if (!form.unit?.trim()) e.unit = "Unit required";
+
+        if (form.rate < 0) e.rate = "Invalid rate";
+        if (form.dailyLimit < 0) e.dailyLimit = "Invalid daily limit";
+        if (form.monthlyLimit < 0) e.monthlyLimit = "Invalid monthly limit";
+
+        if (Number(form.dailyLimit) > Number(form.monthlyLimit)) {
+            e.dailyLimit = "Daily budget exceeds monthly";
+        }
+
         setErrors(e);
         return Object.keys(e).length === 0;
     };
 
-    const handleSubmit = async () => {
-        if (!validate()) return;
+    const handleSubmit = async (e) => {
+        if (e) e.preventDefault();
+        if (!validateForm() || saving) return;
+
         setSaving(true);
         try {
-            await api.post('/api/config/thresholds', {
-                resource: form.resource,
-                unit: form.unit,
-                costPerUnit: Number(form.costPerUnit),
-                dailyThreshold: Number(form.dailyThreshold),
-                monthlyThreshold: Number(form.monthlyThreshold),
-            });
-            addToast(`${form.resource} configuration created`, 'success');
-            onSave();
+            const payload = {
+                name: form.name.trim(),
+                unit: form.unit.trim(),
+                rate: Number(form.rate),
+                dailyLimit: Number(form.dailyLimit),
+                monthlyLimit: Number(form.monthlyLimit),
+                icon: form.emoji || '📊',
+                color: form.color || '#3B82F6'
+            };
+
+            await api.post('/api/resources', payload);
+            addToast(`"${form.name}" created successfully`, 'success');
+
+            if (typeof refetchResources === 'function') await refetchResources();
+            await onSave();
             onClose();
-            setForm({ resource: '', unit: 'kWh', costPerUnit: '', dailyThreshold: '', monthlyThreshold: '' });
         } catch (err) {
-            logger.error('AddResourceModal save error:', err);
-            addToast(err.message || 'Failed to create resource', 'error');
+            console.error(err);
+            addToast(err.response?.data?.message || err.message || 'Failed to create resource', 'error');
         } finally {
             setSaving(false);
         }
@@ -544,82 +573,131 @@ function AddResourceModal({ isOpen, onClose, existingResources, onSave }) {
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }} onClick={onClose} />
-            <div className="relative w-full max-w-md rounded-xl p-6" style={{ backgroundColor: 'var(--bg-card)', boxShadow: 'var(--shadow-lg)' }}>
-                <div className="flex items-center justify-between mb-5">
-                    <h3 className="font-semibold text-lg flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                        <Plus size={18} className="text-blue-500" /> Add Resource Configuration
-                    </h3>
-                    <button onClick={onClose} className="p-1 rounded" style={{ color: 'var(--text-secondary)' }}><X size={18} /></button>
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
+            <div className="relative w-full max-w-md bg-white dark:bg-[#0f172a] rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800">
+                {/* Header */}
+                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <h3 className="font-bold text-lg text-slate-800 dark:text-slate-100">Add Resource</h3>
+                    <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
+                        <X size={20} />
+                    </button>
                 </div>
-                <div className="space-y-5">
+
+                {/* Form */}
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                    {/* Resource Name */}
                     <div>
-                        <label className="form-label">Global Resource Name</label>
-                        <div className="relative">
-                            <Activity className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <label className="text-sm text-gray-400 mb-1 block">Resource Name</label>
+                        <input
+                            type="text"
+                            autoFocus
+                            placeholder="Resource name"
+                            value={form.name}
+                            onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                            className={`input-field w-full rounded-lg border p-2.5 text-sm outline-none transition-all ${errors.name ? 'border-red-500' : 'border-slate-200 dark:border-slate-800 dark:bg-slate-900'}`}
+                        />
+                        {errors.name && <p className="error-text text-red-500 text-xs mt-1">{errors.name}</p>}
+                    </div>
+
+                    {/* Emoji & Color (Grid) */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-sm text-gray-400 mb-1 block">Emoji</label>
                             <input
                                 type="text"
-                                className={`form-input pl-10 h-12 ${errors.resource ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
-                                placeholder="e.g. Natural Gas"
-                                value={form.resource}
-                                onChange={e => setForm(p => ({ ...p, resource: e.target.value }))}
+                                placeholder="📊"
+                                value={form.emoji}
+                                maxLength={4}
+                                onChange={e => setForm(p => ({ ...p, emoji: e.target.value }))}
+                                className="input-field w-full rounded-lg border border-slate-200 dark:border-slate-800 dark:bg-slate-900 p-2.5 text-sm text-center outline-none"
                             />
                         </div>
-                        {errors.resource && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.resource}</p>}
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="form-label">Measurement Unit</label>
-                            <select className={`form-input h-12 ${errors.unit ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
-                                value={form.unit} onChange={e => setForm(p => ({ ...p, unit: e.target.value }))}>
-                                {UNIT_OPTIONS.map(u => <option key={u}>{u}</option>)}
-                            </select>
-                            {errors.unit && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.unit}</p>}
-                        </div>
-                        <div>
-                            <label className="form-label">Rate (₹ / Unit)</label>
-                            <div className="relative">
-                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                                <input type="number" min="0" step="0.01" placeholder="0.00"
-                                    className={`form-input pl-10 h-12 ${errors.costPerUnit ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
-                                    value={form.costPerUnit}
-                                    onChange={e => setForm(p => ({ ...p, costPerUnit: e.target.value }))} />
+                            <label className="text-sm text-gray-400 mb-1 block">Color</label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="color"
+                                    value={form.color}
+                                    onChange={e => setForm(p => ({ ...p, color: e.target.value }))}
+                                    className="h-10 w-12 p-0.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 cursor-pointer overflow-hidden"
+                                />
+                                <input
+                                    type="text"
+                                    value={form.color}
+                                    onChange={e => setForm(p => ({ ...p, color: e.target.value }))}
+                                    className="input-field flex-1 rounded-lg border border-slate-200 dark:border-slate-800 dark:bg-slate-900 p-2 text-xs font-mono outline-none"
+                                />
                             </div>
-                            {errors.costPerUnit && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.costPerUnit}</p>}
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+
+                    {/* Unit */}
+                    <div>
+                        <label className="text-sm text-gray-400 mb-1 block">Unit</label>
+                        <input
+                            type="text"
+                            placeholder="e.g. kWh"
+                            value={form.unit}
+                            onChange={e => setForm(p => ({ ...p, unit: e.target.value }))}
+                            className={`input-field w-full rounded-lg border p-2.5 text-sm outline-none ${errors.unit ? 'border-red-500' : 'border-slate-200 dark:border-slate-800 dark:bg-slate-900'}`}
+                        />
+                        {errors.unit && <p className="error-text text-red-500 text-xs mt-1">{errors.unit}</p>}
+                    </div>
+
+                    {/* Rate, Daily, Monthly */}
+                    <div className="grid grid-cols-3 gap-3">
                         <div>
-                            <label className="form-label">Daily Threshold</label>
-                            <div className="relative">
-                                <TrendingUp className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                                <input type="number" min="0.01" placeholder="e.g. 50"
-                                    className={`form-input pl-10 h-12 ${errors.dailyThreshold ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
-                                    value={form.dailyThreshold}
-                                    onChange={e => setForm(p => ({ ...p, dailyThreshold: e.target.value }))} />
-                            </div>
-                            {errors.dailyThreshold && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.dailyThreshold}</p>}
+                            <label className="text-sm text-gray-400 mb-1 block text-[11px]">Rate</label>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={form.rate}
+                                onChange={e => setForm(p => ({ ...p, rate: e.target.value }))}
+                                className={`input-field w-full rounded-lg border p-2 text-sm outline-none ${errors.rate ? 'border-red-500' : 'border-slate-200 dark:border-slate-800 dark:bg-slate-900'}`}
+                            />
                         </div>
                         <div>
-                            <label className="form-label">Monthly Threshold</label>
-                            <div className="relative">
-                                <Activity className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                                <input type="number" min="0.01" placeholder="e.g. 1500"
-                                    className={`form-input pl-10 h-12 ${errors.monthlyThreshold ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'}`}
-                                    value={form.monthlyThreshold}
-                                    onChange={e => setForm(p => ({ ...p, monthlyThreshold: e.target.value }))} />
-                            </div>
-                            {errors.monthlyThreshold && <p className="text-red-500 text-[10px] font-bold uppercase mt-2 ml-1">{errors.monthlyThreshold}</p>}
+                            <label className="text-sm text-gray-400 mb-1 block text-[11px]">Daily Limit</label>
+                            <input
+                                type="number"
+                                min="0"
+                                value={form.dailyLimit}
+                                onChange={e => setForm(p => ({ ...p, dailyLimit: e.target.value }))}
+                                className={`input-field w-full rounded-lg border p-2 text-sm outline-none ${errors.dailyLimit ? 'border-red-500' : 'border-slate-200 dark:border-slate-800 dark:bg-slate-900'}`}
+                            />
+                        </div>
+                        <div>
+                            <label className="text-sm text-gray-400 mb-1 block text-[11px]">Monthly Limit</label>
+                            <input
+                                type="number"
+                                min="0"
+                                value={form.monthlyLimit}
+                                onChange={e => setForm(p => ({ ...p, monthlyLimit: e.target.value }))}
+                                className={`input-field w-full rounded-lg border p-2 text-sm outline-none ${errors.monthlyLimit ? 'border-red-500' : 'border-slate-200 dark:border-slate-800 dark:bg-slate-900'}`}
+                            />
                         </div>
                     </div>
-                </div>
-                <div className="flex items-center justify-end gap-3 mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
-                    <Button variant="secondary" onClick={onClose} disabled={saving} className="px-6">Cancel</Button>
-                    <Button variant="primary" onClick={handleSubmit} disabled={saving} className="px-8 h-12 shadow-lg shadow-blue-500/20">
-                        {saving ? <RefreshCw size={14} className="animate-spin mr-2" /> : <Plus size={14} className="mr-2" />}
-                        {saving ? 'Creating…' : 'Initialize Resource'}
-                    </Button>
-                </div>
+                    {(errors.rate || errors.dailyLimit || errors.monthlyLimit) && <p className="error-text text-red-500 text-[10px] text-center">Invalid limits or rate</p>}
+
+                    <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={saving}
+                            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow-lg shadow-blue-500/10 transition-all disabled:opacity-50 flex items-center gap-2 primary-btn"
+                        >
+                            {saving ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />}
+                            {saving ? 'Creating...' : 'Create Resource'}
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     );
@@ -657,7 +735,7 @@ export default function ResourceConfig() {
         setLoading(true);
         try {
             const [cfgRes, blkRes] = await Promise.all([
-                api.get('/api/config/thresholds'),
+                api.get('/api/resources'),
                 api.get('/api/config/blocks').catch(() => ({ data: { data: [] } })),
             ]);
             setConfigs(cfgRes.data.data || []);
@@ -689,12 +767,11 @@ export default function ResourceConfig() {
     }
 
     /* ── Save handler ───────────────────────────────────────────────────── */
-    const handleSaveResource = async (resource, draft) => {
+    const handleSaveResource = async (id, draft) => {
         try {
-            logger.log(`[ResourceConfig] Saving ${resource}:`, draft);
-            const res = await api.put(`/api/config/thresholds/${resource}`, draft);
-            logger.log(`[ResourceConfig] Save response for ${resource}:`, res.data);
-            addToast(`${resource} configuration updated successfully`, 'success');
+            const res = await api.put(`/api/resources/${id}`, draft);
+            addToast(`Resource updated successfully`, 'success');
+            if (typeof refetchResources === 'function') await refetchResources();
             await fetchData(); // refresh from backend
         } catch (err) {
             logger.error(`[ResourceConfig] Save failed for ${resource}:`, err);
@@ -704,15 +781,12 @@ export default function ResourceConfig() {
     };
 
     /* ── Toggle handler ─────────────────────────────────────────────────── */
-    const handleToggle = (resource, isActive) => setToggleTarget({ resource, isActive });
+    const handleToggle = (id, name, isActive) => setToggleTarget({ id, name, isActive });
     const confirmToggle = async () => {
         if (!toggleTarget) return;
         try {
-            await api.put(`/api/config/thresholds/${toggleTarget.resource}`, { isActive: toggleTarget.isActive });
-            addToast(
-                `${toggleTarget.resource} ${toggleTarget.isActive ? 'activated' : 'deactivated'}`,
-                'success'
-            );
+            await api.patch(`/api/resources/${toggleTarget.id}/toggle`);
+            addToast('Resource status updated', 'success');
             await refetchResources();
             await fetchData();
         } catch (err) {
@@ -724,8 +798,8 @@ export default function ResourceConfig() {
     };
 
     /* ── Delete handlers ────────────────────────────────────────────────── */
-    const handleDeleteResource = (resource) => {
-        setDeleteTarget({ type: 'resource', resource });
+    const handleDeleteResource = (id) => {
+        setDeleteTarget({ type: 'resource', resource: id });
     };
 
     const handleDeleteOverride = (resource, blockId, blockName) => {
@@ -736,8 +810,8 @@ export default function ResourceConfig() {
         if (!deleteTarget) return;
         try {
             if (deleteTarget.type === 'resource') {
-                await api.delete(`/api/config/thresholds/${deleteTarget.resource}`);
-                addToast(`${deleteTarget.resource} configuration deleted`, 'success');
+                await api.delete(`/api/resources/${deleteTarget.resource}`);
+                addToast(`Resource deleted successfully`, 'success');
                 await refetchResources();
             } else {
                 await api.delete(`/api/config/thresholds/${deleteTarget.resource}/block-override/${deleteTarget.blockId}`);
@@ -887,7 +961,7 @@ export default function ResourceConfig() {
                                 ) : (
                                     sortedConfigs.map(config => (
                                         <ResourceRow
-                                            key={config.resource}
+                                            key={config.name}
                                             config={config}
                                             isAdmin={canManageResources}
                                             onSave={handleSaveResource}
@@ -923,12 +997,12 @@ export default function ResourceConfig() {
                                         ? [...config.blockOverrides.entries()]
                                         : Object.entries(config.blockOverrides || {});
                                     return overrides.map(([blockId, ov]) => (
-                                        <tr key={`${config.resource}-${blockId}`} className="group hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                        <tr key={`${config.name}-${blockId}`} className="group hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                                             <td className="font-medium text-slate-700 dark:text-slate-300">{ov.blockName || blockId}</td>
                                             <td>
-                                                <div className="flex items-center gap-2" style={{ color: RESOURCE_META[config.resource]?.color }}>
-                                                    {RESOURCE_META[config.resource]?.icon}
-                                                    <span className="text-sm font-medium">{config.resource}</span>
+                                                <div className="flex items-center gap-2">
+                                                    {renderIcon(config.icon, config.color)}
+                                                    <span className="text-sm font-medium">{config.name}</span>
                                                 </div>
                                             </td>
                                             <td className="tabular-nums">
@@ -948,7 +1022,7 @@ export default function ResourceConfig() {
                                             {canManageResources && (
                                                 <td>
                                                     <button
-                                                        onClick={() => handleDeleteOverride(config.resource, blockId, ov.blockName || blockId)}
+                                                        onClick={() => handleDeleteOverride(config.name, blockId, ov.blockName || blockId)}
                                                         className="h-8 w-8 rounded-lg flex items-center justify-center transition-colors hover:bg-red-50 dark:hover:bg-red-900/20 group/delbtn"
                                                         title="Remove Override"
                                                     >
@@ -985,14 +1059,14 @@ export default function ResourceConfig() {
                 isOpen={!!toggleTarget}
                 onClose={() => setToggleTarget(null)}
                 onConfirm={confirmToggle}
-                title={toggleTarget?.isActive ? 'Activate Resource' : 'Deactivate Resource'}
+                title={toggleTarget?.isActive ? 'Deactivate Resource' : 'Activate Resource'}
                 message={toggleTarget
-                    ? toggleTarget.isActive
-                        ? `Enable tracking and alerts for ${toggleTarget.resource}? It will be visible across dashboards.`
-                        : `Deactivate ${toggleTarget.resource}? Usage can still be logged but alerts will be disabled.`
+                    ? !toggleTarget.isActive
+                        ? `Enable tracking and alerts for ${toggleTarget.name}? It will be visible across dashboards.`
+                        : `Deactivate ${toggleTarget.name}? Usage can still be logged but alerts for this resource may be disabled.`
                     : ''}
-                confirmText={toggleTarget?.isActive ? 'Activate' : 'Deactivate'}
-                type={toggleTarget?.isActive ? 'primary' : 'danger'}
+                confirmText={toggleTarget?.isActive ? 'Deactivate' : 'Activate'}
+                type={toggleTarget?.isActive ? 'danger' : 'primary'}
             />
 
             <ConfirmModal

@@ -7,7 +7,7 @@ const AuditLog = require('../models/AuditLog') // Added AuditLog Support
 const mailer = require('../utils/mailer')
 const { checkThresholds } = require('../services/thresholdService')
 const mongoose = require('mongoose')
-const SystemConfig = require('../models/SystemConfig')
+const Resource = require('../models/Resource')
 const { RESOURCE_UNITS } = require('../config/constants')
 const { parseSortParam, buildDateRangeFilter, parsePagination } = require('../utils/queryBuilder')
 const exportService = require('../services/exportService')
@@ -198,52 +198,30 @@ exports.createUsage = async (req, res) => {
       })
     }
 
-    // Validate and normalize resource
-    const ResourceConfig =
-      require('../models/ResourceConfig')
-    const config =
-      await ResourceConfig.findOne({
-        $or: [
-          {
-            name: {
-              $regex: new RegExp(
-                `^${resource_type.trim()}$`, 'i'
-              )
-            }
-          },
-          { resource: { $regex: new RegExp(`^${resource_type.trim()}$`, 'i') } }
-        ],
-        isActive: true,
-        isDeleted: { $ne: true }
-      })
+    // Validate resource from req.body.resourceId as per senior engineer requirement
+    const resourceId = req.body.resourceId || req.body.resource_id;
+    const resource = await Resource.findById(resourceId);
 
-    if (!config) {
-      return res.status(400).json({
+    if (!resource || resource.status !== "active") {
+      return res.status(404).json({
         success: false,
-        message:
-          `Resource "${resource_type}"` +
-          ` not found or inactive`
-      })
+        message: "Resource not found or inactive"
+      });
     }
 
-    // Use exact canonical name from config
-    const canonicalResourceType = config.name || config.resource
-    const unit =
-      req.body.unit || config.unit || 'units'
+    const canonicalResourceType = resource.name;
+    const unit = req.body.unit || resource.unit || 'units';
 
-    // Create record
+    // Create record using validated resource ID and name
     const usage = await Usage.create({
       blockId: blockObjectId,
-      resource: config._id,
+      resourceId: resource._id,
       resource_type: canonicalResourceType,
       usage_value,
       unit,
       usage_date: new Date(usage_date),
       notes,
-      createdBy:
-        new mongoose.Types.ObjectId(
-          (user.id || user._id).toString()
-        ),
+      createdBy: new mongoose.Types.ObjectId((user.id || user._id).toString()),
       deleted: false
     })
 
@@ -251,6 +229,7 @@ exports.createUsage = async (req, res) => {
     const populated = await Usage
       .findById(usage._id)
       .populate('blockId', 'name location')
+      .populate('resourceId')
       .populate('createdBy', 'name role')
       .lean()
 
@@ -522,7 +501,11 @@ exports.updateUsage = async (req, res) => {
     try {
       const socketUtil = require('../utils/socket');
       const io = socketUtil.getIO && socketUtil.getIO();
-      if (io) io.emit('alerts:refresh');
+      if (io) {
+        io.emit('alerts:refresh');
+        io.emit('dashboard:refresh');
+        io.emit('usage:refresh');
+      }
     } catch (e) { /* non-fatal */ }
 
     res.json({ success: true, message: 'Record updated successfully', usage })
@@ -595,7 +578,11 @@ exports.deleteUsage = async (req, res) => {
     try {
       const socketUtil = require('../utils/socket');
       const io = socketUtil.getIO && socketUtil.getIO();
-      if (io) io.emit('alerts:refresh');
+      if (io) {
+        io.emit('alerts:refresh');
+        io.emit('dashboard:refresh');
+        io.emit('usage:refresh');
+      }
     } catch (e) { /* non-fatal */ }
 
     res.json({ success: true, message: 'Record deleted (soft) successfully' })

@@ -1,7 +1,8 @@
 {
   "scripts": {
     "start": "node app.js",
-    "dev": "nodemon --watch . app.js"
+    "dev": "nodemon --watch . app.js",
+    "seed:students": "node scripts/seedStudents.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

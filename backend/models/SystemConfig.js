@@ -8,6 +8,11 @@ const systemConfigSchema = new mongoose.Schema({
         unique: true,
         index: true
     },
+    status: {
+        type: String,
+        enum: ["active", "inactive"],
+        default: "active"
+    },
 
     // — Primary fields used by UI ——————————————————————————————————
     unit: { type: String, required: true },          // e.g. 'kWh', 'Liters', 'kg'
@@ -15,6 +20,8 @@ const systemConfigSchema = new mongoose.Schema({
     dailyThreshold: { type: Number, required: true, min: 0 },   // alias: dailyLimitPerPerson
     monthlyThreshold: { type: Number, required: true, min: 0 }, // alias: monthlyLimitPerPerson
     isActive: { type: Boolean, default: true },
+    icon: { type: String, default: '📊' },
+    color: { type: String, default: '#64748b' },
 
     // — Legacy / thresholdService fields (kept for backward compat) ——
     dailyLimitPerPerson: { type: Number },

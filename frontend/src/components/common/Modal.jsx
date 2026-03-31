@@ -35,18 +35,13 @@ export default function Modal({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop */}
             <div
-                className="absolute inset-0"
-                style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300"
                 onClick={onClose}
             />
 
             {/* Modal */}
             <div
-                className={`relative w-full ${sizeClasses[size]} rounded-lg`}
-                style={{
-                    backgroundColor: 'var(--bg-card)',
-                    boxShadow: 'var(--shadow-lg)'
-                }}
+                className={`relative w-full ${sizeClasses[size]} rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl transition-all duration-300 transform scale-100 p-0 overflow-hidden`}
             >
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b"

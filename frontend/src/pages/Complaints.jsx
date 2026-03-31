@@ -13,8 +13,9 @@ import timeAgo from '../utils/timeAgo';
 import {
     MessageSquare, Plus, CheckCircle, Clock, AlertCircle,
     ArrowUpCircle, Eye, RefreshCw, X, ChevronDown, ChevronUp,
-    History
+    History, Trash2
 } from 'lucide-react';
+import { logger } from '../utils/logger';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
@@ -198,7 +199,7 @@ function ComplaintRow({ complaint, user, onReview, onResolve, onEscalate, action
 }
 
 // ─── Complaint Detail Modal ──────────────────────────────────────────────
-function ComplaintDetailModal({ isOpen, onClose, complaint, user, onReview, onResolve, onEscalate, actioningIds }) {
+function ComplaintDetailModal({ isOpen, onClose, complaint, user, onReview, onResolve, onEscalate, onDeleteClick, actioningIds }) {
     const [showHistory, setShowHistory] = useState(false);
     const sc = complaint ? (STATUS_CONFIG[complaint.status] || STATUS_CONFIG.open) : STATUS_CONFIG.open;
     const isActioning = complaint ? actioningIds.has(complaint._id) : false;
@@ -209,8 +210,12 @@ function ComplaintDetailModal({ isOpen, onClose, complaint, user, onReview, onRe
     const canResolve = [ROLES.ADMIN, ROLES.WARDEN, ROLES.GM].includes(user?.role) && complaint && !isResolved;
     const canReview = [ROLES.ADMIN, ROLES.WARDEN, ROLES.GM].includes(user?.role) && complaint && complaint.status === 'open';
     const canEscalate = [ROLES.ADMIN, ROLES.GM].includes(user?.role) && complaint && !isResolved && !isEscalated;
+    const canDelete = [ROLES.ADMIN].includes(user?.role) && complaint;
 
     useEffect(() => {
+        if (isOpen) {
+            console.log('ComplaintDetailModal opened with:', { canDelete, userRole: user?.role, complaintId: complaint?._id });
+        }
         if (isOpen) setShowHistory(false);
     }, [isOpen]);
 
@@ -308,6 +313,14 @@ function ComplaintDetailModal({ isOpen, onClose, complaint, user, onReview, onRe
                             <ArrowUpCircle size={13} className="mr-1" /> Escalate
                         </Button>
                     )}
+                    {canDelete && (
+                        <Button size="sm" variant="danger" disabled={isActioning} onClick={() => {
+                            console.log('Delete button clicked, calling onDeleteClick with complaint:', complaint);
+                            onDeleteClick(complaint);
+                        }}>
+                            <Trash2 size={13} className="mr-1" /> Delete
+                        </Button>
+                    )}
                     <Button size="sm" variant="secondary" disabled={isActioning} onClick={onClose}>
                         Close
                     </Button>
@@ -342,6 +355,10 @@ export default function Complaints() {
 
     // Escalate modal
     const [escalateTarget, setEscalateTarget] = useState(null);
+
+    // Delete modal
+    const [deleteTarget, setDeleteTarget] = useState(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const canSubmit = true; // All roles can submit
     const isAdminOrWarden = ['admin', 'warden'].includes(user?.role);
@@ -461,6 +478,31 @@ export default function Complaints() {
             throw err;
         } finally {
             setActioning(id, false);
+        }
+    };
+
+    // ── Delete ──────────────────────────────────────────────────────────────
+    const handleDeleteComplaint = async () => {
+        const target = deleteTarget;
+        if (!target) return;
+
+        setDeleteLoading(true);
+        try {
+            await api.delete(`/api/complaints/${target._id}`);
+
+            // Immediate local update
+            setComplaints(prev => prev.filter(c => c._id !== target._id));
+            addToast('Complaint permanent removal successful', 'success');
+
+            // UI cleanup
+            setDeleteTarget(null);
+            setDetailTarget(null);
+        } catch (err) {
+            logger.error('Delete complaint error:', err);
+            const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Operation failed';
+            addToast(`Delete failed: ${msg}`, 'error');
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
@@ -666,6 +708,7 @@ export default function Complaints() {
                 onReview={handleReview}
                 onResolve={setResolveTarget}
                 onEscalate={setEscalateTarget}
+                onDeleteClick={setDeleteTarget}
                 actioningIds={actioningIds}
             />
 
@@ -689,6 +732,20 @@ export default function Complaints() {
                 onClose={() => setEscalateTarget(null)}
                 complaint={escalateTarget}
                 onEscalate={handleEscalate}
+            />
+
+            {/* Confirm Delete Modal */}
+            <ConfirmModal
+                isOpen={!!deleteTarget}
+                onClose={() => setDeleteTarget(null)}
+                onConfirm={handleDeleteComplaint}
+                disabled={deleteLoading}
+                title="Delete Complaint"
+                message={deleteTarget
+                    ? `Are you sure you want to delete "${deleteTarget.title}"?\n\nThis action cannot be undone.`
+                    : ''}
+                confirmText={deleteLoading ? 'Deleting…' : 'Yes, Delete'}
+                type="danger"
             />
         </div>
     );

@@ -31,16 +31,17 @@ import EmptyState from '../components/common/EmptyState';
 import { logger } from '../utils/logger';
 
 
-const RESOURCE_META = {
-  Electricity: { icon: <Zap size={16} />, color: 'text-amber-500' },
-  Water: { icon: <Droplets size={16} />, color: 'text-blue-500' },
-  LPG: { icon: <Flame size={16} />, color: 'text-orange-500' },
-  Diesel: { icon: <Wind size={16} />, color: 'text-slate-500' },
-  Solar: { icon: <Sun size={16} />, color: 'text-yellow-500' },
-  Waste: { icon: <TrashIcon size={16} />, color: 'text-rose-500' },
-};
+import { useResources } from '../hooks/useResources';
 
 const DailyReportWarden = () => {
+  const { resources } = useResources();
+  const getResourceIcon = (type) => {
+    const res = (resources || []).find(r => r.name === type);
+    if (!res?.icon) return <Activity size={16} />;
+    if (typeof res.icon === 'string' && res.icon.length < 5) return <span className="text-lg leading-none">{res.icon}</span>;
+    return <Activity size={16} />;
+  };
+
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('submit');
   const [loading, setLoading] = useState(false);
@@ -163,9 +164,7 @@ const DailyReportWarden = () => {
     }
   };
 
-  const getResourceIcon = (type) => {
-    return RESOURCE_META[type]?.icon || <Activity size={16} />;
-  };
+  // Removed static getResourceIcon as it is now shared in the scope above
 
   if (!['warden', 'admin', 'gm'].includes(user?.role)) {
     return <EmptyState title="Access Denied" description="You do not have permission to access daily reports." />;
@@ -404,7 +403,7 @@ const DailyReportWarden = () => {
                         <div className="flex -space-x-1">
                           {(report.resourceCheck || []).filter(r => r.checked).map((r, i) => (
                             <div key={i} title={r.resource} className="h-6 w-6 rounded-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center justify-center">
-                              {RESOURCE_META[r.resource]?.icon || <Activity size={10} />}
+                              {getResourceIcon(r.resource)}
                             </div>
                           ))}
                         </div>

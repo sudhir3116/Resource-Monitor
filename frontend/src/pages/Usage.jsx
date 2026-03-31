@@ -21,48 +21,12 @@ import EmptyState from '../components/common/EmptyState';
 import { getSocket } from '../utils/socket';
 import { logger } from '../utils/logger';
 
-// ── Resource metadata for display
-const RESOURCE_METADATA = {
-    'Electricity': {
-        icon: <Zap size={24} />,
-        color: 'text-amber-500',
-        bg: 'bg-amber-50',
-        description: 'Grid consumption and phase balancing.'
-    },
-    'Water': {
-        icon: <Droplets size={24} />,
-        color: 'text-blue-500',
-        bg: 'bg-blue-50',
-        description: 'Water flow rates and storage levels.'
-    },
-    'Solar': {
-        icon: <Sun size={24} />,
-        color: 'text-yellow-500',
-        bg: 'bg-yellow-50',
-        description: 'Solar panel energy generation.'
-    },
-    'LPG': {
-        icon: <Flame size={24} />,
-        color: 'text-orange-500',
-        bg: 'bg-orange-50',
-        description: 'Gas cylinder usage monitoring.'
-    },
-    'Diesel': {
-        icon: <Wind size={24} />,
-        color: 'text-slate-500',
-        bg: 'bg-slate-50',
-        description: 'Generator fuel levels.'
-    },
-    'Waste': {
-        icon: <Trash2 size={24} />,
-        color: 'text-rose-500',
-        bg: 'bg-rose-50',
-        description: 'Waste generation and recycling.'
-    }
-};
+// Dynamic resource metadata is now fetched via useResources hook and Managed in Admin Panel.
+
 
 export default function Resources() {
     const [stats, setStats] = useState(null);
+    const [alerts, setAlerts] = useState([]);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
     const { user } = useContext(AuthContext);
@@ -76,8 +40,11 @@ export default function Resources() {
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                const res = await api.get('/api/usage/summary');
-                const summary = res.data?.data?.summary || {};
+                const [summaryRes, alertsRes] = await Promise.all([
+                    api.get('/api/usage/summary'),
+                    api.get('/api/alerts?status=pending,investigating,escalated')
+                ]);
+                const summary = summaryRes.data?.data?.summary || summaryRes.data?.summary || {};
                 const statsObj = {};
                 Object.entries(summary).forEach(([name, data]) => {
                     statsObj[name] = {
@@ -88,6 +55,7 @@ export default function Resources() {
                     };
                 });
                 setStats(statsObj);
+                setAlerts(alertsRes.data?.alerts || alertsRes.data?.data || []);
             } catch (err) {
                 logger.error('Failed to fetch resource stats', err);
             } finally {
@@ -119,22 +87,29 @@ export default function Resources() {
         };
     }, []);
 
+    // Helper to render icon/emoji from DB
+    const renderIcon = (icon) => {
+        if (!icon) return <Activity size={24} />;
+        if (typeof icon === 'string' && icon.length < 5) return <span className="text-2xl leading-none">{icon}</span>;
+        return <Activity size={24} />; // Default generic icon
+    };
+
     // ── Build resources with metadata merged for display, filtering only active
     const resources = useMemo(() => {
         return (Array.isArray(activeResources) ? activeResources : [])
-            .filter(res => res?.isActive !== false)  // Safety: double-check isActive
             .map(res => ({
-                id: res?.name?.toLowerCase().replace(/\s+/g, '-') || res?._id,
+                id: res?._id,
                 name: res?.name,
-                icon: RESOURCE_METADATA[res?.name]?.icon || <Activity size={24} />,
-                color: RESOURCE_METADATA[res?.name]?.color || 'text-slate-500',
-                bg: RESOURCE_METADATA[res?.name]?.bg || 'bg-slate-50',
+                icon: renderIcon(res?.icon),
+                color: res?.color || '#64748b',
+                bg: (res?.color || '#64748b') + '15', // light transparency
                 unit: res?.unit || 'units',
-                description: RESOURCE_METADATA[res?.name]?.description || 'Resource monitoring'
+                description: res?.description || 'Real-time resource monitoring'
             })) || [];
     }, [activeResources]);
 
     return (
+
         <div className="space-y-6">
             {/* Header */}
             <div>
@@ -144,42 +119,36 @@ export default function Resources() {
                 </p>
             </div>
 
-            {/* Stats Overview */}
+            {/* Top KPI Cards */}
             {loading ? (
                 <div className="py-20 text-center text-slate-500">Loading resources...</div>
             ) : (
                 <>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                         <Card>
-                            <div className="flex items-center gap-4">
-                                <div className="p-3 bg-blue-50 text-blue-600 rounded-full">
-                                    <Activity size={24} />
-                                </div>
+                            <div className="flex items-center gap-3">
+                                <span className="text-2xl">📊</span>
                                 <div>
-                                    <p className="text-sm text-slate-500">System Status</p>
-                                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">Operational</h3>
+                                    <div className="text-xs text-slate-400 font-bold uppercase">Today’s Total Usage</div>
+                                    <div className="text-xl font-black">{Object.values(stats || {}).reduce((acc, s) => acc + (s.current || 0), 0).toLocaleString()}</div>
                                 </div>
                             </div>
                         </Card>
                         <Card>
-                            <div className="flex items-center gap-4">
-                                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-full">
-                                    <TrendingUp size={24} />
-                                </div>
+                            <div className="flex items-center gap-3">
+                                <span className="text-2xl">💸</span>
                                 <div>
-                                    <p className="text-sm text-slate-500">Efficiency</p>
-                                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">Good</h3>
+                                    <div className="text-xs text-slate-400 font-bold uppercase">Today’s Total Cost</div>
+                                    <div className="text-xl font-black">₹{Object.values(stats || {}).reduce((acc, s) => acc + (s.cost || 0), 0).toLocaleString()}</div>
                                 </div>
                             </div>
                         </Card>
                         <Card>
-                            <div className="flex items-center gap-4">
-                                <div className="p-3 bg-amber-50 text-amber-600 rounded-full">
-                                    <AlertTriangle size={24} />
-                                </div>
+                            <div className="flex items-center gap-3">
+                                <span className="text-2xl">🚨</span>
                                 <div>
-                                    <p className="text-sm text-slate-500">Active Alerts</p>
-                                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">Low</h3>
+                                    <div className="text-xs text-slate-400 font-bold uppercase">Active Alerts</div>
+                                    <div className="text-xl font-black">{alerts?.length || 0}</div>
                                 </div>
                             </div>
                         </Card>
@@ -204,7 +173,7 @@ export default function Resources() {
                             return (
                                 <Card key={res.id} className="hover:shadow-xl transition-all duration-300 border-t-4 border-blue-600 group">
                                     <div className="flex justify-between items-center mb-6">
-                                        <div className={`p-4 rounded-2xl shadow-sm ${res.bg} ${res.color} group-hover:scale-110 transition-transform`}>
+                                        <div className="p-4 rounded-2xl shadow-sm group-hover:scale-110 transition-transform flex items-center justify-center" style={{ backgroundColor: res.bg, color: res.color }}>
                                             {res.icon}
                                         </div>
                                         <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest ${statusBg} ${statusColor}`}>
@@ -241,7 +210,8 @@ export default function Resources() {
                                             className="w-full justify-center h-12 text-xs font-black uppercase tracking-widest shadow-lg shadow-blue-600/10 group-hover:shadow-blue-600/20"
                                             onClick={() => navigate(`${usageBasePath}/all?resource=${encodeURIComponent(res.name)}`)}
                                         >
-                                            Inspect Data <ArrowRight size={14} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                                            View Details
+                                            <ArrowRight size={14} className="ml-2 group-hover:translate-x-1 transition-transform" />
                                         </Button>
                                     </div>
                                 </Card>

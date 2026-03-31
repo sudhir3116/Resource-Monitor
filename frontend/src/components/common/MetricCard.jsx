@@ -1,40 +1,49 @@
 import React from 'react';
 
-// Example: <MetricCard label="Energy Usage" value="1200 kWh" trend={12} trendLabel="vs last month" />
-const MetricCard = ({ label, value, trend, trendLabel, icon, color = 'blue' }) => {
-    const isPositive = trend > 0;
-    const trendColor = isPositive ? 'text-red-500' : 'text-green-500'; // Assuming usage -> lower is better. context matters.
-    // Actually, for "Savings", positive is green. For "Cost", positive is bad.
-    // Let's make trend direction semantic. trendDirection='up-good' | 'up-bad'
-
-    const trendClass = trend > 0 ? 'text-red-600' : 'text-green-600'; // Default: usage UP is bad.
-    const arrow = trend > 0 ? '▲' : '▼';
+/**
+ * Premium Metric Card for numeric KPI tracking
+ * Consistent with the EcoMonitor SaaS design system
+ */
+export default function MetricCard({
+    icon,
+    label,
+    value,
+    change,
+    trend,
+    colorClass = 'text-blue-500',
+    subValue
+}) {
+    const isNegative = trend === 'negative' || (typeof trend === 'number' && trend < 0);
 
     return (
-        <div className="card group hover:shadow-2xl hover:shadow-indigo-500/10 dark:hover:shadow-indigo-500/5 transition-all duration-500">
-            <div className="flex justify-between items-start">
-                <div>
-                    <h3 className="text-[10px] uppercase tracking-[0.2em] text-slate-400 dark:text-slate-400 font-bold mb-3">{label}</h3>
-                    <div className="text-3xl font-black text-slate-900 dark:text-slate-50 tracking-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{value}</div>
-                </div>
+        <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-xl p-4 shadow-sm hover:shadow-md transition-all group">
+            <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-[var(--text-secondary)] uppercase tracking-wide font-medium">
+                    {label}
+                </span>
                 {icon && (
-                    <div className={`p-4 rounded-2xl bg-${color}-50 dark:bg-slate-700 text-${color}-600 dark:text-indigo-300 ring-1 ring-${color}-100 dark:ring-slate-600 shadow-sm`}>
-                        {icon}
+                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center bg-[var(--bg-muted)] transition-all group-hover:scale-110 ${colorClass}`}>
+                        {React.cloneElement(icon, { size: 18 })}
                     </div>
                 )}
             </div>
 
-            {trend !== undefined && (
-                <div className="flex items-center mt-6 pt-6 border-t border-slate-100 dark:border-slate-700/50">
-                    <span className={`text-[11px] font-black flex items-center px-2.5 py-1 rounded-lg ${trend > 0 ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300' : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'}`}>
-                        <span className="mr-1">{arrow}</span>
-                        {Math.abs(trend)}%
-                    </span>
-                    <span className="text-[10px] text-slate-400 dark:text-slate-400 ml-3 font-bold uppercase tracking-widest">{trendLabel || 'vs last month'}</span>
+            <div className="space-y-1">
+                <div className="text-2xl font-semibold text-[var(--text-primary)]">
+                    {value}
                 </div>
-            )}
+                {subValue && (
+                    <div className="text-xs text-[var(--text-secondary)]">
+                        {subValue}
+                    </div>
+                )}
+                {change !== undefined && (
+                    <div className={`flex items-center gap-1 text-[11px] font-medium ${isNegative ? 'text-rose-500' : 'text-emerald-500'}`}>
+                        {isNegative ? '↓' : '↑'} {Math.abs(change)}%
+                        <span className="text-[10px] text-[var(--text-secondary)] opacity-60 ml-1">VS PREV</span>
+                    </div>
+                )}
+            </div>
         </div>
     );
-};
-
-export default MetricCard;
+}

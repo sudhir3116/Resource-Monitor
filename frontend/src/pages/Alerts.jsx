@@ -15,6 +15,7 @@ import {
     Search, RefreshCw, Eye,
     XCircle, MapPin, Activity, TrendingUp, RotateCcw
 } from 'lucide-react';
+import { useResources } from '../hooks/useResources';
 
 const SEVERITY_CONFIG = {
     critical: { label: 'Critical', badgeVariant: 'danger', icon: <AlertCircle size={16} className="text-red-500" />, border: 'border-l-red-500' },
@@ -41,6 +42,14 @@ export default function Alerts() {
     const { addToast } = useToast();
     const alertCountCtx = useContext(AlertCountContext);
     const refreshCounts = alertCountCtx?.refreshCounts || (() => { });
+
+    const { resources } = useResources();
+    const getResIcon = (type) => {
+        const res = (resources || []).find(r => r.name === type);
+        if (!res?.icon) return <Activity size={14} />;
+        if (typeof res.icon === 'string' && res.icon.length < 5) return <span>{res.icon}</span>;
+        return <Activity size={14} />;
+    };
 
     const [alerts, setAlerts] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -515,7 +524,7 @@ export default function Alerts() {
                                             </td>
                                             <td>
                                                 <div className="flex items-center gap-2">
-                                                    <Activity size={14} />
+                                                    {getResIcon(alert.resourceType)}
                                                     <span className="font-medium">{alert.resourceType}</span>
                                                 </div>
                                             </td>
@@ -615,7 +624,7 @@ export default function Alerts() {
                                             </p>
                                             <div className="flex flex-wrap gap-4 text-xs" style={{ color: 'var(--text-secondary)' }}>
                                                 <span className="flex items-center gap-1">
-                                                    <Activity size={12} /> {alert.resourceType}
+                                                    {getResIcon(alert.resourceType)} {alert.resourceType}
                                                 </span>
                                                 {alert.block?.name && (
                                                     <span className="flex items-center gap-1">

@@ -14,6 +14,8 @@ import { useToast } from '../context/ToastContext';
 import useSortableTable from '../hooks/useSortableTable';
 import SortIcon from '../components/common/SortIcon';
 
+import { getSocket } from '../utils/socket';
+
 // ─── Create Block Modal ───────────────────────────────────────────────────────
 function CreateBlockModal({ isOpen, onClose, onCreated }) {
     const { addToast } = useToast();
@@ -138,10 +140,10 @@ function EditBlockModal({ isOpen, onClose, block, onUpdated }) {
                 monthly_budget: Number(form.monthly_budget) || 0,
                 status: form.status
             };
-            const res = await api.patch(`/api/blocks/${block._id}`, payload);
+            const res = await api.patch(`/api/admin/blocks/${block._id}`, payload);
             if (res.data?.success) {
-                addToast(`Block "${res.data.block?.name || form.name}" updated`, 'success');
-                onUpdated(res.data.block || { ...block, ...payload });
+                addToast(`Block "${res.data.data?.name || form.name}" updated`, 'success');
+                onUpdated(res.data.data || { ...block, ...payload });
                 onClose();
             }
         } catch (err) {
@@ -313,10 +315,20 @@ export default function BlockManagement() {
         }
     }, []);
 
-    useEffect(() => { fetchData(); }, [fetchData]);
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
+
+    useEffect(() => {
+        const socket = getSocket();
+        if (socket) {
+            socket.on('blocks:refresh', fetchData);
+            return () => socket.off('blocks:refresh', fetchData);
+        }
+    }, [fetchData]);
 
     const handleCreated = (newBlock) => {
-        setBlocks(prev => [...prev, newBlock].sort((a, b) => a.name.localeCompare(b.name)));
+        fetchData();
     };
 
     const handleUpdated = () => {
@@ -408,26 +420,6 @@ export default function BlockManagement() {
                 </div>
             </div>
 
-            {/* Summary strip */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                    { label: 'Total Blocks', value: blocks.length, icon: <Building2 size={18} />, color: 'text-blue-500' },
-                    { label: 'Active', value: blocks.filter(b => b.status === 'Active').length, icon: <Shield size={18} />, color: 'text-green-500' },
-                    { label: 'Wardens Assigned', value: blocks.filter(b => b.warden).length, icon: <UserCheck size={18} />, color: 'text-emerald-500' },
-                    { label: 'Unassigned', value: blocks.filter(b => !b.warden).length, icon: <UserX size={18} />, color: 'text-amber-500' },
-                ].map(s => (
-                    <Card key={s.label}>
-                        <div className="flex items-center gap-3">
-                            <div className={`${s.color}`}>{s.icon}</div>
-                            <div>
-                                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{s.label}</p>
-                                <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{s.value}</p>
-                            </div>
-                        </div>
-                    </Card>
-                ))}
-            </div>
-
             {/* Block list */}
             <Card>
                 {loading ? (
@@ -489,6 +481,16 @@ export default function BlockManagement() {
                                 </div>
                             </div>
                         )}
+                        {/* Blocks Table Header */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pt-6 border-t border-[var(--border-color)]">
+                            <div>
+                                <h3 className="text-sm font-bold text-primary flex items-center gap-2">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                                    Block Records
+                                </h3>
+                                <p className="text-[11px] text-secondary mt-0.5">Manage and monitor hostel block assignments</p>
+                            </div>
+                        </div>
                         <div className="overflow-x-auto">
                             <table className="table">
                                 <thead>
@@ -504,7 +506,7 @@ export default function BlockManagement() {
                                                         setSelectedIds([])
                                                     }
                                                 }}
-                                                
+
                                                 style={{ width: '16px', height: '16px', minWidth: '16px', cursor: 'pointer', accentColor: '#3B82F6' }}
                                             />
                                         </th>
@@ -542,7 +544,7 @@ export default function BlockManagement() {
                                                                 setSelectedIds(prev => prev.filter(id => id !== block._id))
                                                             }
                                                         }}
-                                                        
+
                                                         style={{ width: '16px', height: '16px', minWidth: '16px', cursor: 'pointer', accentColor: '#3B82F6' }}
                                                     />
                                                 </td>
@@ -624,48 +626,8 @@ export default function BlockManagement() {
                 )}
             </Card>
 
-            {/* Permission summary */}
-            < Card >
-                <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
-                    Role Permission Summary
-                </h2>
-                <div className="overflow-x-auto">
-                    <table className="table text-sm">
-                        <thead>
-                            <tr>
-                                <th>Action</th>
-                                <th>Admin</th>
-                                <th>Warden</th>
-                                <th>Dean / Principal</th>
-                                <th>Student</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {[
-                                ['Create / Delete Blocks', '✅', '❌', '❌', '❌'],
-                                ['Assign Wardens', '✅', '❌', '❌', '❌'],
-                                ['Log Usage (own block)', '✅', '✅ (own block only)', '❌', '❌'],
-                                ['Log Usage (other block)', '✅', '❌ (403)', '❌', '❌'],
-                                ['View All Usage', '✅', '✅ (own block)', '✅ (filter)', '❌'],
-                                ['Resolve Alerts', '✅', '✅', '✅', '❌'],
-                                ['Escalate Alerts', '✅ (Admin only)', '❌', '❌', '❌'],
-                                ['Reopen Alerts', '✅ (Admin only)', '❌', '❌', '❌'],
-                                ['Submit Complaints', '❌', '❌', '❌', '✅'],
-                            ].map(([action, ...roles]) => (
-                                <tr key={action}>
-                                    <td className="font-medium">{action}</td>
-                                    {roles.map((r, i) => (
-                                        <td key={i} className="text-center">{r}</td>
-                                    ))}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </Card >
-
             {/* Modals */}
-            < CreateBlockModal
+            <CreateBlockModal
                 isOpen={showCreate}
                 onClose={() => setShowCreate(false)}
                 onCreated={handleCreated}
@@ -730,6 +692,6 @@ export default function BlockManagement() {
                     </div>
                 )
             }
-        </div >
+        </div>
     );
 }

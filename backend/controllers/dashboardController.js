@@ -9,7 +9,7 @@
 const Usage = require('../models/Usage');
 const Block = require('../models/Block');
 const User = require('../models/User');
-const SystemConfig = require('../models/SystemConfig');
+const SystemConfig = require('../models/Resource');
 const Alert = require('../models/Alert');
 const mongoose = require('mongoose');
 const {
@@ -219,7 +219,7 @@ exports.getExecutiveStats = async (req, res) => {
         ]);
 
         // ──  Cost estimation from system config rates
-        const configs = await SystemConfig.find({}).lean();
+        const configs = await Resource.find({}).lean();
         const rateMap = configs.reduce((acc, c) => {
             acc[c.resource] = c.costPerUnit ?? c.rate ?? 0;
             return acc;

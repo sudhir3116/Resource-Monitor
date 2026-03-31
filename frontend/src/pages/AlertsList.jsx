@@ -30,16 +30,19 @@ import EmptyState from '../components/common/EmptyState';
 import { ConfirmModal } from '../components/common/Modal';
 import { logger } from '../utils/logger';
 
-const RESOURCE_META = {
-  Electricity: { icon: <Zap size={18} />, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-900/20' },
-  Water: { icon: <Droplets size={18} />, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20' },
-  LPG: { icon: <Flame size={18} />, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-900/20' },
-  Diesel: { icon: <Wind size={18} />, color: 'text-slate-500', bg: 'bg-slate-50 dark:bg-slate-900/20' },
-  Solar: { icon: <Sun size={18} />, color: 'text-yellow-500', bg: 'bg-yellow-50 dark:bg-yellow-900/20' },
-  Waste: { icon: <Trash size={18} />, color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-900/20' },
-};
+import { useResources } from '../hooks/useResources';
 
 export default function AlertsList() {
+  const { resources: dynamicResources } = useResources();
+  const getResourceMeta = (type) => {
+    const res = (dynamicResources || []).find(r => r.name === type);
+    return {
+      icon: (res?.icon && typeof res.icon === 'string' && res.icon.length < 5) ? <span className="text-xl">{res.icon}</span> : <Activity size={18} />,
+      color: res?.color ? `text-[${res.color}]` : 'text-blue-500',
+      bg: res?.color ? `bg-[${res.color}]/10` : 'bg-blue-50 dark:bg-blue-900/20'
+    };
+  };
+
   const [rules, setRules] = useState([]);
   const [systemAlerts, setSystemAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -96,7 +99,7 @@ export default function AlertsList() {
     }
   }
 
-  const getMeta = (type) => RESOURCE_META[type] || { icon: <Activity size={18} />, color: 'text-slate-500', bg: 'bg-slate-50 dark:bg-slate-800' };
+  // Removed static getMeta helper as it is replaced by getResourceMeta above
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-32">
@@ -161,7 +164,7 @@ export default function AlertsList() {
               ) : (
                 <div className="grid grid-cols-1 gap-4">
                   {systemAlerts.map(alert => {
-                    const meta = getMeta(alert.resourceType);
+                    const meta = getResourceMeta(alert.resourceType);
                     return (
                       <Card key={alert._id} className={`border-l-4 ${alert.status === 'danger' ? 'border-l-rose-500 shadow-rose-500/5 bg-rose-50/10' : 'border-l-amber-500 shadow-amber-500/5 bg-amber-50/10'}`}>
                         <div className="flex items-start gap-6">
@@ -209,13 +212,15 @@ export default function AlertsList() {
                 </div>
               ) : (
                 rules.map(rule => {
-                  const meta = getMeta(rule.resource_type);
+                  const meta = getResourceMeta(rule.resource_type);
                   return (
                     <Card key={rule._id} className="relative group overflow-hidden hover:shadow-xl transition-all duration-300">
                       <div className="flex justify-between items-start mb-6">
                         <div className="flex items-center gap-4">
-                          <div className={`h-12 w-12 rounded-2xl flex items-center justify-center ${meta.bg} ${meta.color} shadow-inner`}>
-                            {meta.icon}
+                          <div className={`h-12 w-12 rounded-2xl flex items-center justify-center bg-slate-50 dark:bg-slate-800 shadow-inner`}>
+                            <div style={{ color: (dynamicResources?.find(r => r.name === rule.resource_type)?.color || '#3b82f6') }}>
+                              {meta.icon}
+                            </div>
                           </div>
                           <div>
                             <h3 className="font-bold text-lg" style={{ color: 'var(--text-primary)' }}>{rule.resource_type}</h3>

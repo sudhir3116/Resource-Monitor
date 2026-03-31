@@ -77,8 +77,8 @@ router.get('/stats', usageController.getDashboardStats)
 
 // Usage list and detail — blocked for students (403)
 // General Manager gets full campus visibility alongside Dean/Principal/Admin
-router.get('/', authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN), usageController.getUsages)
-router.get('/:id', authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN), usageController.getUsage)
+router.get('/', authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL), usageController.getUsages)
+router.get('/:id', authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL), usageController.getUsage)
 
 // Write routes — ONLY Admin and Warden can CREATE usage records
 // Students, Dean, Principal, GM are BLOCKED at middleware level (403 Forbidden)
@@ -138,26 +138,26 @@ router.delete(
 // ── EXPORT ROUTES ────────────────────────────────────────────────────────────
 router.get(
     '/export/csv',
-    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN),
+    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
     usageController.exportUsageCSV
 )
 
 router.get(
     '/export/pdf',
-    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN),
+    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
     usageController.exportUsagePDF
 )
 
 // ── METRICS ROUTES ───────────────────────────────────────────────────────────
 router.get(
     '/metrics/efficiency',
-    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN),
+    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
     usageController.getEfficiencyMetrics
 )
 
 router.get(
     '/anomalies',
-    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN),
+    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
     usageController.getAnomalies
 )
 

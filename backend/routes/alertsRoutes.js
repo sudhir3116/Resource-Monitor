@@ -48,13 +48,13 @@ const GM = ROLES.GM;
 router.use(auth);
 
 // ── READ ──────────────────────────────────────────────────────────────────────
-router.get('/', authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.STUDENT), getAlerts);
-router.get('/system', authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN), getSystemAlerts);
-router.get('/count', authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.STUDENT), getAlertCount);
-router.get('/stats', authorize(ROLES.ADMIN, GM, ROLES.DEAN, ROLES.WARDEN), getAlertStats);
-router.get('/analytics', authorize(ROLES.ADMIN, GM, ROLES.DEAN), getAlertAnalytics);
-router.get('/rules', authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN), getAlertRules);
-router.get('/:id', authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.STUDENT),
+router.get('/', authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.STUDENT), getAlerts);
+router.get('/system', authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL), getSystemAlerts);
+router.get('/count', authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.STUDENT), getAlertCount);
+router.get('/stats', authorize(ROLES.ADMIN, GM, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.WARDEN), getAlertStats);
+router.get('/analytics', authorize(ROLES.ADMIN, GM, ROLES.DEAN, ROLES.PRINCIPAL), getAlertAnalytics);
+router.get('/rules', authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL), getAlertRules);
+router.get('/:id', authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.STUDENT),
   [param('id').isMongoId().withMessage('Invalid id')], runValidations, getAlert);
 
 // ── CREATE ────────────────────────────────────────────────────────────────────
@@ -150,13 +150,13 @@ router.delete('/:id', [param('id').isMongoId().withMessage('Invalid id')], runVa
 // ── EXPORT ROUTES ─────────────────────────────────────────────────────────────
 router.get(
   '/export/csv',
-  authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN),
+  authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
   exportAlertsCSV
 );
 
 router.get(
   '/export/pdf',
-  authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN),
+  authorize(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
   exportAlertsPDF
 );
 

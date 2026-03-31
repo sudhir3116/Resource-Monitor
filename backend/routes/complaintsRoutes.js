@@ -13,7 +13,8 @@ const {
     resolveComplaint,
     escalateComplaint,
     updateComplaintStatus,
-    getComplaintStatistics
+    getComplaintStatistics,
+    deleteComplaint
 } = require('../controllers/complaintsController');
 
 // All routes require authentication
@@ -72,6 +73,15 @@ router.patch('/:id/status',
     runValidations,
     auditMiddleware('UPDATE', 'Complaint'),
     updateComplaintStatus
+);
+
+// ── Delete: Admin only ────────────────────────────────────────────────────────
+router.delete('/:id',
+    authorizeRoles(ROLES.ADMIN),
+    [param('id').isMongoId().withMessage('Invalid id')],
+    runValidations,
+    auditMiddleware('DELETE', 'Complaint'),
+    deleteComplaint
 );
 
 module.exports = router;

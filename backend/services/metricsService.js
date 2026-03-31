@@ -6,7 +6,7 @@
  */
 
 const Usage = require('../models/Usage');
-const SystemConfig = require('../models/SystemConfig');
+const SystemConfig = require('../models/Resource');
 const Block = require('../models/Block');
 const mongoose = require('mongoose');
 
@@ -50,7 +50,7 @@ async function calculateEfficiencyScore(blockId = null, startDate = null, endDat
     ]);
 
     // Get thresholds from SystemConfig
-    const configs = await SystemConfig.find({ isActive: true });
+    const configs = await Resource.find({ isActive: true });
     const configMap = {};
     configs.forEach(c => {
       configMap[c.resource] = c;
@@ -132,7 +132,7 @@ async function calculateResourceCost(blockId = null, startDate = null, endDate =
     ]);
 
     // Get cost rates
-    const configs = await SystemConfig.find({ isActive: true });
+    const configs = await Resource.find({ isActive: true });
     const rateMap = {};
     configs.forEach(c => {
       rateMap[c.resource] = c.costPerUnit || c.rate || 0;

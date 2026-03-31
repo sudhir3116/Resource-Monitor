@@ -6,7 +6,7 @@
 
 const Recommendation = require('../models/Recommendation');
 const Usage = require('../models/Usage');
-const SystemConfig = require('../models/SystemConfig');
+const SystemConfig = require('../models/Resource');
 const mongoose = require('mongoose');
 
 /**
@@ -47,7 +47,7 @@ exports.getRecommendations = async (options = {}) => {
     ]);
 
     // Get thresholds from SystemConfig (source of truth)
-    const configs = await SystemConfig.find({ isActive: { $ne: false } }).lean();
+    const configs = await Resource.find({ isActive: { $ne: false } }).lean();
     const configMap = {};
     configs.forEach(c => configMap[c.resource] = c);
 
@@ -435,7 +435,7 @@ exports.getEfficiencyScore = async (options = {}) => {
         }
     ]);
 
-    const configs = await SystemConfig.find({ isActive: { $ne: false } }).lean();
+    const configs = await Resource.find({ isActive: { $ne: false } }).lean();
     const configMap = {};
     configs.forEach(c => configMap[c.resource] = c);
 

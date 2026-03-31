@@ -5,7 +5,7 @@
  */
 
 const Usage = require('../models/Usage');
-const SystemConfig = require('../models/SystemConfig');
+const SystemConfig = require('../models/Resource');
 const Block = require('../models/Block');
 const mongoose = require('mongoose');
 
@@ -395,7 +395,7 @@ exports.resourceEfficiency = async (options = {}) => {
         { $sort: { total: -1 } }
     ]);
 
-    const configs = await SystemConfig.find({ isActive: { $ne: false } }).lean();
+    const configs = await Resource.find({ isActive: { $ne: false } }).lean();
     const configMap = {};
     configs.forEach(c => configMap[c.resource] = c);
 

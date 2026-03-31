@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Usage = require('../models/Usage');
 const Alert = require('../models/Alert');
-const SystemConfig = require('../models/SystemConfig');
+const SystemConfig = require('../models/Resource');
 
 /**
  * getUsageSummary
@@ -26,7 +26,7 @@ exports.getUsageSummary = async (options = {}) => {
 
     if (['warden', 'student'].includes(normalizedRole)) {
         if (!blockId) {
-            const noConfigs = await SystemConfig.find({ isActive: { $ne: false } }).lean();
+            const noConfigs = await Resource.find({ isActive: { $ne: false } }).lean();
             const emptySummary = {};
             noConfigs.forEach(cfg => {
                 const resName = cfg.resource || cfg.name;
@@ -57,13 +57,13 @@ exports.getUsageSummary = async (options = {}) => {
         if (endDate) matchStage.usage_date.$lte = new Date(endDate);
     }
 
-    // ── Aggregation using correct field names ──────────────────────────────────
-    // CRITICAL: usage_value (NOT value/amount), blockId (NOT block), resource_type (NOT resource)
+    // ── Aggregation: Match exact resource_type (must match Resource.resource) ──
+    // After normalization, resource_type in Usage = Resource.resource (exact match)
     const pipeline = [
         { $match: matchStage },
         {
             $group: {
-                _id: { $toLower: '$resource_type' },
+                _id: '$resource_type',  // exact name, already normalized
                 total: { $sum: '$usage_value' },
                 count: { $sum: 1 },
                 avgValue: { $avg: '$usage_value' },
@@ -77,7 +77,7 @@ exports.getUsageSummary = async (options = {}) => {
 
     const [results, configs] = await Promise.all([
         Usage.aggregate(pipeline),
-        SystemConfig.find({ isActive: true }).lean()
+        Resource.find({ isActive: true }).lean()
     ]);
 
     // Build config map
@@ -104,16 +104,14 @@ exports.getUsageSummary = async (options = {}) => {
         };
     });
 
-    // Fill with actual aggregation results
+    // Fill with aggregation results
     results.forEach(r => {
-        const key = Object.keys(summary).find(
-            k => k.toLowerCase() === (r._id || '').toLowerCase()
-        );
-        if (!key) return;
+        const resourceName = r._id;
+        if (!resourceName || !summary[resourceName]) return;
 
-        const cfg = configMap[key] || {};
-        summary[key] = {
-            ...summary[key],
+        const cfg = configMap[resourceName] || {};
+        summary[resourceName] = {
+            ...summary[resourceName],
             total: Math.round(r.total * 100) / 100,
             current: Math.round(r.total * 100) / 100,
             cost: Math.round((r.cost || 0) * 100) / 100,
@@ -191,7 +189,7 @@ exports.getUsageTrends = async (options = {}) => {
     }
 
     // ── Filter by active resources ──────────────────────────────
-    const activeConfigs = await SystemConfig.find({ isActive: true }).select('resource').lean();
+    const activeConfigs = await Resource.find({ isActive: true }).select('resource').lean();
     const activeNames = new Set(activeConfigs.map(c => c.resource?.toLowerCase()));
 
     const trends = await Usage.aggregate([

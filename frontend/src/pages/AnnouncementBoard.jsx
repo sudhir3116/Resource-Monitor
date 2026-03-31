@@ -138,15 +138,21 @@ const AnnouncementBoard = () => {
             Official announcements and updates for all residents
           </p>
         </div>
-        {canPostNotice && (
-          <Button variant="primary" onClick={() => {
-            setEditId(null);
-            setFormData({ title: '', content: '', type: 'GENERAL', priority: 'MEDIUM', targetRole: ['all'], targetBlock: null, expiresAt: '', pinned: false });
-            setShowForm(true);
-          }}>
-            <Plus size={18} className="mr-2" /> Post Announcement
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={fetchAnnouncements} disabled={loading}>
+            <RefreshCw size={18} className={`mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
           </Button>
-        )}
+          {canPostNotice && (
+            <Button variant="primary" onClick={() => {
+              setEditId(null);
+              setFormData({ title: '', content: '', type: 'GENERAL', priority: 'MEDIUM', targetRole: ['all'], targetBlock: null, expiresAt: '', pinned: false });
+              setShowForm(true);
+            }}>
+              <Plus size={18} className="mr-2" /> Post Announcement
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -245,7 +251,25 @@ const AnnouncementBoard = () => {
                 </div>
               </div>
 
-              <div className="flex items-center gap-4 py-2">
+              <div className="grid grid-cols-1 gap-4">
+                <div>
+                  <label className="label mb-1.5 flex items-center gap-2">
+                    <Clock size={14} className="text-blue-500" />
+                    Expiration Date & Time (Optional)
+                  </label>
+                  <input
+                    type="datetime-local"
+                    className="input w-full"
+                    style={{ colorScheme: 'dark' }}
+                    value={formData.expiresAt ? new Date(new Date(formData.expiresAt).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
+                    onChange={e => setFormData({ ...formData, expiresAt: e.target.value })}
+                    onClick={(e) => e.target.showPicker?.()}
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Notice will be automatically deleted after this time.</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 py-2 border-t border-[var(--border-color)]">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={formData.pinned} onChange={e => setFormData({ ...formData, pinned: e.target.checked })} className="rounded text-blue-600 focus:ring-blue-500" />
                   <span className="text-sm font-medium">Pin to Top</span>
@@ -340,10 +364,15 @@ const AnnouncementBoard = () => {
                       {notice?.createdBy?.name || 'Admin'}
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 text-[10px] text-slate-400 font-medium">
+                  <div className="flex flex-col items-end gap-1 text-[10px] text-slate-400 font-medium">
                     <span className="flex items-center gap-1">
                       <Calendar size={10} /> {timeAgo(notice?.createdAt)}
                     </span>
+                    {notice?.expiresAt && (
+                      <span className="flex items-center gap-1 text-rose-400/80">
+                        <Clock size={10} /> Exp: {new Date(notice.expiresAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

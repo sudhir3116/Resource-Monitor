@@ -1,5 +1,5 @@
 const Usage = require('../models/Usage');
-const SystemConfig = require('../models/SystemConfig');
+const SystemConfig = require('../models/Resource');
 const Alert = require('../models/Alert');
 const Block = require('../models/Block');
 const { predictEndOfMonth } = require('../utils/usagePredictor');
@@ -22,7 +22,7 @@ exports.getBlockPredictions = async (req, res) => {
     const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
     // Get all resource configs
-    const configs = await SystemConfig.find({ isActive: true });
+    const configs = await Resource.find({ isActive: true });
 
     // Get current month usages for this block
     const usages = await Usage.find({
@@ -100,7 +100,7 @@ exports.getAllPredictions = async (req, res) => {
     const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
     const blocks = await Block.find().select('_id name');
-    const configs = await SystemConfig.find({ isActive: true });
+    const configs = await Resource.find({ isActive: true });
 
     const predictions = [];
 
@@ -169,7 +169,7 @@ exports.createPredictiveAlerts = async (req, res) => {
     const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
     const blocks = await Block.find().select('_id');
-    const configs = await SystemConfig.find({ isActive: true });
+    const configs = await Resource.find({ isActive: true });
 
     let alertsCreated = 0;
 

@@ -11,7 +11,7 @@ router.use(protect);
 // Dean summary dashboard data
 router.get(
   '/summary',
-  authorizeRoles(ROLES.DEAN, ROLES.ADMIN, ROLES.GM),
+  authorizeRoles(ROLES.DEAN, ROLES.PRINCIPAL, ROLES.ADMIN, ROLES.GM),
   deanController.getDeanSummary
 );
 

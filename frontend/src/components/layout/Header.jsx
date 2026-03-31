@@ -1,119 +1,116 @@
 import React, { useContext, useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import { AlertCountContext } from '../../context/AlertCountContext';
 import { ThemeContext } from '../../context/ThemeContext';
-import { Bell, Moon, Sun, LogOut, ChevronDown } from 'lucide-react';
+import { Bell, Moon, Sun, LogOut, ChevronDown, User, Settings, ShieldCheck } from 'lucide-react';
 import NotificationBell from '../NotificationBell';
-import api from '../../services/api';
 
 export default function Header() {
     const { user, logout } = useContext(AuthContext);
-    const { theme, toggleTheme } = useContext(ThemeContext);
+    const location = useLocation();
     const alertCtx = useContext(AlertCountContext);
     const counts = alertCtx?.counts ?? { totalActive: 0, unread: 0, pending: 0, investigating: 0, reviewed: 0, escalated: 0, critical: 0 };
     const [showUserMenu, setShowUserMenu] = useState(false);
-    const [badgeVisible, setBadgeVisible] = useState(counts.unread > 0);
-    const [bounce, setBounce] = useState(false);
-    const prevUnread = useRef(counts.unread);
 
-    useEffect(() => {
-        setBadgeVisible(counts.unread > 0);
-
-        if (typeof prevUnread.current === 'number' && counts.unread > prevUnread.current) {
-            setBounce(true);
-            const t = setTimeout(() => setBounce(false), 700);
-            return () => clearTimeout(t);
-        }
-        prevUnread.current = counts.unread;
-    }, [counts.unread]);
-
+    // Get page title from path
+    const getPageTitle = (pathname) => {
+        const parts = pathname.split('/').filter(p => p);
+        if (parts.length === 0) return 'Dashboard';
+        const lastPart = parts[parts.length - 1];
+        return lastPart.charAt(0).toUpperCase() + lastPart.slice(1).replace(/-/g, ' ');
+    };
 
     return (
-        <div className="header flex items-center justify-between px-6">
-            {/* Breadcrumb / Page Title */}
-            <div>
-                <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    Dashboard
+        <header className="header flex items-center justify-between px-8 border-b border-[var(--border-color)]">
+            {/* Dynamic Page Header Title */}
+            <div className="flex items-center gap-4">
+                <div className="h-8 w-1 bg-blue-500 rounded-full animate-pulse-slow"></div>
+                <h1 className="text-xl font-black text-[var(--text-primary)] tracking-tight">
+                    {getPageTitle(location.pathname)}
                 </h1>
             </div>
 
-            {/* Right Side Actions */}
-            <div className="flex items-center gap-4">
-                {/* Notification Bell */}
+            {/* Right Side Actions - Standard Polished SaaS Tools */}
+            <div className="flex items-center gap-3">
+
+                {/* Notification Center — single bell */}
                 <NotificationBell />
 
-                {/* Theme Toggle */}
-                <button
-                    onClick={toggleTheme}
-                    className="p-2 rounded-lg transition-colors"
-                    style={{ color: 'var(--text-secondary)' }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                >
-                    {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-                </button>
+                {/* Vertical Divider */}
+                <div className="h-6 w-px bg-[var(--border-color)] mx-1"></div>
 
-                {/* User Menu */}
+                {/* User Dropdown Profile Menu */}
                 <div className="relative">
                     <button
                         onClick={() => setShowUserMenu(!showUserMenu)}
-                        className="flex items-center gap-2 p-2 rounded-lg transition-colors"
-                        style={{ color: 'var(--text-primary)' }}
-                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-                        onMouseLeave={(e) => !showUserMenu && (e.currentTarget.style.backgroundColor = 'transparent')}
+                        className={`flex items-center gap-3 p-1.5 pr-3 rounded-2xl transition-all border ${showUserMenu ? 'bg-[var(--bg-muted)] border-blue-500/20' : 'border-transparent hover:bg-[var(--bg-muted)]'}`}
                     >
-                        <div className="h-8 w-8 rounded-full flex items-center justify-center text-sm font-semibold"
-                            style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}>
-                            {user?.name?.charAt(0).toUpperCase()}
+                        <div className="h-9 w-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black shadow-md shadow-blue-500/20">
+                            {user?.name?.charAt(0).toUpperCase() || 'U'}
                         </div>
-                        <ChevronDown size={16} />
+                        <div className="hidden md:block text-left">
+                            <p className="text-xs font-black text-primary leading-none mb-0.5">{user?.name}</p>
+                            <p className="text-[10px] uppercase font-bold text-secondary opacity-60 tracking-widest">{user?.role}</p>
+                        </div>
+                        <ChevronDown size={14} className={`text-secondary transition-transform duration-300 ${showUserMenu ? 'rotate-180' : ''}`} />
                     </button>
 
-                    {/* Dropdown Menu */}
+                    {/* Popover Menu (SaaS Standard) */}
                     {showUserMenu && (
                         <>
-                            <div
-                                className="fixed inset-0 z-10"
-                                onClick={() => setShowUserMenu(false)}
-                            ></div>
-                            <div
-                                className="absolute right-0 mt-2 w-48 rounded-lg border py-2 z-20"
-                                style={{
-                                    backgroundColor: 'var(--bg-card)',
-                                    borderColor: 'var(--border)',
-                                    boxShadow: 'var(--shadow-lg)'
-                                }}
-                            >
-                                <Link
-                                    to="/profile"
-                                    className="block px-4 py-2 text-sm transition-colors"
-                                    style={{ color: 'var(--text-primary)' }}
-                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                                    onClick={() => setShowUserMenu(false)}
-                                >
-                                    Profile
-                                </Link>
-                                <div className="my-1" style={{ borderTop: '1px solid var(--border)' }}></div>
-                                <button
-                                    onClick={() => {
-                                        logout();
-                                        setShowUserMenu(false);
-                                    }}
-                                    className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition-colors"
-                                    style={{ color: 'var(--color-danger)' }}
-                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                                >
-                                    <LogOut size={16} />
-                                    Sign Out
-                                </button>
+                            <div className="fixed inset-0 z-[60]" onClick={() => setShowUserMenu(false)}></div>
+                            <div className="absolute right-0 mt-3 w-64 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl shadow-2xl z-[70] overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                                {/* User Info Summary */}
+                                <div className="p-5 bg-[var(--bg-muted)]/30 border-b border-[var(--border-color)]">
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-12 w-12 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center font-black text-xl">
+                                            {user?.name?.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-black text-primary truncate">{user?.name}</p>
+                                            <p className="text-xs font-medium text-secondary truncate">{user?.email}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Menu Items */}
+                                <div className="p-2">
+                                    <Link
+                                        to="/profile"
+                                        onClick={() => setShowUserMenu(false)}
+                                        className="flex items-center gap-3 px-4 py-3 text-sm font-bold text-secondary hover:text-primary hover:bg-[var(--bg-muted)] rounded-xl transition-colors"
+                                    >
+                                        <User size={18} /> Profile Settings
+                                    </Link>
+                                    {user?.role === 'admin' && (
+                                        <Link
+                                            to="/admin/audit-logs"
+                                            onClick={() => setShowUserMenu(false)}
+                                            className="flex items-center gap-3 px-4 py-3 text-sm font-bold text-secondary hover:text-primary hover:bg-[var(--bg-muted)] rounded-xl transition-colors"
+                                        >
+                                            <ShieldCheck size={18} /> System Audit
+                                        </Link>
+                                    )}
+                                </div>
+
+                                {/* Logout Action */}
+                                <div className="p-2 border-t border-[var(--border-color)]">
+                                    <button
+                                        onClick={() => {
+                                            logout();
+                                            setShowUserMenu(false);
+                                        }}
+                                        className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"
+                                    >
+                                        <LogOut size={18} /> Sign Out Account
+                                    </button>
+                                </div>
                             </div>
                         </>
                     )}
                 </div>
             </div>
-        </div>
+        </header>
     );
 }

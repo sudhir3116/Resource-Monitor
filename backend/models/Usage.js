@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const usageSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Optional if block-level usage
   blockId: { type: mongoose.Schema.Types.ObjectId, ref: 'Block' },
-  resource: { type: mongoose.Schema.Types.ObjectId, ref: 'SystemConfig' }, // NEW: ObjectId Reference
+  resourceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Resource' }, // NEW: ObjectId Reference
   resource_type: { type: String, required: true, trim: true }, // Legacy: for quick lookups
   category: { type: String }, // e.g., 'Lighting', 'Heating', 'Cooking'
   usage_value: { type: Number, required: true },

@@ -1,6 +1,4 @@
-const Usage = require('../models/Usage');
-const Block = require('../models/Block');
-const SystemConfig = require('../models/SystemConfig');
+const Resource = require('../models/Resource');
 const { ROLES } = require('../config/roles');
 const mongoose = require('mongoose');
 
@@ -135,7 +133,7 @@ const getAnalyticsSummary = async (req, res) => {
         const percentageChange = calculatePercentageChange(current.value, previous.value);
         const trend = percentageChange > 0 ? 'up' : percentageChange < 0 ? 'down' : 'stable';
 
-        // Current period stats by resource
+        // Task 6: Aggregation uses resourceId
         const currentByResource = await Usage.aggregate([
             {
                 $match: {
@@ -149,13 +147,16 @@ const getAnalyticsSummary = async (req, res) => {
             },
             {
                 $group: {
-                    _id: '$resource_type',
+                    _id: '$resourceId',
                     current: { $sum: '$usage_value' }
                 }
             }
         ]);
 
-        // Previous period stats by resource
+        // Populate resource names (mocking populate for aggregate)
+        await Resource.populate(currentByResource, { path: '_id', select: 'name' });
+
+        // Previous period stats by resourceId
         const previousByResource = await Usage.aggregate([
             {
                 $match: {
@@ -169,7 +170,7 @@ const getAnalyticsSummary = async (req, res) => {
             },
             {
                 $group: {
-                    _id: '$resource_type',
+                    _id: '$resourceId',
                     previous: { $sum: '$usage_value' }
                 }
             }
@@ -179,7 +180,8 @@ const getAnalyticsSummary = async (req, res) => {
             const prev = previousByResource.find(p => String(p._id) === String(curr._id)) || { previous: 0 };
             const change = calculatePercentageChange(curr.current, prev.previous);
             return {
-                resource: curr._id,
+                resource: curr._id?.name || 'Unknown',
+                resourceId: curr._id?._id,
                 current: Math.round(curr.current * 100) / 100,
                 change: Math.round(change * 100) / 100
             };
@@ -282,14 +284,14 @@ const getResourceTrends = async (req, res) => {
             }
         ]);
 
-        const trendResult = {};
-        trends.forEach(t => {
-            trendResult[t._id.toLowerCase()] = t.data;
-        });
+        const trendResult = trends.map(t => ({
+            resource: t._id,
+            data: t.data
+        }));
 
         res.json({
             success: true,
-            trends: trendResult, // Phase 1 grouped structure
+            trends: trendResult, // Array structure for TrendChart compatibility
             period: { days: daysInt, start: startDate, end: endDate }
         });
     } catch (error) {
@@ -460,7 +462,7 @@ const getSustainabilityScore = async (req, res) => {
         ]);
 
         // Get thresholds from system config
-        const configs = await SystemConfig.find({});
+        const configs = await Resource.find({});
 
         let totalScore = 100;
         const resourceScores = [];
@@ -545,7 +547,7 @@ const getEfficiencyRating = async (req, res) => {
             }
         ]);
 
-        const configs = await SystemConfig.find({});
+        const configs = await Resource.find({});
         const ratings = [];
 
         for (const u of usage) {
@@ -601,7 +603,7 @@ const getBudgetMonitoring = async (req, res) => {
 
         // Fetch all blocks and configs (for rates)
         const blocks = await Block.find({});
-        const configs = await SystemConfig.find({});
+        const configs = await Resource.find({});
 
         // Calculate usage cost per block (exclude soft-deleted records)
         const usageAgg = await Usage.aggregate([
@@ -687,7 +689,7 @@ const getHostelLeaderboard = async (req, res) => {
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-        const configs = await SystemConfig.find({});
+        const configs = await Resource.find({});
 
         const rankings = [];
         for (const block of blocks) {
@@ -776,8 +778,8 @@ const getBlockAnalytics = async (req, res) => {
 
         // Group data by resource type (no hardcoded resource list)
         const resourceStats = {};
-        const SystemConfig = require('../models/SystemConfig');
-        const activeConfigs = await SystemConfig.find({ isActive: { $ne: false } }).select('resource').lean();
+        const SystemConfig = require('../models/Resource');
+        const activeConfigs = await Resource.find({ isActive: { $ne: false } }).select('resource').lean();
         const configuredResources = Array.isArray(activeConfigs) ? activeConfigs.map(c => c.resource).filter(Boolean) : [];
         const resources = configuredResources.length > 0
             ? configuredResources

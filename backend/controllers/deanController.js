@@ -2,7 +2,7 @@ const Usage = require('../models/Usage');
 const Alert = require('../models/Alert');
 const Complaint = require('../models/Complaint');
 const Block = require('../models/Block');
-const SystemConfig = require('../models/SystemConfig');
+const SystemConfig = require('../models/Resource');
 const mongoose = require('mongoose');
 
 /**
@@ -105,7 +105,7 @@ exports.getDeanSummary = async (req, res) => {
       // Get all blocks
       Block.find().select('_id name'),
       // Get all configs for limits
-      SystemConfig.find()
+      Resource.find()
     ]);
 
     // Calculate key metrics

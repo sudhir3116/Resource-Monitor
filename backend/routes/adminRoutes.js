@@ -82,6 +82,15 @@ router.delete(
     adminController.deleteBlock
 );
 
+// Update block
+router.patch(
+    '/blocks/:id',
+    [param('id').isMongoId().withMessage('Invalid block id')],
+    runValidations,
+    auditMiddleware('UPDATE', 'Block'),
+    adminController.updateBlock
+);
+
 // Assign warden to block
 router.put(
     '/blocks/:id/warden',
@@ -211,5 +220,8 @@ router.delete(
     auditMiddleware('DELETE', 'SystemConfig'),
     configController.deleteThreshold
 );
+
+// ── Resource Config aliased routes ───────────────────────────────────────────
+router.use('/resource-config', require('./resourceConfigRoutes'));
 
 module.exports = router;

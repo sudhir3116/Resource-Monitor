@@ -25,7 +25,7 @@ ChartJS.register(
     Filler
 );
 
-export default function TrendChart({ data, title, height = 300 }) {
+export default function TrendChart({ data, resources, title, height = 300 }) {
     const { theme } = useTheme();
     const isDark = theme === 'dark';
 
@@ -44,33 +44,25 @@ export default function TrendChart({ data, title, height = 300 }) {
     }) || [];
 
     const datasets = data.map((trend, index) => {
-        const colors = [
-            { border: '#6366f1', bg: 'rgba(99, 102, 241, 0.1)' }, // Indigo
-            { border: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' }, // Emerald
-            { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' }, // Amber
-            { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)' }, // Rose
-            { border: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)' }, // Violet
-            { border: '#0ea5e9', bg: 'rgba(14, 165, 233, 0.1)' }  // Sky
-        ];
-
-        const color = colors[index % colors.length];
-
+        const resource = (resources || []).find(r => r.name === trend.resource);
+        const color = resource?.color || ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#0ea5e9'][index % 6];
+        const emoji = resource?.icon || resource?.emoji || '📊';
         return {
-            label: trend.resource ? trend.resource.toUpperCase() : 'UNKNOWN',
+            label: `${emoji} ${resource?.name || trend.resource || 'UNKNOWN'}`,
             data: trend.data.map(d => d.value),
-            borderColor: color.border,
-            backgroundColor: color.bg,
+            borderColor: color,
+            backgroundColor: color + '33', // gradient fill
             borderWidth: 4,
-            tension: 0.4,
+            tension: 0.45,
             fill: true,
             pointRadius: 6,
             pointHoverRadius: 10,
-            pointBackgroundColor: color.border,
+            pointBackgroundColor: color,
             pointBorderColor: isDark ? '#0f172a' : '#fff',
             pointBorderWidth: 3,
-            pointHoverBackgroundColor: color.border,
+            pointHoverBackgroundColor: color,
             pointHoverBorderColor: '#fff',
-            pointHoverBorderWidth: 4
+            pointHoverBorderWidth: 4,
         };
     });
 
@@ -82,6 +74,10 @@ export default function TrendChart({ data, title, height = 300 }) {
     const options = {
         responsive: true,
         maintainAspectRatio: false,
+        animation: {
+            duration: 1200,
+            easing: 'easeInOutQuart',
+        },
         plugins: {
             legend: {
                 display: true,
@@ -93,8 +89,8 @@ export default function TrendChart({ data, title, height = 300 }) {
                     padding: 30,
                     color: isDark ? '#94a3b8' : '#64748b',
                     font: {
-                        size: 9,
-                        weight: '900',
+                        size: 13,
+                        weight: 'bold',
                         family: 'Outfit'
                     }
                 }
@@ -108,13 +104,13 @@ export default function TrendChart({ data, title, height = 300 }) {
                 padding: 16,
                 cornerRadius: 20,
                 titleFont: {
-                    size: 13,
-                    weight: '900',
+                    size: 15,
+                    weight: 'bold',
                     family: 'Outfit'
                 },
                 bodyFont: {
-                    size: 12,
-                    weight: '700',
+                    size: 13,
+                    weight: 'bold',
                     family: 'Outfit'
                 },
                 borderWidth: 1,
@@ -122,12 +118,9 @@ export default function TrendChart({ data, title, height = 300 }) {
                 shadowColor: 'rgba(0,0,0,0.5)',
                 callbacks: {
                     label: function (context) {
-                        let label = context.dataset.label || '';
-                        if (label) {
-                            label += ': ';
-                        }
-                        label += context.parsed.y.toLocaleString();
-                        return label;
+                        const label = context.dataset.label || '';
+                        const value = context.parsed.y;
+                        return `${label}: ${value?.toLocaleString?.() ?? value}`;
                     }
                 }
             }
@@ -143,8 +136,8 @@ export default function TrendChart({ data, title, height = 300 }) {
                     padding: 15,
                     color: isDark ? '#475569' : '#94a3b8',
                     font: {
-                        size: 10,
-                        weight: '900',
+                        size: 12,
+                        weight: 'bold',
                         family: 'Outfit'
                     }
                 }
@@ -158,8 +151,8 @@ export default function TrendChart({ data, title, height = 300 }) {
                     padding: 15,
                     color: isDark ? '#475569' : '#94a3b8',
                     font: {
-                        size: 10,
-                        weight: '900',
+                        size: 12,
+                        weight: 'bold',
                         family: 'Outfit'
                     }
                 }

@@ -8,6 +8,7 @@ const compression = require("compression");
 const cookieParser = require("cookie-parser");
 const { apiLimiter } = require('./middleware/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
+const seedUsers = require('./utils/seedUsers');
 
 dotenv.config();
 
@@ -67,8 +68,10 @@ app.use(passport.initialize());
 // DB Connection
 mongoose.connect(process.env.MONGO_URI, {
   serverSelectionTimeoutMS: 5000,
-}).then(() => {
-  if (process.env.NODE_ENV !== 'production') console.log("MongoDB connected");
+}).then(async () => {
+  console.log("✅ MongoDB Connected");
+
+  await seedUsers();
 
   // ── Seed SystemConfig on startup (the single source of truth) ─────────────────
   const SystemConfig = require('./models/SystemConfig');
@@ -98,35 +101,61 @@ mongoose.connect(process.env.MONGO_URI, {
   };
   seedSystemConfig();
 
-  // ⭐ MIGRATION: Change 'Food' to 'Solar' in usages (for legacy data)
-  Usage.updateMany({ resource_type: 'Food' }, { $set: { resource_type: 'Solar' } })
-    .then(r => r.nModified > 0 && console.log(`[MIGRATION] Migrated ${r.nModified} food records to solar.`))
-    .catch(err => console.error('Migration error:', err));
-
+  // ⭐ NORMALIZATION: Align all usage resource_type to match SystemConfig.resource exactly
   const normalizeUsageResourceTypes = async () => {
     try {
-      const RC = require('./models/ResourceConfig')
-      const configs = await RC.find({ isDeleted: { $ne: true } }).lean()
+      const SC = require('./models/SystemConfig')
+      const configs = await SC.find({ isActive: true }).select('resource').lean()
+
       for (const cfg of configs) {
+        // Fix all usages with wrong casing to match exact SystemConfig.resource name
+        const regex = new RegExp(`^${cfg.resource.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}$`, 'i')
         const result = await Usage.updateMany(
           {
-            resource_type: {
-              $regex: new RegExp(`^${cfg.name}$`, 'i'),
-              $ne: cfg.name
-            }
+            resource_type: { $regex: regex, $ne: cfg.resource }
           },
-          { $set: { resource_type: cfg.name } }
+          { $set: { resource_type: cfg.resource } }
         )
         if (result.modifiedCount > 0) {
-          console.log(`✅ Fixed ${result.modifiedCount} records: → "${cfg.name}"`)
+          console.log(`✅ Normalized ${result.modifiedCount} records → "${cfg.resource}"`)
         }
       }
-      console.log('✅ Resource type normalization done')
+      console.log('✅ Resource type normalization complete')
     } catch (e) {
       console.error('Normalization error:', e.message)
     }
   }
   normalizeUsageResourceTypes()
+
+  // ── FIX MISSING FIELDS IN RESOURCECONFIG ——————————————————────
+  const fixResourceConfigFields = async () => {
+    try {
+      const RC = require('./models/ResourceConfig')
+      
+      // Ensure isDeleted field exists on all records
+      const result1 = await RC.updateMany(
+        { isDeleted: { $exists: false } },
+        { $set: { isDeleted: false } }
+      )
+      if (result1.modifiedCount > 0) {
+        console.log(`✅ Fixed isDeleted on ${result1.modifiedCount} ResourceConfig records`)
+      }
+      
+      // Ensure isActive field exists on all records
+      const result2 = await RC.updateMany(
+        { isActive: { $exists: false } },
+        { $set: { isActive: true } }
+      )
+      if (result2.modifiedCount > 0) {
+        console.log(`✅ Fixed isActive on ${result2.modifiedCount} ResourceConfig records`)
+      }
+      
+      console.log('✅ ResourceConfig fields verified')
+    } catch (e) {
+      console.error('ResourceConfig field fix error:', e.message)
+    }
+  }
+  fixResourceConfigFields()
 
   const PORT = process.env.PORT || 5000;
   // Create HTTP server and attach socket.io so controllers can emit events
@@ -187,7 +216,8 @@ mongoose.connect(process.env.MONGO_URI, {
   startComplaintSLACheckJob();
 
 }).catch(err => {
-  console.error("❌ MongoDB Connection Error:", err.message);
+  console.error("❌ MongoDB Connection Failed");
+  console.error("Error Detail:", err.message);
   if (err.message.includes('bad auth') || err.message.includes('Authentication failed')) {
     console.error("   -> Check your MONGO_URI, username, and password.");
   } else if (err.codeName === 'AtlasError' || err.message.includes('whitelist')) {

@@ -1,8 +1,8 @@
-const SystemConfig = require('../models/SystemConfig');
+const SystemConfig = require('../models/Resource');
 
 const seedSystemConfig = async () => {
     try {
-        const count = await SystemConfig.countDocuments();
+        const count = await Resource.countDocuments();
         if (count > 0) return;
 
         console.log('Seeding System Defaults...');
@@ -82,7 +82,7 @@ const seedSystemConfig = async () => {
             }
         ];
 
-        await SystemConfig.insertMany(defaults);
+        await Resource.insertMany(defaults);
         console.log('System Config Seeded with 6 resources (including Waste).');
     } catch (err) {
         console.error('Seed error:', err);

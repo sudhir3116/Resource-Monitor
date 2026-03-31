@@ -1,7 +1,7 @@
 const DailyReport = require('../models/DailyReport');
 const Block = require('../models/Block');
 const User = require('../models/User');
-const SystemConfig = require('../models/SystemConfig');
+const SystemConfig = require('../models/Resource');
 const mongoose = require('mongoose');
 
 /**

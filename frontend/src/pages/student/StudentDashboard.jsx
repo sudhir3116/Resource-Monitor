@@ -18,6 +18,7 @@ import Badge from '../../components/common/Badge';
 import EmptyState from '../../components/common/EmptyState';
 import { logger } from '../../utils/logger';
 import Button from '../../components/common/Button';
+import { useResources } from '../../hooks/useResources';
 
 const StudentDashboard = () => {
   const { user, loading: authLoading } = useAuth();
@@ -27,14 +28,7 @@ const StudentDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { theme } = useContext(ThemeContext);
-
-  const [resources, setResources] = useState([]);
-  useEffect(() => {
-    api.get('/api/resources').then(res => {
-      const active = (res.data?.data || res.data?.resources || []).filter(r => r?.isActive === true);
-      setResources(active);
-    });
-  }, []);
+  const { resources } = useResources();  // Get active resources from single source
 
   const fetchData = useCallback(async () => {
     if (authLoading || !user) return;
@@ -311,15 +305,16 @@ const StudentDashboard = () => {
                       }}
                     />
                     <Legend />
-                    {resources.map(r => (
+                    {(Array.isArray(resources) ? resources : []).map(r => (
                       <Line
-                        key={r.name}
+                        key={r?.name}
                         type="monotone"
-                        dataKey={r.name}
+                        dataKey={r?.name}
                         stroke={r?.color || '#64748b'}
                         strokeWidth={2}
                         dot={false}
-                        name={r.name}
+                        name={r?.name}
+                        connectNulls={true}
                       />
                     ))}
                   </LineChart>

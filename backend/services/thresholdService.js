@@ -15,7 +15,7 @@
 
 const Alert = require('../models/Alert');
 const Usage = require('../models/Usage');
-const SystemConfig = require('../models/SystemConfig');
+const SystemConfig = require('../models/Resource');
 const User = require('../models/User');
 const Block = require('../models/Block');
 const mongoose = require('mongoose');
@@ -49,7 +49,7 @@ const checkThresholds = async (userId, resourceType, date, blockId = null) => {
         }
 
         // ② Load system config for this resource
-        const config = await SystemConfig.findOne({ resource: resourceType });
+        const config = await Resource.findOne({ resource: resourceType });
         if (!config) {
             console.log(`[TRACE:CONFIG_NOT_FOUND] No SystemConfig for resource: ${resourceType}\n`);
             return;
@@ -310,7 +310,7 @@ async function _checkBudget(userId, blockId, date) {
         if (!block?.monthly_budget) return;
 
         const { start: startOfMonth, end: endOfMonth } = currentMonthRange();
-        const configs = await SystemConfig.find({}).lean();
+        const configs = await Resource.find({}).lean();
 
         // Aggregate usage for the block, excluding soft-deleted
         const usageAgg = await Usage.aggregate([

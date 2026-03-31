@@ -450,12 +450,12 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="/audit-logs" element={
-              <ProtectedRoute allowedRoles={['admin', 'gm', 'dean']}>
+              <ProtectedRoute allowedRoles={['admin', 'gm', 'dean', 'principal']}>
                 <AuditLogs />
               </ProtectedRoute>
             } />
             <Route path="/reports" element={
-              <ProtectedRoute allowedRoles={['admin', 'gm', 'dean']}>
+              <ProtectedRoute allowedRoles={['admin', 'gm', 'dean', 'principal']}>
                 <Reports />
               </ProtectedRoute>
             } />

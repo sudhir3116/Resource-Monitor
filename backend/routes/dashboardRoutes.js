@@ -13,6 +13,6 @@ router.get('/student', protect, dashboardController.getStudentStats);
 router.get('/warden', protect, wardenMiddleware, dashboardController.getWardenStats);
 
 // 3. Admin/Principal Executive Dashboard (Campus Totals + Cost)
-router.get('/executive', protect, authorize(ROLES.ADMIN, ROLES.DEAN), dashboardController.getExecutiveStats);
+router.get('/executive', protect, authorize(ROLES.ADMIN, ROLES.DEAN, ROLES.PRINCIPAL), dashboardController.getExecutiveStats);
 
 module.exports = router;

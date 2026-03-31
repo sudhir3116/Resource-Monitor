@@ -14,14 +14,14 @@ const { ROLES } = require('../config/roles');
 // All routes require authentication
 router.use(authMiddleware);
 
-// GET /api/audit-logs - Get audit logs with filters (Dean = read-only, Principal = no access)
-router.get('/', authorize(ROLES.ADMIN, ROLES.GM, ROLES.DEAN), getAuditLogs);
+// GET /api/audit-logs - Get audit logs with filters (Dean/Principal = read-only)
+router.get('/', authorize(ROLES.ADMIN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL), getAuditLogs);
 
 // GET /api/audit-logs/stats - Get audit statistics
-router.get('/stats', authorize(ROLES.ADMIN, ROLES.GM, ROLES.DEAN), getAuditStats);
+router.get('/stats', authorize(ROLES.ADMIN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL), getAuditStats);
 
 // GET /api/audit-logs/resource/:resourceType/:resourceId - Get resource history
-router.get('/resource/:resourceType/:resourceId', authorize(ROLES.ADMIN, ROLES.GM, ROLES.DEAN), getResourceAuditHistory);
+router.get('/resource/:resourceType/:resourceId', authorize(ROLES.ADMIN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL), getResourceAuditHistory);
 
 // POST /api/audit-logs/check-duplicate - Check for duplicates
 router.post('/check-duplicate', checkDuplicate);

@@ -1,5 +1,5 @@
 const Usage = require('../models/Usage');
-const SystemConfig = require('../models/SystemConfig');
+const SystemConfig = require('../models/Resource');
 const Block = require('../models/Block');
 const { ROLES } = require('../config/roles');
 const mongoose = require('mongoose');
@@ -140,7 +140,7 @@ exports.getBillEstimate = async (req, res) => {
     ]);
 
     // Get cost rates from SystemConfig
-    const configs = await SystemConfig.find({});
+    const configs = await Resource.find({});
     const rateMap = {};
     configs.forEach(c => {
       rateMap[c.resource] = c.rate || 0;
@@ -546,7 +546,7 @@ exports.getEfficiency = async (req, res) => {
     }
 
     // Get all resource configs for limits
-    const configs = await SystemConfig.find({}).lean();
+    const configs = await Resource.find({}).lean();
     const limitMap = {};
     configs.forEach(c => {
       limitMap[c.resource] = c.dailyLimitPerPerson || c.monthlyLimitPerPerson || null;
@@ -802,7 +802,7 @@ exports.getManagementReport = async (req, res) => {
         createdAt: { $gte: monthStart, $lte: monthEnd }
       }),
       Block.find().select('name'),
-      SystemConfig.find({ isActive: true })
+      Resource.find({ isActive: true })
     ]);
 
     // Calculate metrics

@@ -30,13 +30,13 @@ router.use(auth);
 // Blockscan be read by Admin, GM, Warden, Dean, Principal
 router.get(
   '/',
-  authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN),
+  authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
   getBlocks
 );
 
 router.get(
   '/:id',
-  authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN),
+  authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
   [param('id').isMongoId().withMessage('Invalid id')],
   runValidations,
   getBlock

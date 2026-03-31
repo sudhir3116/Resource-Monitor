@@ -28,16 +28,20 @@ import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import { logger } from '../utils/logger';
 
-const RESOURCE_META = {
-  Electricity: { icon: <Zap size={18} />, color: 'text-amber-500', label: 'Electricity Grid' },
-  Water: { icon: <Droplets size={18} />, color: 'text-blue-500', label: 'Hydraulic System' },
-  LPG: { icon: <Flame size={18} />, color: 'text-orange-500', label: 'Gas Reserves' },
-  Diesel: { icon: <Wind size={18} />, color: 'text-slate-500', label: 'Fuel Supply' },
-  Solar: { icon: <Sun size={18} />, color: 'text-yellow-500', label: 'Solar Generation' },
-  Waste: { icon: <Trash2 size={18} />, color: 'text-rose-500', label: 'Refuse Telemetry' },
-};
+import { useResources } from '../hooks/useResources';
 
 export default function AlertForm() {
+  const { resources: dynamicResources } = useResources();
+  const getResourceMeta = (type) => {
+    const res = (dynamicResources || []).find(r => r.name === type);
+    return {
+      icon: (res?.icon && typeof res.icon === 'string' && res.icon.length < 5) ? <span className="text-xl">{res.icon}</span> : <Activity size={18} />,
+      color: res?.color ? `text-[${res.color}]` : 'text-indigo-500',
+      label: res?.name || type,
+      unit: res?.unit || 'Value'
+    };
+  };
+
   const { id } = useParams()
   const navigate = useNavigate()
   const { addToast } = useToast()
@@ -47,28 +51,14 @@ export default function AlertForm() {
   const [form, setForm] = useState({ resource_type: 'Electricity', threshold_value: '', comparison: 'gt', active: true })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [dynamicResources, setDynamicResources] = useState([])
 
   const fetchData = useCallback(async () => {
+    if (!id) return;
     setLoading(true);
     try {
-      const [configRes, ruleRes] = await Promise.allSettled([
-        api.get('/api/resources'),
-        id ? api.get(`/api/alerts/rules`) : Promise.resolve({ status: 'rejected' })
-      ]);
-
-      if (configRes.status === 'fulfilled') {
-        const resources = (configRes.value.data.data || configRes.value.data.resources || []).filter(r => r?.isActive === true);
-        setDynamicResources(resources);
-        if (!id && resources.length > 0) {
-          setForm(prev => ({ ...prev, resource_type: resources[0].name }));
-        }
-      }
-
-      if (id && ruleRes.status === 'fulfilled') {
-        const rule = ruleRes.value.data.rules?.find(r => r._id === id);
-        if (rule) setForm(rule);
-      }
+      const res = await api.get(`/api/alerts/rules`);
+      const rule = res.data.rules?.find(r => r._id === id);
+      if (rule) setForm(rule);
     } catch (e) {
       logger.error('AlertForm fetchData error:', e);
       setError('Failed to load configuration sequences');
@@ -78,8 +68,14 @@ export default function AlertForm() {
   }, [id]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (id) fetchData();
+  }, [id, fetchData]);
+
+  useEffect(() => {
+    if (!id && dynamicResources?.length > 0) {
+      setForm(prev => ({ ...prev, resource_type: dynamicResources[0].name }));
+    }
+  }, [id, dynamicResources]);
 
   async function submit(e) {
     e.preventDefault();
@@ -97,7 +93,7 @@ export default function AlertForm() {
     }
   }
 
-  const getMeta = (type) => RESOURCE_META[type] || { icon: <Activity size={18} />, color: 'text-indigo-500', label: type };
+  // Removed static getMeta helper as it is replaced by getResourceMeta above
 
   if (loading && !dynamicResources.length) return <div className="p-12"><Loading /></div>;
 
@@ -158,14 +154,14 @@ export default function AlertForm() {
                     value={form.resource_type}
                     onChange={e => setForm({ ...form, resource_type: e.target.value })}
                   >
-                    {dynamicResources.map(res => (
-                      <option key={res.resource} value={res.resource}>
-                        {getMeta(res.resource).label}
+                    {dynamicResources?.map(res => (
+                      <option key={res.name} value={res.name}>
+                        {res.name}
                       </option>
                     ))}
                   </select>
                   <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-indigo-500">
-                    {getMeta(form.resource_type).icon}
+                    {getResourceMeta(form.resource_type).icon}
                   </div>
                 </div>
               </div>
@@ -200,7 +196,7 @@ export default function AlertForm() {
                     required
                   />
                   <div className="absolute right-8 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs uppercase tracking-widest">
-                    Unit: {dynamicResources.find(r => r.resource === form.resource_type)?.unit || 'Value'}
+                    Unit: {getResourceMeta(form.resource_type).unit}
                   </div>
                 </div>
               </div>

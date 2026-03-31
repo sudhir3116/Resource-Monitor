@@ -7,7 +7,9 @@ const {
     getAll,
     create,
     update,
-    softDelete
+    toggle,
+    softDelete,
+    restore
 } = require('../controllers/resourceConfigController');
 
 // All routes require authentication
@@ -22,7 +24,13 @@ router.post('/', authorizeRoles(ROLES.ADMIN), create);
 // PUT /api/resource-config/:id — admin only
 router.put('/:id', authorizeRoles(ROLES.ADMIN), update);
 
+// PATCH /api/resource-config/:id/toggle — admin only
+router.patch('/:id/toggle', authorizeRoles(ROLES.ADMIN), toggle);
+
 // DELETE /api/resource-config/:id — admin only (soft delete)
 router.delete('/:id', authorizeRoles(ROLES.ADMIN), softDelete);
+
+// PATCH /api/resource-config/:id/restore — admin only
+router.patch('/:id/restore', authorizeRoles(ROLES.ADMIN), restore);
 
 module.exports = router;

@@ -21,7 +21,8 @@ import {
     History,
     Sun
 } from 'lucide-react';
-import Card, { MetricCard } from '../components/common/Card';
+import Card from '../components/common/Card';
+import MetricCard from '../components/common/MetricCard';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import EmptyState from '../components/common/EmptyState';
@@ -30,6 +31,7 @@ import { AuthContext } from '../context/AuthContext';
 import { ROLES } from '../utils/roles';
 import useSortableTable from '../hooks/useSortableTable';
 import SortIcon from '../components/common/SortIcon';
+import { useResources } from '../hooks/useResources';
 import {
     AreaChart,
     Area,
@@ -44,22 +46,13 @@ import {
     Legend
 } from 'recharts';
 
-const RESOURCE_META = {
-    Electricity: { icon: <Zap size={20} />, color: '#f59e0b', bg: 'bg-amber-500/10' },
-    Water: { icon: <Droplets size={20} />, color: '#3b82f6', bg: 'bg-blue-500/10' },
-    Solar: { icon: <Sun size={20} />, color: '#eab308', bg: 'bg-yellow-500/10' },
-    LPG: { icon: <Flame size={20} />, color: '#f97316', bg: 'bg-orange-500/10' },
-    Diesel: { icon: <Wind size={20} />, color: '#64748b', bg: 'bg-slate-500/10' },
-    Waste: { icon: <Trash2 size={20} />, color: '#ef4444', bg: 'bg-rose-500/10' },
-};
-
 export default function ExecutiveDashboard() {
     const { user } = useContext(AuthContext);
     const navigate = useNavigate();
     const isDean = user?.role === ROLES.DEAN;
+    const { resources } = useResources();  // Get active resources from single source
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [dynamicResources, setDynamicResources] = useState([]);
     const [timeRange, setTimeRange] = useState('7d');
     const [trendData, setTrendData] = useState([]);
     const [leaderboard, setLeaderboard] = useState([]);
@@ -73,8 +66,7 @@ export default function ExecutiveDashboard() {
             const promises = [
                 api.get('/api/usage/summary'),
                 api.get('/api/usage/trends?range=' + timeRange),
-                api.get('/api/analytics/leaderboard'),
-                api.get('/api/resource-config')
+                api.get('/api/analytics/leaderboard')
             ];
 
             if (isDean) {
@@ -82,7 +74,7 @@ export default function ExecutiveDashboard() {
                 promises.push(api.get('/api/audit-logs?limit=5'));
             }
 
-            const [summaryRes, trendRes, leaderboardRes, configRes, alertsRes, logsRes] = await Promise.allSettled(promises);
+            const [summaryRes, trendRes, leaderboardRes, alertsRes, logsRes] = await Promise.allSettled(promises);
 
             if (summaryRes.status === 'fulfilled') {
                 const data = summaryRes.value.data?.data;
@@ -99,10 +91,6 @@ export default function ExecutiveDashboard() {
 
             if (leaderboardRes.status === 'fulfilled') {
                 setLeaderboard(leaderboardRes.value.data.data || leaderboardRes.value.data?.leaderboard || []);
-            }
-
-            if (configRes.status === 'fulfilled') {
-                setDynamicResources((configRes.value.data.data || []).filter(r => r.isActive));
             }
 
             if (isDean && alertsRes?.status === 'fulfilled') {
@@ -147,7 +135,12 @@ export default function ExecutiveDashboard() {
     );
 
     const getResourceMeta = (type) => {
-        return RESOURCE_META[type] || { icon: <Activity size={20} />, color: '#64748b', bg: 'bg-slate-500/10' };
+        const resource = (Array.isArray(resources) ? resources : []).find(r => r?.name === type);
+        return {
+            icon: resource?.icon || '📊',
+            color: resource?.color || '#64748b',
+            bg: 'bg-slate-500/10'
+        };
     };
 
     const costStats = useMemo(() => {
@@ -160,7 +153,7 @@ export default function ExecutiveDashboard() {
 
     const distributionData = useMemo(() => {
         if (!usageSummary || Object.keys(usageSummary).length === 0) return [];
-        return (Array.isArray(dynamicResources) ? dynamicResources : [])
+        return (Array.isArray(resources) ? resources : [])
             .map(res => {
                 const resName = res?.name;
                 const data = usageSummary[resName] || {};
@@ -170,7 +163,7 @@ export default function ExecutiveDashboard() {
                 };
             })
             .filter(d => d?.value > 0) || [];
-    }, [usageSummary, dynamicResources]);
+    }, [usageSummary, resources]);
 
     if (loading && !stats) {
         return (
@@ -328,7 +321,7 @@ export default function ExecutiveDashboard() {
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={(Array.isArray(trendData) ? trendData : []).slice(0, 10)}>
                                     <defs>
-                                        {dynamicResources.map(res => (
+                                        {resources.map(res => (
                                             <linearGradient key={res._id || res.name} id={`color${res.name}`} x1="0" y1="0" x2="0" y2="1">
                                                 <stop offset="5%" stopColor={getResourceMeta(res.name).color} stopOpacity={0.1} />
                                                 <stop offset="95%" stopColor={getResourceMeta(res.name).color} stopOpacity={0} />
@@ -353,7 +346,7 @@ export default function ExecutiveDashboard() {
                                     <Tooltip
                                         contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
                                     />
-                                    {dynamicResources.map(res => (
+                                    {resources.map(res => (
                                         <Area
                                             key={res._id || res.name}
                                             type="monotone"

@@ -48,53 +48,64 @@ export default function AnalyticsPage() {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const [resourcesRes, summaryRes, trendRes, leaderboardRes] = await Promise.all([
-                api.get('/api/resources'),
-                api.get('/api/usage/summary'),
-                api.get(`/api/usage/trends?range=${timeRange}`).catch(() => ({ data: { data: [] } })),
-                api.get('/api/analytics/leaderboard').catch(() => ({ data: { leaderboard: [] } }))
-            ]);
+            const { data: usageRes } = await api.get("/api/usage");
+            const { data: resourcesRes } = await api.get("/api/resources");
 
-            const resources = resourcesRes.data?.data || resourcesRes.data?.resources || [];
-            const activeResources = (Array.isArray(resources) ? resources : []).filter(r => r?.isActive === true);
-            setDynamicResources(activeResources);
+            const usage = usageRes?.data || usageRes || [];
+            const resources = resourcesRes?.data || resourcesRes || [];
 
-            const summaryDataObj = summaryRes.data?.data?.summary || {};
-            const mappedSummary = Object.entries(summaryDataObj).map(([key, val]) => ({
+            setDynamicResources(resources.filter(r => r?.status === "active"));
+
+            // Map and group by date for charts (Normalize to YYYY-MM-DD)
+            const dates = Array.from(new Set(usage.map(u => {
+                const raw = u.date || u.usage_date;
+                return typeof raw === 'string' ? raw.split('T')[0] : new Date(raw).toISOString().split('T')[0];
+            }))).sort();
+
+            const pivotedTrendData = dates.map(date => {
+                const row = { date };
+                resources.forEach(r => {
+                    const total = usage
+                        .filter(u => {
+                            const uDate = typeof (u.date || u.usage_date) === 'string'
+                                ? (u.date || u.usage_date).split('T')[0]
+                                : new Date(u.date || u.usage_date).toISOString().split('T')[0];
+                            const uRes = (u.resource || u.resourceId || u.resource_type);
+                            return uDate === date && (uRes === r._id || uRes === r.name);
+                        })
+                        .reduce((sum, u) => sum + Number(u.amount || u.usage_value || 0), 0);
+                    row[r.name] = total;
+                });
+                return row;
+            });
+
+            setTrendData(pivotedTrendData);
+
+            // Mapping for summary
+            const grouped = pivotedTrendData.reduce((acc, row) => {
+                resources.forEach(r => {
+                    if (!acc[r.name]) acc[r.name] = { resource: r.name, total: 0, unit: r.unit || 'units' };
+                    acc[r.name].total += row[r.name] || 0;
+                });
+                return acc;
+            }, {});
+
+            setSummaryData(Object.entries(grouped).map(([key, val]) => ({
                 resource: key,
-                current: val.total || 0,
-                change: 0,
-                unit: val.unit || 'units'
-            }));
+                current: val.total,
+                unit: val.unit
+            })));
 
-            setSummaryData(mappedSummary);
-            setTrendData(Array.isArray(trendRes.data?.data) ? trendRes.data.data : []);
-
-            const rawLeaderboard = (leaderboardRes.data?.leaderboard ||
-                leaderboardRes.data?.data?.leaderboard || []) || [];
-
-            const mappedComparison = (Array.isArray(rawLeaderboard) ? rawLeaderboard : [])
-                .map(b => ({
-                    block: b?.blockName || b?.block || 'Unknown',
-                    score: Number(b?.score ?? 0),
-                    efficiency: Number(b?.score ?? 0),
-                })) || [];
-
-            setBlockComparison(mappedComparison);
         } catch (err) {
             logger.error('Failed to fetch analytics data', err);
             addToast('Failed to load analytics', 'error');
         } finally {
             setLoading(false);
         }
-    }, [timeRange, addToast]);
+    }, [addToast]);
 
     useEffect(() => {
         fetchData();
-    }, [fetchData]);
-
-    // Realtime: refresh charts when usage / alerts change.
-    useEffect(() => {
         const socket = getSocket();
         const refresh = () => fetchData();
         if (socket) {
@@ -136,27 +147,62 @@ export default function AnalyticsPage() {
         return summaryData.filter(s => activeResourceNames.includes(s.resource));
     }, [summaryData, resourcesForCharts]);
 
-    const safeTrendData = useMemo(() => (Array.isArray(trendData) ? trendData : []), [trendData]);
+    const selectedRange = parseInt(timeRange) || 7;
+    const filteredData = useMemo(() => {
+        return trendData.filter((d) => {
+            const days = selectedRange;
+            return new Date(d.date) >= new Date(Date.now() - days * 86400000);
+        });
+    }, [trendData, selectedRange]);
+
+    const hasData = filteredData && filteredData.length > 0;
     const trendSeries = useMemo(
         () => resourcesForCharts.map(r => r.resource || r.name).filter(Boolean),
         [resourcesForCharts]
     );
 
     const hasAnyTrendSeriesData = useMemo(() => {
-        if (!trendSeries.length || !safeTrendData.length) return false;
-        return safeTrendData.some(row =>
-            trendSeries.some(key => row?.[key] != null)
-        );
-    }, [trendSeries, safeTrendData]);
+        return hasData;
+    }, [hasData]);
 
     const getResourceMeta = (type) => {
-        const match = (Array.isArray(resourcesForCharts) ? resourcesForCharts : [])
+        const res = (Array.isArray(resourcesForCharts) ? resourcesForCharts : [])
             .find(r => (r?.name || r?.resource) === type);
         return {
-            icon: match?.icon || '📊',
-            color: match?.color || '#64748b',
-            bg: 'bg-slate-500/10'
+            icon: res?.icon || '📊',
+            color: res?.color || '#64748b',
+            bg: (res?.color || '#64748b') + '15',
+            unit: res?.unit || 'units'
         };
+    };
+
+    const CustomTooltip = ({ active, payload, label }) => {
+        if (active && payload && payload.length) {
+            return (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl shadow-xl backdrop-blur-md bg-opacity-90">
+                    <p className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-tight">
+                        {new Date(label).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                    </p>
+                    <div className="space-y-2">
+                        {payload.map((entry, index) => {
+                            const meta = getResourceMeta(entry.name);
+                            return (
+                                <div key={index} className="flex items-center justify-between gap-8">
+                                    <div className="flex items-center gap-2">
+                                        <span>{meta.icon}</span>
+                                        <span className="text-sm font-semibold" style={{ color: entry.color }}>{entry.name}</span>
+                                    </div>
+                                    <span className="text-sm font-black tabular-nums">
+                                        {entry.value.toLocaleString()} <span className="text-[10px] text-slate-400 font-bold uppercase">{meta.unit}</span>
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        }
+        return null;
     };
 
     const getScoreColor = (score) => {
@@ -204,20 +250,16 @@ export default function AnalyticsPage() {
 
                     return (
                         <Card key={res._id || res.name} className="relative overflow-hidden group">
-                            <div className={`absolute top-0 right-0 p-3 ${meta.bg} rounded-bl-3xl opacity-50 group-hover:scale-110 transition-transform`}>
-                                <span className="text-lg">{meta.icon || '📊'}</span>
+                            <div className={`absolute top-0 right-0 p-3 items-center justify-center rounded-bl-3xl opacity-50 group-hover:scale-110 transition-transform`} style={{ backgroundColor: meta.bg }}>
+                                <span className="text-lg leading-none">{meta.icon}</span>
                             </div>
                             <div className="space-y-1">
-                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{resName}</span>
+                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{res?.name || "Unknown"}</span>
                                 <div className="flex items-baseline gap-1">
                                     <span className="text-xl font-bold truncate">
                                         {stats.current > 0 ? stats.current.toLocaleString() : 'No data available'}
                                     </span>
                                     {stats.current > 0 && <span className="text-xs text-slate-500">{stats.unit}</span>}
-                                </div>
-                                <div className={`flex items-center gap-1 text-xs font-medium ${isNegative ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                    {isNegative ? <TrendingDown size={12} /> : <TrendingUp size={12} />}
-                                    {Math.abs(stats.change)}% vs last period
                                 </div>
                             </div>
                         </Card>
@@ -226,7 +268,7 @@ export default function AnalyticsPage() {
             </div>
 
             {/* Main Trends Chart */}
-            <Card>
+            < Card >
                 <div className="flex items-center justify-between mb-6">
                     <h2 className="text-lg font-bold flex items-center gap-2">
                         <BarChart3 size={20} className="text-blue-500" /> Usage Trends Over Time
@@ -243,17 +285,12 @@ export default function AnalyticsPage() {
                         })}
                     </div>
                 </div>
-                <div className="h-[400px] w-full">
+                <div className="h-[300px] w-full">
                     {loading ? (
                         <div className="h-full flex items-center justify-center text-slate-400">Loading chart data...</div>
-                    ) : !hasAnyTrendSeriesData ? (
-                        <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                            <Info size={40} className="mb-2 opacity-20" />
-                            No trend data available for the active resources in this period.
-                        </div>
-                    ) : (
+                    ) : hasData ? (
                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={safeTrendData}>
+                            <AreaChart data={filteredData}>
                                 <defs>
                                     {trendSeries.map((resName) => {
                                         return (
@@ -280,30 +317,32 @@ export default function AnalyticsPage() {
                                     axisLine={false}
                                     tickFormatter={(val) => val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val}
                                 />
-                                <Tooltip
-                                    contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                                    itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
-                                    labelStyle={{ marginBottom: '8px', fontWeight: 'bold' }}
-                                />
+                                <Tooltip content={<CustomTooltip />} />
                                 {trendSeries.map((resName) => {
+                                    const meta = getResourceMeta(resName);
                                     return (
                                         <Area
                                             key={resName}
                                             type="monotone"
                                             dataKey={resName}
-                                            stroke={getResourceMeta(resName).color}
+                                            stroke={meta.color}
                                             fillOpacity={1}
                                             fill={`url(#color${resName})`}
                                             strokeWidth={3}
                                             dot={false}
+                                            activeDot={{ r: 6, strokeWidth: 0 }}
                                         />
                                     );
                                 })}
                             </AreaChart>
                         </ResponsiveContainer>
+                    ) : (
+                        <p className="text-gray-400 text-sm flex items-center justify-center h-full">
+                            No data available
+                        </p>
                     )}
                 </div>
-            </Card>
+            </Card >
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Distribution Chart */}
@@ -374,6 +413,6 @@ export default function AnalyticsPage() {
                     </div>
                 </Card>
             </div>
-        </div>
+        </div >
     );
 }

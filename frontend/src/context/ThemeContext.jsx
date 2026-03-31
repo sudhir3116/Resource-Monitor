@@ -6,28 +6,19 @@ const ThemeContext = createContext();
 export { ThemeContext };
 
 export const ThemeProvider = ({ children }) => {
-  // 1. Initialize from localStorage or system preference
-  const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem('theme');
-    if (saved) return saved;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
+  // Force dark mode exclusively
+  const [theme] = useState('dark');
 
-  // 2. Apply theme to document element and persist
+  // Apply theme to document element correctly
   useEffect(() => {
     const root = window.document.documentElement;
-
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-
-    localStorage.setItem('theme', theme);
-  }, [theme]);
+    root.classList.add('dark');
+    root.classList.remove('light');
+    localStorage.setItem('theme', 'dark');
+  }, []);
 
   const toggleTheme = () => {
-    setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
+    console.warn('Theme toggle is disabled. Dark mode is enforced.');
   };
 
   return (

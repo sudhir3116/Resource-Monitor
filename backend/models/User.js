@@ -66,11 +66,20 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    forcePasswordChange: {
+      type: Boolean,
+      default: false
+    },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
   },
   { timestamps: true }
 );
 
-
+// ── Backward Compatibility for Dean/Principal Role ──────────────────────────
+userSchema.pre('save', function () {
+  if (this.role === 'dean_principal' || this.role === 'Dean / Principal') {
+    this.role = 'dean';
+  }
+});
 
 module.exports = mongoose.model("User", userSchema);

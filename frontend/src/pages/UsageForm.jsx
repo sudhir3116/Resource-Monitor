@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import useResources from '../hooks/useResources';
+import { useResources, refetchResources } from '../hooks/useResources';
 import { useToast } from '../context/ToastContext';
 import { ArrowLeft, Save, Activity, LayoutGrid, Calendar, FileText, MapPin, Gauge } from 'lucide-react';
 
@@ -14,50 +14,59 @@ const UsageForm = () => {
 
   const [formData, setFormData] = useState({
     value: '',
-    date: new Date().toISOString().split('T', 1)[0],
+    date: new Date().toISOString().split('T')[0],
     notes: ''
   });
   const [selectedResource, setSelectedResource] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [validationError, setValidationError] = useState(null);
 
-  const isWarden = user?.role === 'warden';
   const role = (user?.role || '').toLowerCase();
   const rawBlock = user?.block;
-  const blockName = rawBlock?.name || 'Your Block';
+  const blockName = rawBlock?.name || user?.blockName || 'Your Block';
   const blockId = rawBlock?._id?.toString() || rawBlock?.toString() || '';
 
-  // Route-scoped path prefix for navigation
+  // Route-scoped path prefix
   const usageBasePath = role === 'admin' ? '/admin/usage'
     : role === 'warden' ? '/warden/usage'
       : '/usage';
 
+  // Validation
+  const validate = () => {
+    if (!selectedResource) {
+      setValidationError('Please select a resource');
+      return false;
+    }
+    if (!formData.value || Number(formData.value) <= 0) {
+      setValidationError('Usage amount must be greater than 0');
+      return false;
+    }
+    if (!formData.date) {
+      setValidationError('Date is required');
+      return false;
+    }
+    if (!blockId) {
+      setValidationError('No block assigned. Contact admin.');
+      return false;
+    }
+    setValidationError(null);
+    return true;
+  };
+
   const handleSubmit = async (e) => {
-    if (e) e.preventDefault();
+    e?.preventDefault();
+
+    if (!validate()) return;
 
     const payload = {
       blockId,
-      resource: selectedResource?._id, // Add ID for new schema
-      resource_type: selectedResource?.name,
+      resourceId: selectedResource._id,
       usage_value: Number(formData.value),
-      unit: selectedResource?.unit || '',
+      unit: selectedResource.unit || '',
       usage_date: formData.date || new Date().toISOString(),
       notes: formData.notes || ''
     };
-
-    // Validate before sending
-    if (!payload.blockId) {
-      setError('No block assigned to your account. Contact Admin HQ.');
-      return;
-    }
-    if (!payload.resource_type) {
-      setError('Please select a resource type.');
-      return;
-    }
-    if (!payload.usage_value || payload.usage_value <= 0) {
-      setError('Enter a valid consumption value greater than 0.');
-      return;
-    }
 
     try {
       setSubmitting(true);
@@ -66,20 +75,18 @@ const UsageForm = () => {
       const res = await api.post('/api/usage', payload);
 
       if (res.data.success || res.status === 201) {
-        // Clear form
+        // Success
+        addToast('Usage logged successfully!', 'success');
+
+        // Reset form
         setFormData({
           value: '',
-          date: new Date().toISOString().split('T', 1)[0],
+          date: new Date().toISOString().split('T')[0],
           notes: ''
         });
         setSelectedResource(null);
 
-        // Show success toast
-        if (typeof addToast === 'function') {
-          addToast('Usage logged successfully!', 'success');
-        }
-
-        // Trigger refresh across all pages via globally recognized event
+        // Trigger global refresh
         window.dispatchEvent(
           new CustomEvent('usage:added', {
             detail: {
@@ -89,15 +96,13 @@ const UsageForm = () => {
           })
         );
 
-        // Navigate back to usage list based on role
-        const paths = {
-          admin: '/admin/usage',
-          warden: '/warden/usage',
-          gm: '/gm/usage'
-        };
-        navigate(paths[role] || '/usage/all');
+        // Refetch resources to ensure cache is fresh (in case admin deleted it)
+        await refetchResources();
+
+        // Navigate back
+        navigate(`${usageBasePath}/all`);
       } else {
-        setError(res.data.message || 'Transmission failed. Data not saved.');
+        setError(res.data.message || 'Failed to log usage');
       }
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Failed to connect to server';
@@ -112,176 +117,168 @@ const UsageForm = () => {
     return (
       <div className="flex flex-col items-center justify-center p-20 space-y-4">
         <Activity className="animate-spin text-blue-600" size={32} />
-        <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Initializing Link...</p>
+        <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Loading Resources...</p>
+      </div>
+    );
+  }
+
+  // Guard against no resources
+  if (resources && resources.length === 0) {
+    return (
+      <div className="max-w-4xl mx-auto p-4 md:p-8">
+        <Link to={`${usageBasePath}/all`} className="inline-flex items-center text-xs font-bold text-slate-400 hover:text-blue-600 uppercase tracking-widest transition-colors mb-8">
+          <ArrowLeft size={14} className="mr-2" /> Back
+        </Link>
+        <div className="card p-12 text-center">
+          <p className="text-4xl mb-4">⚙️</p>
+          <p className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>No Active Resources</p>
+          <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
+            An administrator must create and activate resources first.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-4 md:p-8">
-      <div className="mb-8">
-        <Link to={`${usageBasePath}/all`} className="inline-flex items-center text-xs font-bold text-slate-400 hover:text-blue-600 uppercase tracking-widest transition-colors mb-4 group">
-          <ArrowLeft size={14} className="mr-2 group-hover:-translate-x-1 transition-transform" /> Records List
+    <div className="max-w-2xl mx-auto p-4 md:p-6 pb-20">
+      <div className="mb-6">
+        <Link to={`${usageBasePath}/all`} className="inline-flex items-center text-[10px] font-bold text-slate-500 hover:text-blue-500 uppercase tracking-widest transition-colors mb-4 group">
+          <ArrowLeft size={12} className="mr-2 group-hover:-translate-x-1 transition-transform" /> Back to Records
         </Link>
-        <h1 className="text-3xl font-black text-slate-900 flex items-center gap-3">
-          <Gauge className="text-blue-600" /> Log Consumption
+        <h1 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
+          <Gauge className="text-blue-500" size={24} /> Log Resource Usage
         </h1>
-        <p className="text-slate-500 mt-2">Enter latest resource metrics for accurate system analytics.</p>
+        <p className="text-xs text-[var(--text-secondary)] mt-1">Record consumption metrics for accurate system tracking.</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* 1. Resource Selection */}
-        <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 md:p-8 shadow-xl backdrop-blur-md">
-          <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] flex items-center gap-2 mb-8">
-            <LayoutGrid size={14} className="text-blue-500" /> 01. SECURE CHANNEL SELECTION
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* 1. RESOURCE SELECTION */}
+        <div className="bg-[var(--card-bg)] rounded-xl border border-[var(--border-color)] p-4 shadow-sm">
+          <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <LayoutGrid size={12} /> Select Resource Type *
           </label>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
-            {resources.map(r => (
-              <button
-                key={r.name}
-                type="button"
-                onClick={() => {
-                  setSelectedResource(r);
-                  setError(null);
-                }}
-                className={`group flex flex-col items-center justify-center p-6 rounded-2xl border-2 transition-all duration-300 relative overflow-hidden ${selectedResource?.name === r.name
-                  ? 'border-blue-500 bg-blue-600/10 shadow-[0_0_20px_rgba(59,130,246,0.2)] scale-105 z-10'
-                  : 'border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30'
-                  }`}
-              >
-                {selectedResource?.name === r.name && (
-                  <div className="absolute top-0 right-0 p-1 bg-blue-500 rounded-bl-lg">
-                    <Save size={10} className="text-white" />
-                  </div>
-                )}
-                <span className={`text-4xl mb-3 transition-transform duration-300 group-hover:scale-110 ${selectedResource?.name === r.name ? 'grayscale-0' : 'grayscale'}`}>
-                  {r.icon || '📊'}
-                </span>
-                <span className={`text-[10px] font-black uppercase tracking-widest text-center transition-colors ${selectedResource?.name === r.name ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-600'}`}>
-                  {r.name}
-                </span>
-              </button>
-            ))}
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+            {(Array.isArray(resources) ? resources : []).map(r => {
+              const isSelected = selectedResource?.name === r.name;
+              const resColor = r.color || '#3B82F6';
+              return (
+                <button
+                  key={r.name}
+                  type="button"
+                  onClick={() => {
+                    setSelectedResource(r);
+                    setValidationError(null);
+                  }}
+                  className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 transition-all ${isSelected
+                    ? 'border-blue-500 bg-blue-500/5 ring-1 ring-blue-500/20 scale-105'
+                    : 'border-[var(--border-color)] bg-[var(--bg-muted)]/30 hover:border-blue-500/30'
+                    }`}
+                >
+                  <span className="text-xl">{r.icon || r.emoji || '📊'}</span>
+                  <span className="text-[10px] font-bold text-[var(--text-primary)] leading-tight text-center">{r.name}</span>
+                </button>
+              );
+            })}
           </div>
+          {validationError && (
+            <p className="text-[11px] text-red-500 mt-3 font-medium flex items-center gap-1">
+              ⚠️ {validationError}
+            </p>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* 2. Consumption Value */}
-          <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 md:p-8 shadow-lg backdrop-blur-md">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] flex items-center gap-2 mb-6">
-              <Activity size={14} className="text-blue-500" /> 02. METRIC QUANTITY
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* 2. USAGE VALUE */}
+          <div className="bg-[var(--card-bg)] rounded-xl border border-[var(--border-color)] p-4 shadow-sm">
+            <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Activity size={12} /> Usage Amount *
             </label>
-            <div className="relative group">
+            <div className="relative">
               <input
                 type="number"
+                min="0.01"
                 step="any"
-                placeholder="0.00"
-                value={formData.value}
+                placeholder={selectedResource ? `Enter ${selectedResource.unit}` : 'Select resource'}
+                disabled={!selectedResource}
+                value={formData.value || ''}
                 onChange={e => setFormData(p => ({ ...p, value: e.target.value }))}
-                className="w-full h-16 px-6 text-3xl font-black rounded-xl bg-slate-900 text-white border-2 border-slate-800 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none placeholder:text-slate-700"
-                required
+                className="w-full h-10 px-3 pr-16 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--bg-muted)] text-[var(--text-primary)] outline-none focus:border-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               />
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
-                <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
-                  {selectedResource?.unit || 'units'}
+              {selectedResource && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider pointer-events-none">
+                  {selectedResource.unit}
                 </span>
-              </div>
+              )}
             </div>
-            <p className="mt-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              {selectedResource ? `Recording ${selectedResource.name} intake` : 'Select a resource to proceed'}
-            </p>
           </div>
 
-          {/* 3. Date Selection */}
-          <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 md:p-8 shadow-lg backdrop-blur-md">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] flex items-center gap-2 mb-6">
-              <Calendar size={14} className="text-blue-500" /> 03. LOG PERIOD
+          {/* 3. DATE */}
+          <div className="bg-[var(--card-bg)] rounded-xl border border-[var(--border-color)] p-4 shadow-sm">
+            <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Calendar size={12} /> Date *
             </label>
             <input
               type="date"
-              value={formData.date}
-              max={new Date().toISOString().split('T', 1)[0]}
+              max={new Date().toISOString().split('T')[0]}
+              value={formData.date || new Date().toISOString().split('T')[0]}
               onChange={e => setFormData(p => ({ ...p, date: e.target.value }))}
-              className="w-full h-16 px-6 text-xl font-bold rounded-xl bg-slate-900 text-white border-2 border-slate-800 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none cursor-pointer appearance-none"
+              className="w-full h-10 px-3 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--bg-muted)] text-[var(--text-primary)] outline-none focus:border-blue-500 transition-colors cursor-pointer"
             />
           </div>
         </div>
 
-        {/* 4. Block Info */}
-        <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 md:p-8 shadow-lg backdrop-blur-md">
-          <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] flex items-center gap-2 mb-6">
-            <MapPin size={14} className="text-blue-500" /> 04. SECTOR IDENTIFICATION
+        {/* 4. BLOCK INFO (READ-ONLY) */}
+        <div className="bg-[var(--card-bg)] rounded-xl border border-[var(--border-color)] p-4 shadow-sm">
+          <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
+            <MapPin size={12} className="inline mr-1" /> Assigned Block (Auto)
           </label>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-6 p-6 bg-slate-900 rounded-2xl border border-slate-800">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 shadow-inner">
-                <LayoutGrid className="text-blue-500" size={24} />
-              </div>
-              <div>
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-0.5">Deployment Sector</p>
-                <p className="text-xl font-bold text-white">{blockName}</p>
-              </div>
-            </div>
-            <div className="sm:ml-auto">
-              <div className="flex items-center gap-2 px-4 py-2 bg-slate-800 rounded-full border border-slate-700">
-                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-                  {isWarden ? 'Auto-Assigned HQ' : 'System Context'}
-                </span>
-              </div>
-            </div>
+          <div className="w-full h-10 px-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-muted)]/50 text-[var(--text-secondary)] text-sm flex items-center gap-2 cursor-not-allowed">
+            <span className="opacity-70">🏢</span> {blockName}
           </div>
         </div>
 
-        {/* 5. Notes */}
-        <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 md:p-8 shadow-lg backdrop-blur-md">
-          <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] flex items-center gap-2 mb-6">
-            <FileText size={14} className="text-blue-500" /> 05. CORE OBSERVATIONS
+        {/* 5. NOTES */}
+        <div className="bg-[var(--card-bg)] rounded-xl border border-[var(--border-color)] p-4 shadow-sm">
+          <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
+            <FileText size={12} className="inline mr-1" /> Additional Notes
           </label>
           <textarea
-            rows="3"
-            placeholder="Log entries, anomaly reports, or sensor diagnostics..."
-            value={formData.notes}
+            placeholder="Optional: add notes or observations..."
+            rows={2}
+            value={formData.notes || ''}
             onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))}
-            className="w-full p-6 text-sm font-medium rounded-xl bg-slate-900 text-white border-2 border-slate-800 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all outline-none resize-none placeholder:text-slate-700"
+            className="w-full p-3 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--bg-muted)] text-[var(--text-primary)] outline-none focus:border-blue-500 transition-colors resize-none"
           />
         </div>
 
+        {/* ERROR DISPLAY */}
         {error && (
-          <div className="p-5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-500 text-sm font-bold flex items-center gap-4 animate-in slide-in-from-top-4">
-            <div className="w-10 h-10 rounded-full bg-rose-500/20 flex items-center justify-center shrink-0">
-              <Activity size={18} />
-            </div>
-            <p className="uppercase tracking-wide leading-tight">Critical Warning: {error}</p>
+          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-xs flex items-center gap-2">
+            ⚠️ {error}
           </div>
         )}
 
-        <div className="pt-6">
+        {/* SUBMIT BUTTON */}
+        <div className="pt-2">
           <button
             type="submit"
-            disabled={submitting || !selectedResource || !formData.value}
-            className={`w-full h-20 rounded-2xl text-xs font-black uppercase tracking-[0.3em] shadow-2xl transition-all active:scale-[0.97] flex items-center justify-center gap-4 ${submitting || !selectedResource || !formData.value
-              ? 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
-              : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20 border-b-4 border-blue-800'
+            disabled={submitting || !selectedResource || !formData.value || Number(formData.value) <= 0}
+            className={`w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${selectedResource && formData.value && Number(formData.value) > 0 && !submitting
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25 hover:bg-blue-700 active:scale-[0.98]'
+              : 'bg-slate-700 text-slate-400 cursor-not-allowed'
               }`}
           >
             {submitting ? (
               <>
-                <Activity className="animate-spin" size={20} /> SYNCING LOGGED DATA...
+                <Activity size={16} className="animate-spin" /> Saving...
               </>
             ) : (
               <>
-                <Save size={20} /> COMMIT LOG ENTRY
+                <Save size={16} /> Log Usage Data
               </>
             )}
           </button>
-          <div className="flex items-center justify-center gap-4 mt-8">
-            <div className="h-px w-10 bg-slate-800" />
-            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-[0.3em]">
-              Integrity protocol active • Secure Uplink
-            </p>
-            <div className="h-px w-10 bg-slate-800" />
-          </div>
         </div>
       </form>
     </div>

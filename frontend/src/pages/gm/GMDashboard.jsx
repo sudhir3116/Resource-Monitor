@@ -7,16 +7,20 @@ import {
     RefreshCw, TrendingUp, TrendingDown,
     PieChart as PieChartIcon, Activity, Bell, History
 } from 'lucide-react';
-import Card, { MetricCard } from '../../components/common/Card';
+import Card from '../../components/common/Card';
+import MetricCard from '../../components/common/MetricCard';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import DonutChart from '../../components/analytics/DonutChart';
 import { logger } from '../../utils/logger';
 import { getSocket } from '../../utils/socket';
+import { useResources } from '../../hooks/useResources';
 
 const GMDashboard = () => {
     const { user } = useContext(AuthContext);
     const navigate = useNavigate();
+    const { resources } = useResources();  // Get active resources from single source
     const [summaryData, setSummaryData] = useState(null);
     const [trendData, setTrendData] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -116,25 +120,17 @@ const GMDashboard = () => {
         );
     }
 
-    const totals = summaryData?.totals || {};
+
     const summary = summaryData?.summary || {};
     const grandTotal = summaryData?.grandTotal || 0;
-
-    const getMetricData = (name) => {
-        const data = summary[name] || {};
-        return {
-            value: data.total > 0 ? `${data.total.toLocaleString()} ${data.unit}` : 'No data',
-            color: data.color || '#64748b',
-            icon: name === 'Electricity' ? <Zap /> :
-                name === 'Water' ? <Droplets /> :
-                    name === 'LPG' ? <Flame /> :
-                        name === 'Diesel' ? <Wind /> :
-                            name === 'Solar' ? <Sun /> : <Trash2 />
-        };
-    };
+    const totalCost = Object.values(summary).reduce((acc, data) => acc + (data?.totalCost || 0), 0);
+    const mostUsed = Object.entries(summary).reduce((max, [name, data]) => {
+        if (!max || (data?.total || 0) > (max.data?.total || 0)) return { name, data };
+        return max;
+    }, null);
 
     const distributionData = Object.entries(summary)
-        .map(([name, data]) => ({ name, value: data.total }))
+        .map(([name, data]) => ({ name, value: data?.total || 0 }))
         .filter(d => typeof d.value === 'number' && d.value > 0);
 
     return (
@@ -162,33 +158,43 @@ const GMDashboard = () => {
             </div>
 
             {/* KPI row */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                 <MetricCard
-                    icon={<Activity size={16} />}
-                    label="Total Usage"
+                    icon={<Activity size={18} className="text-blue-500" />}
+                    label="Total Consumption"
                     value={grandTotal > 0 ? grandTotal.toLocaleString() : 'No data'}
+                    trend={{ value: 'Real-time', isPositive: true }}
                 />
                 <MetricCard
-                    icon={<Bell size={16} />}
+                    icon={<PieChartIcon size={18} className="text-emerald-500" />}
+                    label="Total Cost"
+                    value={totalCost > 0 ? `₹${totalCost.toLocaleString()}` : 'No data'}
+                />
+                <MetricCard
+                    icon={<Bell size={18} className="text-rose-500" />}
                     label="Active Alerts"
                     value={activeAlerts}
+                    color={activeAlerts > 0 ? 'text-rose-500' : 'text-slate-500'}
                 />
-                <MetricCard
-                    icon={<History size={16} />}
-                    label="Recent Activity"
-                    value={recentActivity}
-                />
+                {mostUsed && (
+                    <MetricCard
+                        icon={<span className="text-xl">{(resources.find(r => r.name === mostUsed.name)?.icon) || '📊'}</span>}
+                        label="Pace Leader"
+                        value={`${mostUsed.name}`}
+                        subValue={`${mostUsed.data?.total?.toLocaleString() || 0} units`}
+                    />
+                )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-                {Object.keys(summary).map(name => {
-                    const metric = getMetricData(name);
+                {Object.entries(summary || {}).map(([name, data]) => {
+                    const resource = (resources || []).find(r => r.name === name) || {};
                     return (
                         <MetricCard
                             key={name}
-                            icon={metric.icon}
+                            icon={<span className="text-xl" style={{ color: resource.color }}>{resource.icon || '📊'}</span>}
                             label={name}
-                            value={metric.value}
+                            value={data.total > 0 ? `${data.total.toLocaleString()} ${resource.unit || ''}` : 'No data'}
                         />
                     );
                 })}
@@ -197,7 +203,7 @@ const GMDashboard = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <Card className="lg:col-span-2" title="Resource Consumption Trends" icon={<TrendingUp size={20} />}>
                     <div className="h-[350px] mt-6">
-                        {trendData.length > 0 ? (
+                        {(Array.isArray(trendData) ? trendData : []).length > 0 ? (
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={trendData}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
@@ -209,19 +215,26 @@ const GMDashboard = () => {
                                         axisLine={false}
                                     />
                                     <YAxis fontSize={12} tickLine={false} axisLine={false} />
-                                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }} />
-                                    {Object.keys(summary).map(name => (
-                                        <Area
-                                            key={name}
-                                            type="monotone"
-                                            dataKey={name}
-                                            stroke={summary[name]?.color}
-                                            fill={summary[name]?.color}
-                                            fillOpacity={0.1}
-                                            strokeWidth={3}
-                                            dot={false}
-                                        />
-                                    ))}
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: 'var(--bg-card)', border: 'none', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
+                                        itemStyle={{ fontSize: '12px', fontWeight: '900' }}
+                                    />
+                                    {Object.entries(summary || {}).map(([name, data]) => {
+                                        const res = resources.find(r => r.name === name) || {};
+                                        return (
+                                            <Area
+                                                key={name}
+                                                type="monotone"
+                                                dataKey={name}
+                                                stroke={res.color || '#64748b'}
+                                                fill={res.color || '#64748b'}
+                                                fillOpacity={0.05}
+                                                strokeWidth={3}
+                                                dot={false}
+                                                activeDot={{ r: 6, strokeWidth: 0 }}
+                                            />
+                                        );
+                                    })}
                                 </AreaChart>
                             </ResponsiveContainer>
                         ) : (
@@ -235,26 +248,15 @@ const GMDashboard = () => {
 
                 <Card title="Usage Distribution" icon={<PieChartIcon size={20} />}>
                     <div className="h-[350px] mt-6">
-                        {distributionData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={distributionData}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={60}
-                                        outerRadius={100}
-                                        paddingAngle={5}
-                                        dataKey="value"
-                                    >
-                                        {distributionData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={summary[entry.name]?.color} />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip />
-                                    <Legend verticalAlign="bottom" height={36} />
-                                </PieChart>
-                            </ResponsiveContainer>
+                        {(Array.isArray(distributionData) ? distributionData : []).length > 0 ? (
+                            <>
+                                {/* DonutChart expects data: [{resource, value}], resources: full resource list */}
+                                <DonutChart
+                                    data={distributionData.map(d => ({ resource: d.name, value: d.value }))}
+                                    resources={resources}
+                                    height={320}
+                                />
+                            </>
                         ) : (
                             <div className="h-full flex items-center justify-center text-slate-400">
                                 <p>No data to display in breakdown</p>

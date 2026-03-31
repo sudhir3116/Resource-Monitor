@@ -6,7 +6,8 @@ import {
     AlertTriangle, Bell, RefreshCw, Plus, Activity,
     TrendingUp, TrendingDown, History, PieChart as PieChartIcon
 } from 'lucide-react';
-import Card, { MetricCard } from '../../components/common/Card';
+import Card from '../../components/common/Card';
+import MetricCard from '../../components/common/MetricCard';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
 import { logger } from '../../utils/logger';
@@ -279,20 +280,20 @@ export default function UnifiedDashboard() {
 
     // ── Render ─────────────────────────────────────────────────────────────────
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 pb-10">
 
             {/* ═══════════════════════════════════════ Header ══════════════════ */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-3"
+                    <h1 className="text-xl font-semibold flex items-center gap-2"
                         style={{ color: 'var(--text-primary)' }}>
                         {dashboardTitle}
-                        {perms.isReadOnly && <Badge variant="secondary">View Only</Badge>}
+                        {perms.isReadOnly && <Badge variant="secondary" className="text-[10px]">View Only</Badge>}
                     </h1>
-                    <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+                    <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
                         {role === 'gm' && 'Campus-wide resource monitoring and analytics'}
                         {role === 'warden' && 'Monitor and manage resource usage for your assigned block'}
-                        {isExecReadOnly && <>Campus-wide resource analytics and financial performance. <a href={`/${role}/analytics`} onClick={(e) => { e.preventDefault(); navigate(`/${role}/analytics`); }} className="text-blue-500 hover:underline">For detailed data, visit Analytics →</a></>}
+                        {isExecReadOnly && <>Campus-wide resource analytics and financial performance.</>}
                         {role === 'student' && 'Overview of your block\'s resource consumption'}
                     </p>
                 </div>
@@ -349,8 +350,8 @@ export default function UnifiedDashboard() {
 
             {/* ═══════════════════════════════ Resource Metric Cards ═══════════ */}
             <div className={`grid gap-4 ${role === 'gm'
-                ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'
-                : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'
+                ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6'
+                : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
                 }`}>
                 {/* Alerts card — non-student, non-GM (GM has badge in header) */}
                 {role === 'warden' && (
@@ -376,11 +377,11 @@ export default function UnifiedDashboard() {
             </div>
 
             {/* ══════════════════════════ Trend + Distribution Charts ══════════ */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 {/* Trend Chart — col-span-2 */}
                 <Card className="lg:col-span-2" title="Resource Consumption Trends"
                     icon={<TrendingUp size={20} />}>
-                    <div className="h-[350px] mt-6">
+                    <div className="h-[300px] mt-4">
                         {!Array.isArray(trendData) || trendData.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-slate-400">
                                 <Activity size={48} className="mb-2 opacity-20" />
@@ -433,7 +434,7 @@ export default function UnifiedDashboard() {
 
                 {/* Resource Distribution Pie */}
                 <Card title="Resource Distribution" icon={<PieChartIcon size={20} />}>
-                    <div className="h-[350px] mt-6">
+                    <div className="h-[300px] mt-4">
                         {distributionData.length === 0 ? (
                             <div className="h-full flex items-center justify-center text-slate-400">
                                 <p>No distribution data.</p>
@@ -633,7 +634,7 @@ export default function UnifiedDashboard() {
 
             {/* ══════════════════ Student: Complaints section ═══════════════════ */}
             {role === 'student' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <Card title="My Complaints" description="Track and submit your block complaints">
                         <div className="flex flex-col items-center justify-center h-32 gap-3 mt-4">
                             <Button variant="primary"

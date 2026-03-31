@@ -3,8 +3,7 @@ import { Navigate, Link, useLocation } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { getDashboardRoute } from '../utils/roleRoutes';
 import { logger } from '../utils/logger';
-import { ThemeContext } from '../context/ThemeContext';
-import { Activity, Loader2, Eye, EyeOff, AlertCircle, Sun, Moon } from 'lucide-react';
+import { Activity, Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/Card';
@@ -12,7 +11,6 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 
 export default function Login() {
   const { login, user } = useContext(AuthContext);
-  const { theme, toggleTheme } = useContext(ThemeContext);
   const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -46,13 +44,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 px-4 py-12 relative">
-      <button
-        onClick={toggleTheme}
-        className="absolute top-6 right-6 p-2 rounded-full transition-colors bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white shadow-sm hover:shadow-md"
-        aria-label="Toggle dark mode"
-      >
-        {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-      </button>
+
 
       <Card className="w-full max-w-[400px] shadow-sm border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
         <CardHeader className="text-center space-y-2 pb-6">

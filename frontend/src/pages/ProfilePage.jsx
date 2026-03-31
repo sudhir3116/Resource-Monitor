@@ -129,227 +129,272 @@ const ProfilePage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* Message Display */}
-        {message && (
-          <div className={`mb-6 p-4 rounded-lg flex items-center gap-2 ${message.type === 'success'
-              ? 'bg-green-100 text-green-700 border border-green-400'
-              : 'bg-red-100 text-red-700 border border-red-400'
-            }`}>
-            {message.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
-            {message.text}
-          </div>
-        )}
+    <div className="space-y-6 max-w-4xl mx-auto p-6">
+      {/* Header (Task 1) */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Profile</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
+            Manage your account information and security settings
+          </p>
+        </div>
+      </div>
 
-        {/* Profile Header */}
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <div className="flex items-center gap-6">
-            <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white text-3xl font-bold">
-              {user?.name?.[0]?.toUpperCase()}
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">{user?.name}</h1>
-              <p className="text-gray-600 uppercase text-sm font-semibold tracking-wide">{user?.role}</p>
-              <p className="text-gray-500 text-sm">Member since {new Date().toLocaleDateString()}</p>
-            </div>
-          </div>
+      {/* Message Display */}
+      {message && (
+        <div className={`p-4 rounded-lg flex items-center gap-2 ${message.type === 'success'
+          ? 'bg-green-500/10 text-green-500 border border-green-500/20'
+          : 'bg-red-500/10 text-red-500 border border-red-500/20'
+          }`}>
+          {message.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
+          <span className="text-sm font-medium">{message.text}</span>
+        </div>
+      )}
+
+      {/* Main Container (Task 2) */}
+      <div className="card !p-0 overflow-hidden">
+        {/* Tabs (Task 5) */}
+        <div className="flex border-b border-slate-800 px-6">
+          <button
+            onClick={() => setActiveTab('profile')}
+            className={`px-4 py-4 text-sm font-medium transition-all relative ${activeTab === 'profile'
+              ? 'text-blue-500'
+              : 'text-slate-400 hover:text-slate-200'
+              }`}
+          >
+            Edit Profile
+            {activeTab === 'profile' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('password')}
+            className={`px-4 py-4 text-sm font-medium transition-all relative ${activeTab === 'password'
+              ? 'text-blue-500'
+              : 'text-slate-400 hover:text-slate-200'
+              }`}
+          >
+            Change Password
+            {activeTab === 'password' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('activity')}
+            className={`px-4 py-4 text-sm font-medium transition-all relative ${activeTab === 'activity'
+              ? 'text-blue-500'
+              : 'text-slate-400 hover:text-slate-200'
+              }`}
+          >
+            My Activity
+            {activeTab === 'activity' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />
+            )}
+          </button>
         </div>
 
-        {/* Tabs */}
-        <div className="bg-white rounded-lg shadow mb-6">
-          <div className="flex border-b">
-            <button
-              onClick={() => setActiveTab('profile')}
-              className={`px-4 py-3 font-medium ${activeTab === 'profile'
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-600 hover:text-gray-900'
-                }`}
-            >
-              Edit Profile
-            </button>
-            <button
-              onClick={() => setActiveTab('password')}
-              className={`px-4 py-3 font-medium ${activeTab === 'password'
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-600 hover:text-gray-900'
-                }`}
-            >
-              Change Password
-            </button>
-            <button
-              onClick={() => setActiveTab('activity')}
-              className={`px-4 py-3 font-medium ${activeTab === 'activity'
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-600 hover:text-gray-900'
-                }`}
-            >
-              My Activity
-            </button>
-          </div>
-
+        {/* Content Area (Task 3 & Task 7) */}
+        <div className="p-6 md:p-8 space-y-6">
           {/* Edit Profile Tab */}
           {activeTab === 'profile' && (
-            <div className="p-6">
-              <form onSubmit={handleProfileUpdate} className="space-y-4">
+            <form onSubmit={handleProfileUpdate} className="space-y-6 max-w-2xl">
+              <div className="flex items-center gap-4 mb-8 p-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-700/50">
+                <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white text-2xl font-bold border-4 border-white dark:border-slate-900 shadow-xl">
+                  {user?.name?.[0]?.toUpperCase()}
+                </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{user?.name}</h3>
+                  <p className="text-blue-500 text-xs font-bold uppercase tracking-widest">{user?.role}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="text-sm text-gray-400 mb-1 block">Full Name</label>
                   <input
                     type="text"
                     value={profileData.name}
                     onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-transparent p-2.5 text-sm text-slate-800 dark:text-slate-100 outline-none focus:border-blue-500 transition-all"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email (Read-only)</label>
+                  <label className="text-sm text-gray-400 mb-1 block">Email Address (Read-only)</label>
                   <input
                     type="email"
                     value={profileData.email}
                     disabled
-                    className="w-full px-4 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 cursor-not-allowed"
+                    className="input-field w-full rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-sm text-slate-400 opacity-60 cursor-not-allowed outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Role (Read-only)</label>
+                  <label className="text-sm text-gray-400 mb-1 block">Your Role (Read-only)</label>
                   <input
                     type="text"
                     value={profileData.role.charAt(0).toUpperCase() + profileData.role.slice(1)}
                     disabled
-                    className="w-full px-4 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 cursor-not-allowed"
+                    className="input-field w-full rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-sm text-slate-400 opacity-60 cursor-not-allowed outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Block (Read-only)</label>
+                  <label className="text-sm text-gray-400 mb-1 block">Assigned Block (Read-only)</label>
                   <input
                     type="text"
                     value={profileData.block || 'Not assigned'}
                     disabled
-                    className="w-full px-4 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 cursor-not-allowed"
+                    className="input-field w-full rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-sm text-slate-400 opacity-60 cursor-not-allowed outline-none"
                   />
                 </div>
+              </div>
 
+              <div className="pt-4 border-t border-slate-800">
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                  className="btn-primary flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm transition-all disabled:opacity-50"
                 >
-                  <Save size={20} /> Save Changes
+                  {loading ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />}
+                  Save Changes
                 </button>
-              </form>
-            </div>
+              </div>
+            </form>
           )}
 
           {/* Change Password Tab */}
           {activeTab === 'password' && (
-            <div className="p-6">
-              <form onSubmit={handlePasswordSubmit} className="max-w-md space-y-4">
-                {user?.provider === 'google' && (
-                  <div className="p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">
-                    You are using Google authentication. Password change is managed through your Google account.
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
-                  <div className="relative">
-                    <input
-                      type={showPasswords.current ? 'text' : 'password'}
-                      name="currentPassword"
-                      value={passwordData.currentPassword}
-                      onChange={handlePasswordChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPasswords({ ...showPasswords, current: !showPasswords.current })}
-                      className="absolute right-3 top-2.5 text-gray-600"
-                    >
-                      {showPasswords.current ? <EyeOff size={20} /> : <Eye size={20} />}
-                    </button>
-                  </div>
+            <form onSubmit={handlePasswordSubmit} className="space-y-6 max-w-md">
+              {user?.provider === 'google' ? (
+                <div className="p-4 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-lg text-sm italic">
+                  You are using Google authentication. Password management is handled through your Google account settings.
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
-                  <div className="relative">
-                    <input
-                      type={showPasswords.new ? 'text' : 'password'}
-                      name="newPassword"
-                      value={passwordData.newPassword}
-                      onChange={handlePasswordChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPasswords({ ...showPasswords, new: !showPasswords.new })}
-                      className="absolute right-3 top-2.5 text-gray-600"
-                    >
-                      {showPasswords.new ? <EyeOff size={20} /> : <Eye size={20} />}
-                    </button>
-                  </div>
-                  {passwordData.newPassword && (
-                    <div>
-                      <div className="mt-2 flex items-center gap-2">
-                        <div className="flex-1 h-2 bg-gray-200 rounded overflow-hidden">
-                          <div className={`h-full ${getPasswordStrengthColor()} w-${passwordStrength * 20}`}></div>
-                        </div>
-                        <span className="text-sm font-medium text-gray-700">{getPasswordStrengthLabel()}</span>
-                      </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-sm text-gray-400 mb-1 block">Current Password</label>
+                    <div className="relative">
+                      <input
+                        type={showPasswords.current ? 'text' : 'password'}
+                        name="currentPassword"
+                        value={passwordData.currentPassword}
+                        onChange={handlePasswordChange}
+                        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-transparent p-2.5 text-sm text-slate-800 dark:text-slate-100 outline-none focus:border-blue-500 transition-all pr-10"
+                        placeholder="••••••••"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPasswords({ ...showPasswords, current: !showPasswords.current })}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                      >
+                        {showPasswords.current ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
                     </div>
-                  )}
-                </div>
+                  </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
-                  <div className="relative">
-                    <input
-                      type={showPasswords.confirm ? 'text' : 'password'}
-                      name="confirmPassword"
-                      value={passwordData.confirmPassword}
-                      onChange={handlePasswordChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 pr-10"
-                    />
+                  <div>
+                    <label className="text-sm text-gray-400 mb-1 block">New Password</label>
+                    <div className="relative">
+                      <input
+                        type={showPasswords.new ? 'text' : 'password'}
+                        name="newPassword"
+                        value={passwordData.newPassword}
+                        onChange={handlePasswordChange}
+                        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-transparent p-2.5 text-sm text-slate-800 dark:text-slate-100 outline-none focus:border-blue-500 transition-all pr-10"
+                        placeholder="At least 8 characters"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPasswords({ ...showPasswords, new: !showPasswords.new })}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                      >
+                        {showPasswords.new ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
+                    {passwordData.newPassword && (
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Security Strength</span>
+                          <span className={`text-[10px] font-bold uppercase ${passwordStrength <= 2 ? 'text-red-500' :
+                            passwordStrength <= 3 ? 'text-yellow-500' : 'text-green-500'
+                            }`}>{getPasswordStrengthLabel()}</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex gap-1">
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <div
+                              key={s}
+                              className={`h-full flex-1 transition-all ${s <= passwordStrength ? getPasswordStrengthColor() : 'bg-slate-700/30'
+                                }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="text-sm text-gray-400 mb-1 block">Confirm New Password</label>
+                    <div className="relative">
+                      <input
+                        type={showPasswords.confirm ? 'text' : 'password'}
+                        name="confirmPassword"
+                        value={passwordData.confirmPassword}
+                        onChange={handlePasswordChange}
+                        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-transparent p-2.5 text-sm text-slate-800 dark:text-slate-100 outline-none focus:border-blue-500 transition-all pr-10"
+                        placeholder="Repeat new password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPasswords({ ...showPasswords, confirm: !showPasswords.confirm })}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                      >
+                        {showPasswords.confirm ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-4">
                     <button
-                      type="button"
-                      onClick={() => setShowPasswords({ ...showPasswords, confirm: !showPasswords.confirm })}
-                      className="absolute right-3 top-2.5 text-gray-600"
+                      type="submit"
+                      disabled={loading}
+                      className="btn-primary w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm shadow-lg shadow-blue-500/20 transition-all disabled:opacity-50"
                     >
-                      {showPasswords.confirm ? <EyeOff size={20} /> : <Eye size={20} />}
+                      {loading ? 'Changing Password...' : 'Update Password'}
                     </button>
                   </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading || user?.provider === 'google'}
-                  className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
-                >
-                  Change Password
-                </button>
-              </form>
-            </div>
+                </>
+              )}
+            </form>
           )}
 
           {/* Activity Tab */}
           {activeTab === 'activity' && (
-            <div className="p-6">
+            <div className="space-y-4">
               {activityLogs.length === 0 ? (
-                <p className="text-gray-500">No activity logs available</p>
+                <div className="py-10 text-center">
+                  <AlertCircle size={40} className="mx-auto text-slate-700 mb-3" />
+                  <p className="text-slate-500 text-sm">No recent activity logs found</p>
+                </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {activityLogs.map((log, idx) => (
-                    <div key={idx} className="flex items-start justify-between p-3 bg-gray-50 rounded">
-                      <div>
-                        <p className="font-medium text-gray-900">{log.action || log.resourceType}</p>
-                        <p className="text-sm text-gray-600">{log.description}</p>
+                    <div key={idx} className="flex items-center justify-between p-4 bg-slate-800/40 rounded-xl border border-slate-800 hover:border-slate-700 transition-colors group">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-blue-500 border border-slate-700">
+                          <ShieldCheck size={20} />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-200 text-sm group-hover:text-blue-400 transition-colors">{log.action || log.resourceType}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{log.description}</p>
+                        </div>
                       </div>
-                      <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
-                        {new Date(log.createdAt).toLocaleString()}
-                      </span>
+                      <div className="text-right">
+                        <div className="text-[10px] font-bold text-slate-500 flex items-center justify-end gap-1.5 bg-slate-800/50 px-2 py-1 rounded-md">
+                          <Clock size={10} />
+                          {new Date(log.createdAt).toLocaleString()}
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>

@@ -28,13 +28,13 @@ exports.getUsers = async (req, res) => {
     const { skip, limit: pageLimit } = parsePagination({ page, limit });
 
     let filter = {};
-    
+
     if (role) filter.role = role;
     if (status) filter.status = status;
     if (blockId && mongoose.Types.ObjectId.isValid(blockId)) {
       filter.block = new mongoose.Types.ObjectId(blockId);
     }
-    
+
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
@@ -137,7 +137,7 @@ exports.createUser = async (req, res) => {
     }
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(password, 12);
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
       name,
@@ -220,7 +220,7 @@ exports.updateUser = async (req, res) => {
       if (department) updates.department = department;
       if (role && Object.values(ROLES).includes(role)) updates.role = role;
       if (status && ['active', 'pending', 'suspended', 'graduated'].includes(status)) updates.status = status;
-      
+
       if (blockId && mongoose.Types.ObjectId.isValid(blockId)) {
         const block = await Block.findById(blockId);
         if (!block) {
@@ -237,7 +237,7 @@ exports.updateUser = async (req, res) => {
 
     // Handle password change (admin only)
     if (password && isAdmin) {
-      updates.password = await bcrypt.hash(password, 12);
+      updates.password = await bcrypt.hash(password, 10);
     }
 
     const updated = await User.findByIdAndUpdate(req.params.id, updates, { new: true })
@@ -348,7 +348,7 @@ exports.assignUserToBlock = async (req, res) => {
         status: 'active',
         _id: { $ne: req.params.id }
       });
-      
+
       if (occupied >= block.capacity) {
         return res.status(400).json({
           success: false,

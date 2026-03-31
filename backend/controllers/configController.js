@@ -1,6 +1,6 @@
-const SystemConfig = require('../models/SystemConfig');
-const AuditLog = require('../models/AuditLog');
+const Resource = require('../models/Resource');
 const Block = require('../models/Block');
+const AuditLog = require('../models/AuditLog');
 const { ROLES } = require('../config/roles');
 
 const ADMIN_ONLY = (req, res) => {
@@ -59,8 +59,8 @@ exports.getThresholds = async (req, res) => {
             filter.isActive = true;
         }
 
-        const configs = await SystemConfig.find(filter)
-            .sort({ resource: 1 })
+        const configs = await Resource.find(filter)
+            .sort({ name: 1 })
             .populate('updatedBy', 'name email')
             .populate('createdBy', 'name email');
 
@@ -78,7 +78,7 @@ exports.getThresholds = async (req, res) => {
 exports.getResourceThreshold = async (req, res) => {
     try {
         const { resource } = req.params;
-        const config = await SystemConfig.findOne({ resource })
+        const config = await Resource.findOne({ name: resource })
             .populate('updatedBy', 'name email');
 
         if (!config) {
@@ -99,42 +99,63 @@ exports.createThreshold = async (req, res) => {
     if (!ADMIN_ONLY(req, res)) return;
 
     try {
-        const { resource, unit, costPerUnit, dailyThreshold, monthlyThreshold, isActive } = req.body;
+        const {
+            name, resource, // support both
+            unit,
+            rate, costPerUnit, // support both
+            dailyLimit, dailyThreshold, // support both
+            monthlyLimit, monthlyThreshold, // support both
+            emoji, icon, // support both
+            color,
+            isActive
+        } = req.body;
+
+        // Map inputs to schema fields
+        const finalName = (name || resource || '').trim();
+        const finalUnit = (unit || '').trim();
+        const finalRate = rate !== undefined ? Number(rate) : (costPerUnit !== undefined ? Number(costPerUnit) : 0);
+        const finalDaily = dailyLimit !== undefined ? Number(dailyLimit) : (dailyThreshold !== undefined ? Number(dailyThreshold) : 0);
+        const finalMonthly = monthlyLimit !== undefined ? Number(monthlyLimit) : (monthlyThreshold !== undefined ? Number(monthlyThreshold) : 0);
+        const finalEmoji = emoji || icon || '📊';
+        const finalColor = color || '#3B82F6';
 
         // Validation
-        if (!resource || !unit) {
-            return res.status(400).json({ success: false, message: 'resource and unit are required' });
+        if (!finalName || !finalUnit) {
+            return res.status(400).json({ success: false, message: 'Resource name and unit are required' });
         }
-        if (costPerUnit === undefined || costPerUnit < 0) {
-            return res.status(400).json({ success: false, message: 'costPerUnit must be 0 or greater' });
+        if (finalRate < 0) {
+            return res.status(400).json({ success: false, message: 'Rate must be 0 or greater' });
         }
-        if (!dailyThreshold || dailyThreshold <= 0) {
-            return res.status(400).json({ success: false, message: 'dailyThreshold must be greater than 0' });
+        if (finalDaily <= 0) {
+            return res.status(400).json({ success: false, message: 'Daily limit must be greater than 0' });
         }
-        if (!monthlyThreshold || monthlyThreshold <= 0) {
-            return res.status(400).json({ success: false, message: 'monthlyThreshold must be greater than 0' });
+        if (finalMonthly <= 0) {
+            return res.status(400).json({ success: false, message: 'Monthly limit must be greater than 0' });
         }
-        if (dailyThreshold > monthlyThreshold) {
-            return res.status(400).json({ success: false, message: 'Daily threshold cannot exceed monthly threshold' });
+        if (finalDaily > finalMonthly) {
+            return res.status(400).json({ success: false, message: 'Daily limit cannot exceed monthly limit' });
         }
 
-        const existing = await SystemConfig.findOne({ resource: { $regex: new RegExp(`^${resource}$`, 'i') } });
+        const existing = await Resource.findOne({ name: { $regex: new RegExp(`^${finalName}$`, 'i') } });
         if (existing) {
-            return res.status(409).json({ success: false, message: `Configuration for '${resource}' already exists. Use update instead.` });
+            return res.status(409).json({ success: false, message: `Configuration for '${finalName}' already exists` });
         }
 
         const userId = req.user.id || req.userId;
-        const config = await SystemConfig.create({
-            resource, unit, costPerUnit, dailyThreshold, monthlyThreshold,
+        const config = await Resource.create({
+            name: finalName,
+            unit: finalUnit,
+            rate: finalRate,
+            dailyLimit: finalDaily,
+            monthlyLimit: finalMonthly,
+            status: "active",
             isActive: isActive !== undefined ? isActive : true,
-            // Legacy sync
-            rate: costPerUnit,
-            dailyLimitPerPerson: dailyThreshold,
-            monthlyLimitPerPerson: monthlyThreshold,
-            alertsEnabled: true,
+            icon: finalEmoji,
+            color: finalColor,
             createdBy: userId,
             updatedBy: userId
         });
+
 
         await logConfigChange(req, 'CREATE', config._id,
             `Created resource config: ${resource} (${unit}, ₹${costPerUnit}/unit)`,
@@ -163,53 +184,60 @@ exports.updateThreshold = async (req, res) => {
         const { resource } = req.params;
 
         // Coerce to numbers — JSON body always sends correct types but be defensive
-        const costPerUnit = req.body.costPerUnit !== undefined ? Number(req.body.costPerUnit) : undefined;
-        const dailyThreshold = req.body.dailyThreshold !== undefined ? Number(req.body.dailyThreshold) : undefined;
-        const monthlyThreshold = req.body.monthlyThreshold !== undefined ? Number(req.body.monthlyThreshold) : undefined;
-        const { unit, isActive, alertsEnabled, spikeThreshold, severityThreshold } = req.body;
+        const {
+            name, resource: newResourceName, // name change support
+            unit,
+            rate, costPerUnit,
+            dailyLimit, dailyThreshold,
+            monthlyLimit, monthlyThreshold,
+            isActive,
+            emoji, icon,
+            color,
+            alertsEnabled, spikeThreshold, severityThreshold
+        } = req.body;
 
-        console.log(`[configController] updateThreshold: resource=${resource}`, {
-            costPerUnit, dailyThreshold, monthlyThreshold, unit, isActive
-        });
+        const finalRate = rate !== undefined ? Number(rate) : (costPerUnit !== undefined ? Number(costPerUnit) : undefined);
+        const finalDaily = dailyLimit !== undefined ? Number(dailyLimit) : (dailyThreshold !== undefined ? Number(dailyThreshold) : undefined);
+        const finalMonthly = monthlyLimit !== undefined ? Number(monthlyLimit) : (monthlyThreshold !== undefined ? Number(monthlyThreshold) : undefined);
 
         // Validation
-        if (costPerUnit !== undefined && (isNaN(costPerUnit) || costPerUnit < 0)) {
-            return res.status(400).json({ success: false, message: 'costPerUnit must be a number >= 0' });
+        if (finalRate !== undefined && (isNaN(finalRate) || finalRate < 0)) {
+            return res.status(400).json({ success: false, message: 'Rate must be a number >= 0' });
         }
-        if (dailyThreshold !== undefined && (isNaN(dailyThreshold) || dailyThreshold <= 0)) {
-            return res.status(400).json({ success: false, message: 'dailyThreshold must be greater than 0' });
+        if (finalDaily !== undefined && (isNaN(finalDaily) || finalDaily <= 0)) {
+            return res.status(400).json({ success: false, message: 'Daily limit must be greater than 0' });
         }
-        if (monthlyThreshold !== undefined && (isNaN(monthlyThreshold) || monthlyThreshold <= 0)) {
-            return res.status(400).json({ success: false, message: 'monthlyThreshold must be greater than 0' });
+        if (finalMonthly !== undefined && (isNaN(finalMonthly) || finalMonthly <= 0)) {
+            return res.status(400).json({ success: false, message: 'Monthly limit must be greater than 0' });
         }
 
-        const existing = await SystemConfig.findOne({ resource });
+        const existing = await Resource.findOne({ resource });
         if (!existing) {
-            return res.status(404).json({
-                success: false,
-                message: `Configuration for '${resource}' not found`
-            });
+            return res.status(404).json({ success: false, message: `Configuration for '${resource}' not found` });
         }
 
-        // Build update object — explicitly sync legacy fields too
+        // Build update object
         const updateData = { updatedBy: req.user.id || req.userId };
+        if (newResourceName || name) updateData.resource = (newResourceName || name).trim();
         if (unit !== undefined) updateData.unit = unit;
         if (isActive !== undefined) updateData.isActive = isActive;
         if (alertsEnabled !== undefined) updateData.alertsEnabled = alertsEnabled;
         if (spikeThreshold !== undefined) updateData.spikeThreshold = Number(spikeThreshold);
         if (severityThreshold !== undefined) updateData.severityThreshold = severityThreshold;
+        if (emoji !== undefined || icon !== undefined) updateData.icon = emoji || icon;
+        if (color !== undefined) updateData.color = color;
 
-        if (costPerUnit !== undefined) {
-            updateData.costPerUnit = costPerUnit;
-            updateData.rate = costPerUnit;           // legacy sync
+        if (finalRate !== undefined) {
+            updateData.costPerUnit = finalRate;
+            updateData.rate = finalRate;           // legacy sync
         }
-        if (dailyThreshold !== undefined) {
-            updateData.dailyThreshold = dailyThreshold;
-            updateData.dailyLimitPerPerson = dailyThreshold; // legacy sync
+        if (finalDaily !== undefined) {
+            updateData.dailyThreshold = finalDaily;
+            updateData.dailyLimitPerPerson = finalDaily; // legacy sync
         }
-        if (monthlyThreshold !== undefined) {
-            updateData.monthlyThreshold = monthlyThreshold;
-            updateData.monthlyLimitPerPerson = monthlyThreshold; // legacy sync
+        if (finalMonthly !== undefined) {
+            updateData.monthlyThreshold = finalMonthly;
+            updateData.monthlyLimitPerPerson = finalMonthly; // legacy sync
         }
 
         // Cross-field validation on effective values
@@ -222,8 +250,8 @@ exports.updateThreshold = async (req, res) => {
             });
         }
 
-        const updated = await SystemConfig.findOneAndUpdate(
-            { resource },
+        const updated = await Resource.findOneAndUpdate(
+            { name: resource },
             { $set: updateData },
             { returnDocument: 'after', runValidators: false }  // validators off to avoid partial-doc issues
         ).populate('updatedBy', 'name email');
@@ -283,7 +311,7 @@ exports.updateThresholdById = async (req, res) => {
         if (monthlyThreshold !== undefined && (isNaN(monthlyThreshold) || monthlyThreshold <= 0))
             return res.status(400).json({ success: false, message: 'monthlyThreshold must be > 0' });
 
-        const existing = await SystemConfig.findById(id);
+        const existing = await Resource.findById(id);
         if (!existing)
             return res.status(404).json({ success: false, message: 'Configuration not found' });
 
@@ -300,12 +328,12 @@ exports.updateThresholdById = async (req, res) => {
         if (effectiveDaily > effectiveMonthly)
             return res.status(400).json({ success: false, message: 'Daily threshold cannot exceed monthly threshold' });
 
-        const updated = await SystemConfig.findByIdAndUpdate(
+        const updated = await Resource.findByIdAndUpdate(
             id, { $set: updateData }, { returnDocument: 'after', runValidators: false }
         ).populate('updatedBy', 'name email');
 
         await logConfigChange(req, 'UPDATE_THRESHOLD', updated._id,
-            `Updated config for ${updated.resource} by ID`,
+            `Updated config for ${updated.name} by ID`,
             existing.toObject(), updated.toObject()
         );
 
@@ -325,7 +353,7 @@ exports.bulkUpdateThresholds = async (req, res) => {
     if (!ADMIN_ONLY(req, res)) return;
 
     try {
-        const { configs } = req.body; // Array of { resource, costPerUnit, dailyThreshold, monthlyThreshold, unit, isActive }
+        const { configs } = req.body; // Array of { resource, costPerUnit, dailyThreshold, monthlyThreshold, unit, isActive, icon, color }
         if (!Array.isArray(configs) || configs.length === 0) {
             return res.status(400).json({ success: false, message: 'configs array is required' });
         }
@@ -335,23 +363,14 @@ exports.bulkUpdateThresholds = async (req, res) => {
 
         for (const cfg of configs) {
             try {
-                const { resource, costPerUnit, dailyThreshold, monthlyThreshold, unit, isActive, alertsEnabled } = cfg;
+                const { resource, costPerUnit, dailyThreshold, monthlyThreshold, unit, isActive, alertsEnabled, icon, color } = cfg;
                 if (!resource) { errors.push({ resource: '?', error: 'resource name missing' }); continue; }
                 if (costPerUnit !== undefined && costPerUnit < 0) { errors.push({ resource, error: 'costPerUnit cannot be negative' }); continue; }
                 if (dailyThreshold !== undefined && dailyThreshold <= 0) { errors.push({ resource, error: 'dailyThreshold must be > 0' }); continue; }
                 if (monthlyThreshold !== undefined && monthlyThreshold <= 0) { errors.push({ resource, error: 'monthlyThreshold must be > 0' }); continue; }
 
-                const existing = await SystemConfig.findOne({ resource });
-                const updateData = { updatedBy: req.user.id || req.userId };
-                if (unit !== undefined) updateData.unit = unit;
-                if (isActive !== undefined) updateData.isActive = isActive;
-                if (alertsEnabled !== undefined) updateData.alertsEnabled = alertsEnabled;
-                if (costPerUnit !== undefined) { updateData.costPerUnit = costPerUnit; updateData.rate = costPerUnit; }
-                if (dailyThreshold !== undefined) { updateData.dailyThreshold = dailyThreshold; updateData.dailyLimitPerPerson = dailyThreshold; }
-                if (monthlyThreshold !== undefined) { updateData.monthlyThreshold = monthlyThreshold; updateData.monthlyLimitPerPerson = monthlyThreshold; }
-
-                const updated = await SystemConfig.findOneAndUpdate(
-                    { resource }, { $set: updateData }, { returnDocument: 'after', upsert: false }
+                const updated = await Resource.findOneAndUpdate(
+                    { name: resource }, { $set: updateData }, { returnDocument: 'after', upsert: false }
                 );
 
                 if (!updated) { errors.push({ resource, error: 'Config not found' }); continue; }
@@ -392,7 +411,7 @@ exports.setBlockOverride = async (req, res) => {
             return res.status(400).json({ success: false, message: 'monthlyThreshold cannot be negative' });
         }
 
-        const config = await SystemConfig.findOne({ resource });
+        const config = await Resource.findOne({ name: resource });
         if (!config) {
             return res.status(404).json({ success: false, message: `Config for '${resource}' not found` });
         }
@@ -413,8 +432,8 @@ exports.setBlockOverride = async (req, res) => {
         const before = config.toObject();
 
         // Use $set with dot notation for Map field
-        const updated = await SystemConfig.findOneAndUpdate(
-            { resource },
+        const updated = await Resource.findOneAndUpdate(
+            { name: resource },
             {
                 $set: {
                     [`blockOverrides.${blockId}`]: override,
@@ -447,13 +466,13 @@ exports.removeBlockOverride = async (req, res) => {
     try {
         const { resource, blockId } = req.params;
 
-        const config = await SystemConfig.findOne({ resource });
+        const config = await Resource.findOne({ name: resource });
         if (!config) return res.status(404).json({ success: false, message: `Config for '${resource}' not found` });
 
         const before = config.toObject();
 
-        const updated = await SystemConfig.findOneAndUpdate(
-            { resource },
+        const updated = await Resource.findOneAndUpdate(
+            { name: resource },
             { $unset: { [`blockOverrides.${blockId}`]: 1 }, $set: { updatedBy: req.user.id || req.userId } },
             { returnDocument: 'after' }
         );
@@ -480,7 +499,7 @@ exports.deleteThreshold = async (req, res) => {
 
     try {
         const { resource } = req.params;
-        const config = await SystemConfig.findOneAndDelete({ resource });
+        const config = await Resource.findOneAndDelete({ name: resource });
         if (!config) {
             return res.status(404).json({ success: false, message: `Configuration for '${resource}' not found` });
         }

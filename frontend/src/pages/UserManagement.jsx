@@ -14,12 +14,12 @@ import { ConfirmModal } from '../components/common/Modal';
 import Modal from '../components/common/Modal';
 import useSortableTable from '../hooks/useSortableTable';
 import SortIcon from '../components/common/SortIcon';
-import { ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ChevronRight, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 
 // Roles available for creation / edit
-const CREATABLE_ROLES = ['admin', 'gm', 'warden', 'student', 'dean'];
+const CREATABLE_ROLES = ['admin', 'gm', 'warden', 'student', 'dean', 'principal'];
 // All roles for filter dropdown
-const ALL_ROLES = ['admin', 'gm', 'warden', 'student', 'dean'];
+const ALL_ROLES = ['admin', 'gm', 'warden', 'student', 'dean', 'principal'];
 
 const getRoleLabel = (role) => {
     const labels = {
@@ -27,8 +27,12 @@ const getRoleLabel = (role) => {
         gm: 'General Manager',
         warden: 'Warden',
         student: 'Student',
-        dean: 'Dean / Principal',
+        dean: 'Dean',
+        principal: 'Principal',
+        dean_principal: 'Dean / Principal' // Legacy display
     };
+    // Map 'Dean / Principal' label (sometimes used as role string in legacy DB) to 'Dean'
+    if (role === 'Dean / Principal') return 'Dean';
     return labels[role] || role;
 };
 
@@ -85,6 +89,10 @@ function UserFormModal({ isOpen, onClose, onSaved, blocks, editUser = null }) {
         if (!form.name.trim()) errs.name = 'Name is required';
         if (!isEdit && !form.email.trim()) errs.email = 'Email is required';
         if (!isEdit && form.password.length < 6) errs.password = 'Password must be at least 6 characters';
+
+        if (form.role === 'warden' && !form.block) {
+            errs.block = 'Block assignment is required for wardens';
+        }
         return errs;
     };
 
@@ -120,7 +128,11 @@ function UserFormModal({ isOpen, onClose, onSaved, blocks, editUser = null }) {
                 onClose();
             }
         } catch (err) {
-            addToast(err.response?.data?.message || 'Operation failed', 'error');
+            const msg = err.response?.data?.message || 'Operation failed';
+            addToast(msg, 'error');
+            if (msg.toLowerCase().includes('already exists') || msg.toLowerCase().includes('warden')) {
+                // specific error handling could go here
+            }
         } finally {
             setLoading(false);
         }
@@ -133,12 +145,12 @@ function UserFormModal({ isOpen, onClose, onSaved, blocks, editUser = null }) {
             title={isEdit ? `Edit User — ${editUser?.name}` : 'Add New User'}
             size="md"
             footer={
-                <>
+                <div className="flex justify-end gap-3">
                     <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
                     <Button variant="primary" onClick={handleSubmit} disabled={loading}>
                         {loading ? (isEdit ? 'Saving…' : 'Creating…') : (isEdit ? 'Save Changes' : 'Create User')}
                     </Button>
-                </>
+                </div>
             }
         >
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -510,15 +522,7 @@ export default function UserManagement() {
 
     // ── User saved (create or edit) ───────────────────────────────────────────
     const handleUserSaved = (saved) => {
-        setUsers(prev => {
-            const idx = prev.findIndex(u => u._id === saved._id);
-            if (idx >= 0) {
-                const copy = [...prev];
-                copy[idx] = saved;
-                return copy;
-            }
-            return [saved, ...prev];
-        });
+        fetchUsers();
     };
 
     // ── Delete ────────────────────────────────────────────────────────────────
@@ -528,7 +532,7 @@ export default function UserManagement() {
             const res = await api.delete(`/api/admin/users/${userToDelete._id}`);
             if (res.data.success) {
                 addToast('User deleted successfully', 'success');
-                setUsers(prev => prev.filter(u => u._id !== userToDelete._id));
+                fetchUsers();
             }
         } catch (err) {
             addToast(err.response?.data?.message || 'Failed to delete user', 'error');
@@ -544,9 +548,7 @@ export default function UserManagement() {
             if (res.data.success) {
                 const newStatus = res.data.data.status;
                 addToast(`User ${newStatus === 'active' ? 'activated' : 'deactivated'}`, 'success');
-                setUsers(prev => prev.map(u =>
-                    u._id === user._id ? { ...u, status: newStatus } : u
-                ));
+                fetchUsers();
             }
         } catch (err) {
             addToast(err.response?.data?.message || 'Failed to update status', 'error');
@@ -800,79 +802,42 @@ export default function UserManagement() {
                     <div className="flex items-center gap-2">
 
                         {/* Activate */}
+                        {/* Activate */}
                         <button
-                            onClick={async () => {
-                                try {
-                                    await Promise.allSettled(
-                                        selectedIds.map(id =>
-                                            api.put(`/api/admin/users/${id}`,
-                                                { status: 'active' }
-                                            )
-                                        )
-                                    )
-                                    setSelectedIds([])
-                                    if (typeof fetchUsers === 'function')
-                                        await fetchUsers()
-                                } catch (err) {
-                                    console.error('Bulk activate error:', err)
-                                }
-                            }}
+                            onClick={() => handleBulkStatus('active')}
+                            disabled={isBulkLoading}
                             className="flex items-center gap-1 px-3 py-1.5
-                                 bg-green-600 hover:bg-green-700
+                                 bg-green-600 hover:bg-green-700 disabled:opacity-50
                                  text-white text-xs font-medium
                                  rounded-lg transition-colors"
                         >
+                            {isBulkLoading ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
                             ✓ Activate
                         </button>
 
                         {/* Deactivate */}
                         <button
-                            onClick={async () => {
-                                try {
-                                    await Promise.allSettled(
-                                        selectedIds.map(id =>
-                                            api.put(`/api/admin/users/${id}`,
-                                                { status: 'inactive' }
-                                            )
-                                        )
-                                    )
-                                    setSelectedIds([])
-                                    if (typeof fetchUsers === 'function')
-                                        await fetchUsers()
-                                } catch (err) {
-                                    console.error('Bulk deactivate error:', err)
-                                }
-                            }}
+                            onClick={() => handleBulkStatus('suspended')}
+                            disabled={isBulkLoading}
                             className="flex items-center gap-1 px-3 py-1.5
-                                 bg-yellow-600 hover:bg-yellow-700
+                                 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50
                                  text-white text-xs font-medium
                                  rounded-lg transition-colors"
                         >
+                            {isBulkLoading ? <Loader2 size={12} className="animate-spin" /> : <AlertCircle size={12} />}
                             ⊘ Deactivate
                         </button>
 
                         {/* Delete */}
                         <button
-                            onClick={() => {
-                                if (window.confirm(
-                                    `Delete ${selectedIds.length} users?`
-                                )) {
-                                    Promise.allSettled(
-                                        selectedIds.map(id =>
-                                            api.delete(`/api/admin/users/${id}`)
-                                        )
-                                    ).then(() => {
-                                        setSelectedIds([])
-                                        if (typeof fetchUsers === 'function')
-                                            fetchUsers()
-                                    })
-                                }
-                            }}
+                            onClick={() => setShowBulkDelete(true)}
+                            disabled={isBulkLoading}
                             className="flex items-center gap-1 px-3 py-1.5
-                                 bg-red-600 hover:bg-red-700
+                                 bg-red-600 hover:bg-red-700 disabled:opacity-50
                                  text-white text-xs font-medium
                                  rounded-lg transition-colors"
                         >
+                            <Trash2 size={12} />
                             🗑 Delete
                         </button>
 

@@ -17,13 +17,16 @@ import {
     ChevronDown,
     Sun
 } from 'lucide-react';
-import Card, { MetricCard } from '../../components/common/Card';
+import Card from '../../components/common/Card';
+import MetricCard from '../../components/common/MetricCard';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
 import EmptyState from '../../components/common/EmptyState';
 import { logger } from '../../utils/logger';
 import useSortableTable from '../../hooks/useSortableTable';
 import SortIcon from '../../components/common/SortIcon';
+import { useResources } from '../../hooks/useResources';
+import { getSocket } from '../../utils/socket';
 import {
     AreaChart,
     Area,
@@ -38,19 +41,10 @@ import {
     Legend
 } from 'recharts';
 
-const RESOURCE_META = {
-    Electricity: { icon: <Zap size={20} />, color: '#f59e0b', bg: 'bg-amber-500/10' },
-    Water: { icon: <Droplets size={20} />, color: '#3b82f6', bg: 'bg-blue-500/10' },
-    Solar: { icon: <Sun size={20} />, color: '#eab308', bg: 'bg-yellow-500/10' },
-    LPG: { icon: <Flame size={20} />, color: '#f97316', bg: 'bg-orange-500/10' },
-    Diesel: { icon: <Wind size={20} />, color: '#64748b', bg: 'bg-slate-500/10' },
-    Waste: { icon: <Trash2 size={20} />, color: '#ef4444', bg: 'bg-rose-500/10' },
-};
-
 export default function PrincipalDashboard() {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [dynamicResources, setDynamicResources] = useState([]);
+    const { resources } = useResources();  // Get active resources from single source
     const [timeRange, setTimeRange] = useState('7d');
     const [trendData, setTrendData] = useState([]);
     const [leaderboard, setLeaderboard] = useState([]);
@@ -59,17 +53,11 @@ export default function PrincipalDashboard() {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const [configRes, summaryRes, trendRes, leaderboardRes] = await Promise.allSettled([
-                api.get('/api/resource-config'),
+            const [summaryRes, trendRes, leaderboardRes] = await Promise.allSettled([
                 api.get('/api/usage/summary'),
                 api.get(`/api/usage/trends?range=${timeRange}`),
                 api.get('/api/analytics/leaderboard')
             ]);
-
-            if (configRes.status === 'fulfilled') {
-                const configs = configRes.value.data?.data || configRes.value.data?.resources || [];
-                setDynamicResources(configs.filter(r => r.isActive !== false));
-            }
 
             if (summaryRes.status === 'fulfilled') {
                 const sumData = summaryRes.value.data?.data?.summary || {};
@@ -120,7 +108,12 @@ export default function PrincipalDashboard() {
     );
 
     const getResourceMeta = (type) => {
-        return RESOURCE_META[type] || { icon: <Activity size={20} />, color: '#64748b', bg: 'bg-slate-500/10' };
+        const resource = (Array.isArray(resources) ? resources : []).find(r => r?.name === type);
+        return {
+            icon: resource?.icon || '📊',
+            color: resource?.color || '#64748b',
+            bg: 'bg-slate-500/10'
+        };
     };
 
     const costStats = useMemo(() => {

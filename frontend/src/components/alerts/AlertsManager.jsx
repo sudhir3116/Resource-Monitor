@@ -245,7 +245,7 @@ export default function AlertsManager() {
                     </div>
                 </div>
             ) : (
-                <div style={{ displaydisplay: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                     {alerts.map(alert => (
                         <div key={alert._id} className="card">
                             <div className="card-body">
