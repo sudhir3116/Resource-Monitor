@@ -21,12 +21,13 @@ const {
 router.use(authMiddleware);
 
 // ── All authenticated users can list and submit ────────────────────────────
-router.get('/', getComplaints);
+// ── All authenticated users can list and submit ────────────────────────────
+router.get('/', authorizeRoles(ROLES.ADMIN, ROLES.GM, ROLES.WARDEN, ROLES.DEAN, ROLES.STUDENT), getComplaints);
 router.post('/', [body('title').notEmpty().withMessage('title is required'), body('description').notEmpty().withMessage('description is required')], runValidations, auditMiddleware('CREATE', 'Complaint'), createComplaint);
 
-// ── Stats: Admin, Warden, Dean, Principal ─────────────────────────────────
+// ── Stats: Admin, Warden, Dean ─────────────────────────────────────────────
 router.get('/stats',
-    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL),
+    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.GM, ROLES.DEAN),
     getComplaintStatistics
 );
 

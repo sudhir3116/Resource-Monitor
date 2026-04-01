@@ -115,9 +115,11 @@ exports.createAnnouncement = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Title and content are required' });
     }
 
-    // Validate role (only admin and gm)
-    if (user.role !== 'admin' && user.role !== 'gm') {
-      return res.status(403).json({ success: false, message: 'Only admin and GM can create announcements' });
+    // Validate role (admin, gm, dean, and principal)
+    const normalizedRole = (user.role || '').toLowerCase();
+    const canPost = ['admin', 'gm', 'dean', 'principal'].includes(normalizedRole);
+    if (!canPost) {
+      return res.status(403).json({ success: false, message: 'Not authorized to create announcements' });
     }
 
     // Validate targetBlock if provided
@@ -188,9 +190,15 @@ exports.updateAnnouncement = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Announcement not found' });
     }
 
-    // Check permissions - only admin and gm can update
-    if (user.role !== 'admin' && user.role !== 'gm') {
-      return res.status(403).json({ success: false, message: 'Only admin and GM can edit announcements' });
+    // Check permissions - admin, gm, dean, and principal
+    const roleMatch = (user.role || '').toLowerCase();
+    if (!['admin', 'gm', 'dean', 'principal'].includes(roleMatch)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to edit announcements' });
+    }
+
+    // Dean and Principal can only edit their own announcements
+    if (['dean', 'principal'].includes(roleMatch) && announcement.createdBy.toString() !== user.id) {
+      return res.status(403).json({ success: false, message: `${user.role}s can only edit their own announcements` });
     }
 
     // Update fields
@@ -239,12 +247,23 @@ exports.deleteAnnouncement = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid announcement ID' });
     }
 
-    // Only admin can delete
-    if (user.role !== 'admin') {
-      return res.status(403).json({ success: false, message: 'Only admin can delete announcements' });
+    // Permissions check
+    const currentRole = (user.role || '').toLowerCase();
+    if (!['admin', 'gm', 'dean', 'principal'].includes(currentRole)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to delete announcements' });
     }
 
-    const announcement = await Announcement.findByIdAndDelete(id);
+    const announcement = await Announcement.findById(id);
+    if (!announcement) {
+      return res.status(404).json({ success: false, message: 'Announcement not found' });
+    }
+
+    // Dean and Principal can only delete their own
+    if (['dean', 'principal'].includes(currentRole) && announcement.createdBy.toString() !== user.id) {
+      return res.status(403).json({ success: false, message: `${user.role}s can only delete their own announcements` });
+    }
+
+    await Announcement.findByIdAndDelete(id);
     if (!announcement) {
       return res.status(404).json({ success: false, message: 'Announcement not found' });
     }

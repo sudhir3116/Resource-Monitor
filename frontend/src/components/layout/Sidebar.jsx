@@ -44,20 +44,21 @@ const NAV_CONFIG = {
         { label: 'Complaints', icon: '📝', path: '/student/complaints' },
         { label: 'Notice Board', icon: '📌', path: '/student/notices' },
     ],
-    dean_principal: [
-        { label: 'Dashboard', icon: '📊', path: '/dashboard' }, // Fallback
-        { label: 'Alerts', icon: '🔔', path: '/alerts' },
-        { label: 'Complaints', icon: '📝', path: '/complaints' },
-        { label: 'Analytics', icon: '📈', path: '/analytics' },
-        { label: 'Notice Board', icon: '📌', path: '/notices' },
-        { label: 'Reports', icon: '📤', path: '/reports' },
-        { label: 'Audit Logs', icon: '🗃️', path: '/audit-logs' },
+    dean: [
+        { label: 'Dashboard', icon: '📊', path: '/dean/dashboard' },
+        { label: 'Alerts', icon: '🔔', path: '/dean/alerts' },
+        { label: 'Complaints', icon: '📝', path: '/dean/complaints' },
+        { label: 'Analytics', icon: '📈', path: '/dean/analytics' },
+        { label: 'Reports', icon: '📤', path: '/dean/reports' },
+        { label: 'Announcements', icon: '📌', path: '/dean/announcements' },
+    ],
+    principal: [
+        { label: 'Dashboard', icon: '📊', path: '/principal/dashboard' },
+        { label: 'Analytics', icon: '📈', path: '/principal/analytics' },
+        { label: 'Reports', icon: '📤', path: '/principal/reports' },
+        { label: 'Announcements', icon: '📌', path: '/principal/announcements' },
     ]
 }
-
-// Add common aliases for dean/principal roles
-NAV_CONFIG['dean'] = NAV_CONFIG.dean_principal;
-NAV_CONFIG['principal'] = NAV_CONFIG.dean_principal;
 
 export default function Sidebar() {
     const { user } = useContext(AuthContext);

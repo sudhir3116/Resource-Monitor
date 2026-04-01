@@ -10,7 +10,7 @@ const authorizeRoles = (...allowedRoles) => {
             return res.status(403).json({ success: false, message: 'Access forbidden: No role assigned' });
         }
 
-        if (!allowedRoles.includes(req.user.role)) {
+        if (!allowedRoles.some(r => (r || '').toLowerCase() === (req.user.role || '').toLowerCase())) {
             return res.status(403).json({
                 success: false,
                 message: `Access denied. Role '${req.user.role}' is not authorized.`

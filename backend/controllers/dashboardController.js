@@ -11,6 +11,7 @@ const Block = require('../models/Block');
 const User = require('../models/User');
 const SystemConfig = require('../models/Resource');
 const Alert = require('../models/Alert');
+const Complaint = require('../models/Complaint');
 const mongoose = require('mongoose');
 const {
     currentMonthRange,
@@ -215,6 +216,7 @@ exports.getExecutiveStats = async (req, res) => {
         console.log(`[Dashboard] Fetching executive stats for role: ${req.user?.role}`);
 
         const { start: monthStart } = currentMonthRange();
+        const totalBlocks = await Block.countDocuments();
 
         // 1. Trends Over Time (Global Daily Aggregation for last 7 days)
         const trendsOverTime = await Usage.aggregate([
@@ -294,15 +296,29 @@ exports.getExecutiveStats = async (req, res) => {
             .populate('block', 'name')
             .lean();
 
+        const recentComplaints = await Complaint.find({ status: { $ne: 'Resolved' } })
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .populate('userId', 'name')
+            .populate('blockId', 'name')
+            .lean();
+
         // 8. Construct Final Structure with Safety Fallback
         const dashboardData = {
-            summary,
-            grandTotal: parseFloat(grandTotal.toFixed(2)),
-            trendsOverTime,
-            blockRanking,
-            activeCampusAlerts,
-            criticalAlerts,
-            financial: { estimatedCost, currency: 'INR', trend: electricity.direction },
+            summary: summary || {},
+            grandTotal: parseFloat((grandTotal || 0).toFixed(2)),
+            trendsOverTime: trendsOverTime || [],
+            blockRanking: blockRanking || [],
+            totalBlocks,
+            totalResources: configs?.length || 0,
+            activeCampusAlerts: activeCampusAlerts || 0,
+            criticalAlerts: criticalAlerts || [],
+            recentComplaints: recentComplaints || [],
+            financial: {
+                estimatedCost: estimatedCost || 0,
+                currency: 'INR',
+                trend: electricity?.direction || 'stable'
+            },
             trends: { electricity, water }
         };
 
@@ -323,7 +339,18 @@ exports.getExecutiveStats = async (req, res) => {
 
         return res.json({
             success: true,
-            data: dashboardData
+            data: {
+                summary: dashboardData.summary || {},
+                grandTotal: dashboardData.grandTotal || 0,
+                trendsOverTime: dashboardData.trendsOverTime || [],
+                blockRanking: dashboardData.blockRanking || [],
+                totalBlocks: dashboardData.totalBlocks || 0,
+                totalResources: dashboardData.totalResources || 0,
+                activeCampusAlerts: dashboardData.activeCampusAlerts || 0,
+                criticalAlerts: dashboardData.criticalAlerts || [],
+                recentComplaints: dashboardData.recentComplaints || [],
+                financial: dashboardData.financial || {}
+            }
         });
 
     } catch (err) {

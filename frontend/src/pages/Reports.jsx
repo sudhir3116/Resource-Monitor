@@ -23,7 +23,12 @@ import { useToast } from '../context/ToastContext';
 import { logger } from '../utils/logger';
 import { exportToCSV, exportToExcel, exportToJSON, exportToPDF } from '../utils/export';
 
+import { AuthContext } from '../context/AuthContext';
+import { useContext } from 'react';
+
 export default function Reports() {
+    const { user } = useContext(AuthContext);
+    const isPrincipal = (user?.role || '').toLowerCase() === 'principal';
     const { addToast } = useToast();
     const [loading, setLoading] = useState(true);
     const [exporting, setExporting] = useState(false);

@@ -3,84 +3,57 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { AuthContext } from '../../context/AuthContext';
 import {
-    Zap, Droplets, Flame, Wind, Sun, Trash2,
-    RefreshCw, TrendingUp, TrendingDown,
-    PieChart as PieChartIcon, Activity, Bell, History
-} from 'lucide-react';
+    Activity, Bell, RefreshCw, TrendingUp, PieChart as PieChartIcon,
+import {
+        Activity, Bell, RefreshCw, TrendingUp, PieChart as PieChartIcon,
+        Settings, AlertTriangle, Building2, MessageSquare, ShieldCheck
+    } from 'lucide-react';
 import Card from '../../components/common/Card';
 import MetricCard from '../../components/common/MetricCard';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Building2, Settings, AlertTriangle } from 'lucide-react';
 import DonutChart from '../../components/analytics/DonutChart';
-import { logger } from '../../utils/logger';
-import { getSocket } from '../../utils/socket';
 import { useResources } from '../../hooks/useResources';
 
-const GMDashboard = () => {
+const DeanDashboard = () => {
     const { user } = useContext(AuthContext);
     const navigate = useNavigate();
-    const { resources } = useResources();  // Get active resources from single source
+    const { resources } = useResources();
     const [summaryData, setSummaryData] = useState(null);
     const [trendData, setTrendData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [activeAlerts, setActiveAlerts] = useState(0);
-    const [recentActivity, setRecentActivity] = useState(0);
-    const [recentAlerts, setRecentAlerts] = useState([]);
-    const [recentComplaints, setRecentComplaints] = useState([]);
     const [totalBlocks, setTotalBlocks] = useState(0);
+    const [criticalAlerts, setCriticalAlerts] = useState([]);
+    const [recentComplaints, setRecentComplaints] = useState([]);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            console.log("Fetching dashboard data for:", user?.role);
             const res = await api.get('/api/dashboard');
 
             if (res.data?.success) {
                 const data = res.data.data;
-                setSummaryData(data); // Mapping entire data object to summaryData for easier extraction
+                setSummaryData(data || {});
                 setTrendData(data.trendsOverTime || []);
                 setActiveAlerts(data.activeCampusAlerts || 0);
-                setRecentAlerts(data.criticalAlerts || []);
                 setTotalBlocks(data.totalBlocks || 0);
+                setCriticalAlerts(data.criticalAlerts || []);
+                setRecentComplaints(data.recentComplaints || []);
             }
         } catch (err) {
-            console.error('GM Dashboard Error:', err.response?.data || err.message);
+            console.error('Dean Dashboard Error:', err.response?.data || err.message);
             setError('Failed to load dashboard data. Please try again.');
         } finally {
             setLoading(false);
         }
-    }, [user]);
+    }, []);
 
     useEffect(() => {
         fetchData();
-    }, [fetchData]);
-
-    // Real-time updates: usage/alerts affect dashboard KPIs and charts.
-    useEffect(() => {
-        const socket = getSocket();
-        const refresh = () => fetchData();
-        if (!socket) return;
-
-        socket.on('usage:refresh', refresh);
-        socket.on('alerts:refresh', refresh);
-        socket.on('dashboard:refresh', refresh);
-        socket.on('resources:refresh', refresh);
-        socket.on('usage:added', refresh);
-
-        window.addEventListener('usage:added', refresh);
-
-        return () => {
-            socket.off('usage:refresh', refresh);
-            socket.off('alerts:refresh', refresh);
-            socket.off('dashboard:refresh', refresh);
-            socket.off('resources:refresh', refresh);
-            socket.off('usage:added', refresh);
-            window.removeEventListener('usage:added', refresh);
-        };
     }, [fetchData]);
 
     if (loading && !summaryData) {
@@ -105,34 +78,26 @@ const GMDashboard = () => {
         );
     }
 
-
     const summary = summaryData?.summary || {};
     const grandTotal = summaryData?.grandTotal || 0;
-    const totalCost = Object.values(summary).reduce((acc, data) => acc + (data?.totalCost || 0), 0);
-    const mostUsed = Object.entries(summary).reduce((max, [name, data]) => {
-        if (!max || (data?.total || 0) > (max.data?.total || 0)) return { name, data };
-        return max;
-    }, null);
+    const trendDataSafe = Array.isArray(trendData) ? trendData : [];
 
     const distributionData = Object.entries(summary)
-        .map(([name, data]) => ({ name, value: data?.total || 0 }))
+        .map(([name, data]) => ({ name, value: typeof data === 'number' ? data : data?.total || 0 }))
         .filter(d => typeof d.value === 'number' && d.value > 0);
 
     return (
-        <div className="p-6 space-y-8 max-w-7xl mx-auto">
+        <div className="p-6 space-y-8 max-w-7xl mx-auto text-slate-900 dark:text-white">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                        General Manager Dashboard
+                    <h1 className="text-3xl font-bold tracking-tight">
+                        Dean Dashboard
                     </h1>
-                    <p className="text-slate-500 mt-1">
-                        Campus-wide resource monitoring and analytics
+                    <p className="text-slate-500 mt-1 dark:text-slate-400">
+                        Operational resource intelligence and incident management
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <Button variant="secondary" size="sm" onClick={() => navigate('/gm/usage')}>
-                        View Detailed Usage &rarr;
-                    </Button>
                     <Badge variant={activeAlerts > 0 ? "danger" : "success"} className="px-4 py-1 flex items-center gap-2">
                         <Bell size={14} /> {activeAlerts} Active Alerts
                     </Badge>
@@ -147,7 +112,7 @@ const GMDashboard = () => {
                 <MetricCard
                     icon={<Settings size={22} className="text-emerald-500" />}
                     label="Total Resources"
-                    value={resources?.length || 0}
+                    value={summaryData?.totalResources || resources?.length || 0}
                 />
                 <MetricCard
                     icon={<Activity size={22} className="text-blue-500" />}
@@ -159,7 +124,6 @@ const GMDashboard = () => {
                     label="Active Alerts"
                     value={activeAlerts}
                     colorClass={activeAlerts > 0 ? 'text-rose-500' : 'text-slate-400'}
-                    trend={activeAlerts > 0 ? 'negative' : 'none'}
                 />
                 <MetricCard
                     icon={<Building2 size={22} className="text-indigo-500" />}
@@ -169,9 +133,9 @@ const GMDashboard = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-                {Object.entries(summary || {}).map(([name, data]) => {
+                {Object.entries(summary || {}).map(([name, val]) => {
                     const resource = (resources || []).find(r => r.name === name) || {};
-                    const totalValue = typeof data === 'number' ? data : data?.total || 0;
+                    const totalValue = typeof val === 'number' ? val : val?.total || 0;
                     return (
                         <MetricCard
                             key={name}
@@ -186,9 +150,9 @@ const GMDashboard = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <Card className="lg:col-span-2" title="Resource Consumption Trends" icon={<TrendingUp size={20} />}>
                     <div className="h-[350px] mt-6">
-                        {(Array.isArray(trendData) ? trendData : []).length > 0 ? (
+                        {trendDataSafe.length > 0 ? (
                             <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={trendData}>
+                                <AreaChart data={trendDataSafe}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                                     <XAxis
                                         dataKey="date"
@@ -202,22 +166,16 @@ const GMDashboard = () => {
                                         contentStyle={{ backgroundColor: 'var(--bg-card)', border: 'none', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
                                         itemStyle={{ fontSize: '12px', fontWeight: '900' }}
                                     />
-                                    {Object.entries(summary || {}).map(([name, data]) => {
-                                        const res = resources.find(r => r.name === name) || {};
-                                        return (
-                                            <Area
-                                                key={name}
-                                                type="monotone"
-                                                dataKey={name}
-                                                stroke={res.color || '#64748b'}
-                                                fill={res.color || '#64748b'}
-                                                fillOpacity={0.05}
-                                                strokeWidth={3}
-                                                dot={false}
-                                                activeDot={{ r: 6, strokeWidth: 0 }}
-                                            />
-                                        );
-                                    })}
+                                    <Area
+                                        type="monotone"
+                                        dataKey="total"
+                                        stroke="#3B82F6"
+                                        fill="#3B82F6"
+                                        fillOpacity={0.05}
+                                        strokeWidth={3}
+                                        dot={false}
+                                        activeDot={{ r: 6, strokeWidth: 0 }}
+                                    />
                                 </AreaChart>
                             </ResponsiveContainer>
                         ) : (
@@ -232,14 +190,11 @@ const GMDashboard = () => {
                 <Card title="Usage Distribution" icon={<PieChartIcon size={20} />}>
                     <div className="h-[350px] mt-6">
                         {(Array.isArray(distributionData) ? distributionData : []).length > 0 ? (
-                            <>
-                                {/* DonutChart expects data: [{resource, value}], resources: full resource list */}
-                                <DonutChart
-                                    data={distributionData.map(d => ({ resource: d.name, value: d.value }))}
-                                    resources={resources}
-                                    height={320}
-                                />
-                            </>
+                            <DonutChart
+                                data={distributionData.map(d => ({ resource: d.name, value: d.value }))}
+                                resources={resources}
+                                height={320}
+                            />
                         ) : (
                             <div className="h-full flex items-center justify-center text-slate-400">
                                 <p>No data to display in breakdown</p>
@@ -248,8 +203,69 @@ const GMDashboard = () => {
                     </div>
                 </Card>
             </div>
+
+            {/* Bottom Section: Alerts & Complaints */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <Card title="Critical Incidents" icon={<AlertTriangle size={20} className="text-rose-500" />}>
+                    <div className="space-y-4 mt-4">
+                        {(criticalAlerts || []).length > 0 ? (
+                            (criticalAlerts).map(alert => (
+                                <div key={alert._id} className="flex items-center justify-between p-4 bg-rose-50/50 dark:bg-rose-900/10 rounded-2xl border border-rose-100 dark:border-rose-900/20 group hover:shadow-sm transition-all">
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-10 w-10 rounded-xl bg-white dark:bg-slate-800 flex items-center justify-center text-rose-500 shadow-sm">
+                                            <AlertTriangle size={20} />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-800 dark:text-rose-100 truncate max-w-[200px]">{alert.title || alert.message}</p>
+                                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{alert.block?.name || 'Campus'}</p>
+                                        </div>
+                                    </div>
+                                    <Badge variant="danger">{alert.severity}</Badge>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="py-12 flex flex-col items-center justify-center opacity-30 italic text-sm">
+                                <ShieldCheck size={32} className="mb-2" />
+                                No critical issues detected
+                            </div>
+                        )}
+                        <Button variant="secondary" size="sm" fullWidth className="!rounded-xl text-[10px] font-black uppercase tracking-tighter" onClick={() => navigate('/dean/alerts')}>
+                            Manage Operational Alerts &rarr;
+                        </Button>
+                    </div>
+                </Card>
+
+                <Card title="Latest Grievances" icon={<MessageSquare size={20} className="text-indigo-500" />}>
+                    <div className="space-y-4 mt-4">
+                        {(recentComplaints || []).length > 0 ? (
+                            (recentComplaints).map(complaint => (
+                                <div key={complaint._id} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700/50 group hover:shadow-sm transition-all">
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-10 w-10 rounded-xl bg-white dark:bg-slate-800 flex items-center justify-center text-indigo-500 shadow-sm">
+                                            <MessageSquare size={20} />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate max-w-[200px]">{complaint.title || complaint.subject}</p>
+                                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">From: {complaint.userId?.name || 'Anonymous'}</p>
+                                        </div>
+                                    </div>
+                                    <Badge variant="secondary" className="font-black text-[9px]">{complaint.status}</Badge>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="py-12 flex flex-col items-center justify-center opacity-30 italic text-sm">
+                                <MessageSquare size={32} className="mb-2" />
+                                No pending grievances
+                            </div>
+                        )}
+                        <Button variant="secondary" size="sm" fullWidth className="!rounded-xl text-[10px] font-black uppercase tracking-tighter" onClick={() => navigate('/dean/complaints')}>
+                            Review Student Complaints &rarr;
+                        </Button>
+                    </div>
+                </Card>
+            </div>
         </div>
     );
 };
 
-export default GMDashboard;
+export default DeanDashboard;

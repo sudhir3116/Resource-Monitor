@@ -1,387 +1,259 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import { AuthContext } from '../../context/AuthContext';
 import {
-    Zap,
-    Droplets,
-    DollarSign,
-    TrendingUp,
-    TrendingDown,
-    Building2,
-    Activity,
-    Flame,
-    Wind,
-    Utensils,
-    Trash2,
-    RefreshCw,
-    Filter,
-    ChevronDown,
-    Sun
+    Activity, Bell, RefreshCw, TrendingUp, PieChart as PieChartIcon,
+    Settings, AlertTriangle, Building2, ShieldCheck, ShieldAlert,
+    ArrowUpRight, ArrowDownRight, IndianRupee, MessageSquare
 } from 'lucide-react';
 import Card from '../../components/common/Card';
 import MetricCard from '../../components/common/MetricCard';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
-import EmptyState from '../../components/common/EmptyState';
-import { logger } from '../../utils/logger';
-import useSortableTable from '../../hooks/useSortableTable';
-import SortIcon from '../../components/common/SortIcon';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import DonutChart from '../../components/analytics/DonutChart';
 import { useResources } from '../../hooks/useResources';
-import { getSocket } from '../../utils/socket';
-import {
-    AreaChart,
-    Area,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    ResponsiveContainer,
-    PieChart,
-    Pie,
-    Cell,
-    Legend
-} from 'recharts';
 
-export default function PrincipalDashboard() {
-    const [stats, setStats] = useState(null);
+const PrincipalDashboard = () => {
+    const { user } = useContext(AuthContext);
+    const navigate = useNavigate();
+    const { resources } = useResources();
+    const [dashboardData, setDashboardData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const { resources } = useResources();  // Get active resources from single source
-    const [timeRange, setTimeRange] = useState('7d');
-    const [trendData, setTrendData] = useState([]);
-    const [leaderboard, setLeaderboard] = useState([]);
-    const [usageSummary, setUsageSummary] = useState({});
+    const [error, setError] = useState(null);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
+        setError(null);
         try {
-            const [summaryRes, trendRes, leaderboardRes] = await Promise.allSettled([
-                api.get('/api/usage/summary'),
-                api.get(`/api/usage/trends?range=${timeRange}`),
-                api.get('/api/analytics/leaderboard')
-            ]);
-
-            if (summaryRes.status === 'fulfilled') {
-                const sumData = summaryRes.value.data?.data?.summary || {};
-                setUsageSummary(sumData);
-                setStats({ trends: {} }); // kept for costStats / loading guard
-            }
-
-            if (trendRes.status === 'fulfilled') {
-                const raw = trendRes.value.data?.data;
-                setTrendData(Array.isArray(raw) ? raw : []);
-            }
-
-            if (leaderboardRes.status === 'fulfilled') {
-                setLeaderboard(leaderboardRes.value.data.data || leaderboardRes.value.data?.leaderboard || []);
+            const res = await api.get('/api/dashboard');
+            if (res.data?.success) {
+                setDashboardData(res.data.data);
             }
         } catch (err) {
-            logger.error("Failed to fetch principal dashboard data", err);
+            console.error('Principal Dashboard Error:', err.response?.data || err.message);
+            setError('Failed to load dashboard data. Please try again.');
         } finally {
             setLoading(false);
         }
-    }, [timeRange]);
+    }, []);
 
     useEffect(() => {
         fetchData();
-        const refresh = () => fetchData();
-        window.addEventListener('usage:added', refresh);
-        const socket = getSocket();
-        if (socket) {
-            socket.on('usage:refresh', refresh);
-            socket.on('usage:added', refresh);
-            socket.on('alerts:refresh', refresh);
-            socket.on('dashboard:refresh', refresh);
-        }
-        return () => {
-            window.removeEventListener('usage:added', refresh);
-            if (socket) {
-                socket.off('usage:refresh', refresh);
-                socket.off('usage:added', refresh);
-                socket.off('alerts:refresh', refresh);
-                socket.off('dashboard:refresh', refresh);
-            }
-        };
     }, [fetchData]);
 
-    const { sortedData: sortedLeaderboard, sortField, sortDirection, handleSort } = useSortableTable(
-        leaderboard,
-        'principal-leaderboard'
-    );
-
-    const getResourceMeta = (type) => {
-        const resource = (Array.isArray(resources) ? resources : []).find(r => r?.name === type);
-        return {
-            icon: resource?.icon || '📊',
-            color: resource?.color || '#64748b',
-            bg: 'bg-slate-500/10'
-        };
-    };
-
-    const costStats = useMemo(() => {
-        if (!stats?.financial) return { total: 0, change: 0 };
-        return {
-            total: parseFloat(stats.financial.estimatedCost || 0),
-            change: parseFloat(stats.financial.percentageChange || 0)
-        };
-    }, [stats]);
-
-    const distributionData = useMemo(() => {
-        return Object.entries(usageSummary)
-            .map(([name, data]) => ({ name, value: data.total || 0 }))
-            .filter(d => d.value > 0);
-    }, [usageSummary]);
-
-    if (loading && !stats) {
+    if (loading && !dashboardData) {
         return (
-            <div className="space-y-6">
-                <div className="h-8 rounded w-1/4 animate-pulse bg-slate-200 dark:bg-slate-700"></div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {[1, 2, 3].map(i => (
-                        <div key={i} className="h-32 rounded-xl animate-pulse bg-slate-200 dark:bg-slate-700"></div>
+            <div className="p-6 space-y-6">
+                <div className="h-10 w-64 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    {[1, 2, 3, 4].map(i => (
+                        <div key={i} className="h-32 bg-slate-200 dark:bg-slate-700 rounded-xl animate-pulse" />
                     ))}
                 </div>
             </div>
         );
     }
 
+    if (error) {
+        return (
+            <div className="p-6 flex flex-col items-center justify-center min-h-[400px]">
+                <ShieldAlert size={48} className="text-rose-500 mb-4 opacity-20" />
+                <p className="text-rose-500 font-semibold mb-4">{error}</p>
+                <Button onClick={fetchData}>Retry</Button>
+            </div>
+        );
+    }
+
+    const {
+        summary = {},
+        grandTotal = 0,
+        trendsOverTime = [],
+        blockRanking = [],
+        totalBlocks = 0,
+        activeCampusAlerts = 0,
+        criticalAlerts = [],
+        recentComplaints = [],
+        financial = {}
+    } = dashboardData || {};
+
+    // Logic for Quick Insights
+    const mostUsed = Object.entries(summary).reduce((max, [name, total]) => {
+        if (!max || total > max.total) return { name, total };
+        return max;
+    }, null);
+
+    const highestBlock = blockRanking.length > 0 ? blockRanking[0] : null;
+    const systemStatus = activeCampusAlerts > 5 ? 'Warning' : 'Healthy';
+
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                        Principal's Insights
+        <div className="p-6 space-y-8 max-w-7xl mx-auto">
+            {/* Executive Header */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div className="space-y-1">
+                    <h1 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white">
+                        Executive Overview
                     </h1>
-                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                        Campus-wide summary of resource consumption
+                    <p className="text-slate-500 font-medium">
+                        Principal's Monitoring Desk &bull; Campus Resource Distribution
                     </p>
                 </div>
-                <div className="flex items-center gap-2">
-                    <div className="bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 flex gap-1">
-                        {['7d', '30d', '90d'].map(range => (
-                            <button
-                                key={range}
-                                onClick={() => setTimeRange(range)}
-                                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${timeRange === range ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                            >
-                                {range.toUpperCase()}
-                            </button>
-                        ))}
+                <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                        <div className={`h-2.5 w-2.5 rounded-full ${systemStatus === 'Healthy' ? 'bg-emerald-500' : 'bg-rose-500'} animate-pulse`} />
+                        <span className="text-sm font-bold opacity-80 uppercase tracking-widest">System {systemStatus}</span>
                     </div>
-                    <Button variant="secondary" onClick={fetchData}>
-                        <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                    <Button variant="secondary" className="!rounded-2xl" onClick={fetchData}>
+                        <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
                     </Button>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                <Card className="relative overflow-hidden group border-l-4 border-emerald-500">
-                    <div className="absolute top-0 right-0 p-3 bg-emerald-500/10 rounded-bl-3xl opacity-50">
-                        <DollarSign size={24} className="text-emerald-500" />
-                    </div>
-                    <div className="space-y-1">
-                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Estimated Total Cost</span>
-                        <div className="flex items-baseline gap-1">
-                            <span className="text-3xl font-bold">₹{costStats.total.toLocaleString()}</span>
-                        </div>
-                        <div className={`flex items-center gap-1 text-xs font-medium ${costStats.change <= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            {costStats.change <= 0 ? <TrendingDown size={12} /> : <TrendingUp size={12} />}
-                            {Math.abs(costStats.change)}% vs last period
-                        </div>
-                    </div>
-                </Card>
-
+            {/* Primary Metrics */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <MetricCard
+                    icon={<Settings size={22} className="text-emerald-500" />}
+                    label="Total Configured Resources"
+                    value={dashboardData?.totalResources || resources?.length || 0}
+                    colorClass="text-emerald-500"
+                />
+                <MetricCard
+                    icon={<Activity size={22} className="text-blue-500" />}
+                    label="Active Campus Usage"
+                    value={grandTotal.toLocaleString()}
+                    colorClass="text-blue-500"
+                />
+                <MetricCard
+                    icon={<AlertTriangle size={22} className="text-rose-500" />}
+                    label="Pending Alerts"
+                    value={activeCampusAlerts}
+                    colorClass={activeCampusAlerts > 0 ? 'text-rose-500' : 'text-slate-400'}
+                />
+                <MetricCard
+                    icon={<Building2 size={22} className="text-indigo-500" />}
+                    label="Monitored Blocks"
+                    value={totalBlocks}
+                    colorClass="text-indigo-500"
+                />
             </div>
 
-            {/* Full resource cards grid for Principal */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Object.entries(usageSummary)
-                    .filter(([, d]) => d.total > 0 || d.dailyThreshold > 0)
-                    .map(([name, data]) => {
-                        const pct = data.dailyThreshold
-                            ? Math.min(
-                                Math.round(
-                                    (data.total / data.dailyThreshold) * 100
-                                ), 200)
-                            : 0;
-                        const pctColor =
-                            pct >= 150 ? '#EF4444'
-                                : pct >= 100 ? '#F97316'
-                                    : pct >= 80 ? '#F59E0B'
-                                        : '#10B981';
-                        const meta = getResourceMeta(name);
-
-                        return (
-                            <Card key={name}
-                                className="p-5 flex flex-col gap-3"
-                                style={{
-                                    borderLeftWidth: '3px',
-                                    borderLeftColor: meta.color
-                                }}>
-
-                                {/* Header */}
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-2xl">
-                                            {meta.icon}
-                                        </span>
-                                        <span className="font-semibold text-sm"
-                                            style={{
-                                                color: 'var(--text-primary)'
-                                            }}>
-                                            {name}
-                                        </span>
-                                    </div>
-                                    {pct > 0 && (
-                                        <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-                                            style={{
-                                                backgroundColor: pctColor + '20',
-                                                color: pctColor
-                                            }}>
-                                            {pct}%
-                                        </span>
-                                    )}
-                                </div>
-
-                                {/* Value */}
-                                <div>
-                                    <p className="text-2xl font-bold"
-                                        style={{
-                                            color: 'var(--text-primary)'
-                                        }}>
-                                        {data.total > 0
-                                            ? data.total.toLocaleString()
-                                            : '—'}
-                                    </p>
-                                    <p className="text-sm"
-                                        style={{
-                                            color: 'var(--text-secondary)'
-                                        }}>
-                                        {data.unit}
-                                        {data.dailyThreshold > 0 &&
-                                            ` / ${data.dailyThreshold} limit`}
-                                    </p>
-                                </div>
-
-                                {/* Progress bar */}
-                                {pct > 0 && (
-                                    <div className="w-full h-1.5 rounded-full overflow-hidden"
-                                        style={{
-                                            backgroundColor: 'var(--bg-secondary)'
-                                        }}>
-                                        <div
-                                            className="h-full rounded-full transition-all duration-500"
-                                            style={{
-                                                width: `${Math.min(pct, 100)}%`,
-                                                backgroundColor: pctColor
-                                            }}
-                                        />
-                                    </div>
-                                )}
-
-                                {/* No data state */}
-                                {data.total === 0 && (
-                                    <p className="text-xs"
-                                        style={{
-                                            color: 'var(--text-secondary)'
-                                        }}>
-                                        No data recorded yet
-                                    </p>
-                                )}
-                            </Card>
-                        );
-                    })}
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <Card className="lg:col-span-2" title="Consumption Trends">
-                    <div className="h-[350px] w-full mt-4">
-                        {loading ? (
-                            <div className="h-full flex items-center justify-center text-slate-400">Loading trends...</div>
-                        ) : !Array.isArray(trendData) ? (
-                            <div className="h-full flex items-center justify-center text-slate-400">No data available</div>
-                        ) : trendData.length === 0 ? (
-                            <div className="h-full flex items-center justify-center text-slate-400">No trend data available.</div>
-                        ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Visual Trends */}
+                <Card className="lg:col-span-2 shadow-xl border-none bg-gradient-to-br from-slate-900 to-slate-800 text-white" title="Consumption Intelligence" icon={<TrendingUp size={20} className="text-blue-400" />}>
+                    <div className="h-[350px] mt-6">
+                        {trendsOverTime.length > 0 ? (
                             <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={trendData}>
+                                <AreaChart data={trendsOverTime}>
                                     <defs>
-                                        {dynamicResources.map(res => (
-                                            <linearGradient key={res._id || res.name} id={`colorP${res.name}`} x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor={getResourceMeta(res.name).color} stopOpacity={0.1} />
-                                                <stop offset="95%" stopColor={getResourceMeta(res.name).color} stopOpacity={0} />
-                                            </linearGradient>
-                                        ))}
+                                        <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+                                        </linearGradient>
                                     </defs>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
                                     <XAxis
                                         dataKey="date"
-                                        stroke="var(--text-secondary)"
+                                        tickFormatter={(val) => new Date(val).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                                         fontSize={12}
                                         tickLine={false}
                                         axisLine={false}
-                                        tickFormatter={(val) => {
-                                            try { return new Date(val).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
-                                            catch { return val; }
-                                        }}
+                                        stroke="rgba(255,255,255,0.4)"
                                     />
-                                    <YAxis
-                                        stroke="var(--text-secondary)"
-                                        fontSize={12}
-                                        tickLine={false}
-                                        axisLine={false}
-                                    />
+                                    <YAxis fontSize={12} tickLine={false} axisLine={false} stroke="rgba(255,255,255,0.4)" />
                                     <Tooltip
-                                        contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
+                                        contentStyle={{ backgroundColor: '#1E293B', border: 'none', borderRadius: '12px', color: '#fff' }}
+                                        itemStyle={{ fontSize: '12px', fontWeight: '900' }}
                                     />
-                                    {dynamicResources.map(res => (
-                                        <Area
-                                            key={res._id || res.name}
-                                            type="monotone"
-                                            dataKey={res.name}
-                                            stroke={getResourceMeta(res.name).color}
-                                            fillOpacity={1}
-                                            fill={`url(#colorP${res.name})`}
-                                            strokeWidth={3}
-                                            dot={false}
-                                        />
-                                    ))}
+                                    <Area
+                                        type="monotone"
+                                        dataKey="total"
+                                        stroke="#3B82F6"
+                                        fill="url(#usageGradient)"
+                                        strokeWidth={4}
+                                        dot={{ r: 4, fill: '#3B82F6', strokeWidth: 0 }}
+                                        activeDot={{ r: 8, strokeWidth: 0, fill: '#fff' }}
+                                    />
                                 </AreaChart>
                             </ResponsiveContainer>
+                        ) : (
+                            <div className="h-full flex flex-col items-center justify-center text-slate-500">
+                                <Activity size={48} className="mb-2 opacity-20" />
+                                <p>No real-time usage data detected</p>
+                            </div>
                         )}
                     </div>
                 </Card>
 
-                <Card title="Resource Distribution">
-                    <div className="h-[350px] mt-4">
-                        {distributionData.length === 0 ? (
-                            <div className="h-full flex items-center justify-center text-slate-400">No distribution data.</div>
-                        ) : (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={distributionData}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={60}
-                                        outerRadius={100}
-                                        paddingAngle={5}
-                                        dataKey="value"
-                                    >
-                                        {distributionData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={getResourceMeta(entry.name).color} />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip
-                                        contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
-                                    />
-                                    <Legend iconType="circle" />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        )}
+                {/* Quick Insights Card */}
+                <Card title="Quick Insights" icon={<ShieldCheck size={20} className="text-emerald-500" />}>
+                    <div className="space-y-6 py-2">
+                        <div className="flex items-center gap-4">
+                            <div className="h-12 w-12 rounded-2xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600">
+                                <TrendingUp size={24} />
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Most Consumed</p>
+                                <p className="text-lg font-bold">{mostUsed?.name || 'N/A'}</p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                            <div className="h-12 w-12 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600">
+                                <Building2 size={24} />
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Heavy Load Block</p>
+                                <p className="text-lg font-bold">{highestBlock?.name || 'All Stable'}</p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                            <div className="h-12 w-12 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600">
+                                <IndianRupee size={24} />
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Est. Monthly Cost</p>
+                                <p className="text-lg font-bold">₹{(financial.estimatedCost || 0).toLocaleString()}</p>
+                            </div>
+                        </div>
+
+                        <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                            <div className={`p-4 rounded-2xl ${systemStatus === 'Healthy' ? 'bg-emerald-500/5 border border-emerald-500/20 text-emerald-600' : 'bg-rose-500/5 border border-rose-500/20 text-rose-600'}`}>
+                                <div className="flex items-center gap-2 mb-1">
+                                    {systemStatus === 'Healthy' ? <ShieldCheck size={18} /> : <ShieldAlert size={18} />}
+                                    <span className="font-black text-xs uppercase tracking-tighter">Campus Status</span>
+                                </div>
+                                <p className="text-sm font-medium opacity-80">
+                                    {systemStatus === 'Healthy'
+                                        ? 'All resources functioning within normal thresholds.'
+                                        : `${activeCampusAlerts} anomalies detected across blocks.`}
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 </Card>
             </div>
 
+            {/* Role-Specific Resource Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                {Object.entries(summary).map(([name, total]) => {
+                    const res = resources?.find(r => r.name === name) || {};
+                    return (
+                        <div key={name} className="bg-white dark:bg-slate-800 p-4 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md transition-all group overflow-hidden relative">
+                            <div className="absolute -right-2 -bottom-2 opacity-5 scale-150 group-hover:scale-[2] transition-transform text-slate-400">
+                                {res.icon || <Activity size={40} />}
+                            </div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{name}</p>
+                            <p className="text-2xl font-black truncate">{total.toLocaleString()}</p>
+                            <p className="text-[10px] font-bold text-slate-500">{res.unit || 'units'}</p>
+                        </div>
+                    );
+                })}
+            </div>
 
         </div>
     );
-}
+};
+
+export default PrincipalDashboard;

@@ -37,8 +37,12 @@ const AnnouncementBoard = () => {
   });
 
   const role = (user?.role || '').toLowerCase();
-  const canPostNotice = ['admin', 'gm', 'dean', 'principal'].includes(role);
-  const canDeleteNotice = canPostNotice;
+  const canCreate = ['admin', 'gm', 'dean', 'principal'].includes(role);
+  const canManageNotice = (notice) => {
+    if (['admin', 'gm'].includes(role)) return true;
+    if (role === 'dean' && notice.createdBy?._id === user?._id) return true;
+    return false;
+  };
 
   const fetchMeta = useCallback(async () => {
     try {
@@ -140,7 +144,7 @@ const AnnouncementBoard = () => {
           >
             <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
           </button>
-          {canPostNotice && (
+          {canCreate && (
             <Button variant="primary" onClick={() => {
               setEditId(null);
               setFormData({ title: '', content: '', type: 'GENERAL', priority: 'MEDIUM', targetRole: ['all'], targetBlock: null, expiresAt: '', pinned: false });
@@ -298,9 +302,9 @@ const AnnouncementBoard = () => {
           <EmptyState
             icon={<Megaphone size={48} className="text-slate-300" />}
             title="No announcements yet"
-            description={canPostNotice ? "Keep your residents updated by posting the first announcement." : "Check back later for official announcements."}
+            description={canCreate ? "Keep your residents updated by posting the first announcement." : "Check back later for official announcements."}
           />
-          {canPostNotice && (
+          {canCreate && (
             <Button variant="primary" className="mt-6" onClick={() => setShowForm(true)}>
               Post First Announcement
             </Button>
@@ -331,7 +335,7 @@ const AnnouncementBoard = () => {
                   {notice.pinned && <Badge variant="warning" className="px-2 py-0.5 text-[10px]">📌 PINNED</Badge>}
                 </div>
 
-                {canDeleteNotice && (
+                {canManageNotice(notice) && (
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => { setEditId(notice._id); setFormData(notice); setShowForm(true); }} className="p-1.5 text-slate-400 hover:text-blue-500 rounded-lg hover:bg-blue-50">
                       <Edit2 size={14} />

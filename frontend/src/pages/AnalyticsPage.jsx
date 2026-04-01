@@ -34,9 +34,13 @@ import {
 import { useToast } from '../context/ToastContext';
 import { logger } from '../utils/logger';
 import { getSocket } from '../utils/socket';
-
+import { AuthContext } from '../context/AuthContext';
+import { useContext } from 'react';
 
 export default function AnalyticsPage() {
+    const { user } = useContext(AuthContext);
+    const isDean = (user?.role || '').toLowerCase() === 'dean';
+    const isPrincipal = (user?.role || '').toLowerCase() === 'principal';
     const { addToast } = useToast();
     const [loading, setLoading] = useState(true);
     const [timeRange, setTimeRange] = useState('7d');
@@ -232,7 +236,7 @@ export default function AnalyticsPage() {
         <div className="space-y-6">
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div />
+                <h1 className="text-2xl font-black">{isPrincipal ? 'Executive Insight' : 'Consumption Intelligence'}</h1>
 
                 <div className="flex items-center gap-3">
                     <button
@@ -243,17 +247,19 @@ export default function AnalyticsPage() {
                         <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
                     </button>
 
-                    <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                        {['7d', '30d', '90d', '1y'].map((range) => (
-                            <button
-                                key={range}
-                                onClick={() => setTimeRange(range)}
-                                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${timeRange === range ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                            >
-                                {range.toUpperCase()}
-                            </button>
-                        ))}
-                    </div>
+                    {!isPrincipal && (
+                        <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                            {['7d', '30d', '90d', '1y'].map((range) => (
+                                <button
+                                    key={range}
+                                    onClick={() => setTimeRange(range)}
+                                    className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${timeRange === range ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                                >
+                                    {range.toUpperCase()}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -400,35 +406,37 @@ export default function AnalyticsPage() {
                 </Card>
 
                 {/* Block Comparison */}
-                <Card>
-                    <h2 className="text-lg font-bold flex items-center gap-2 mb-6">
-                        <BarChart3 size={20} className="text-amber-500" /> Block Comparison
-                    </h2>
-                    <div className="h-[300px]">
-                        {loading ? (
-                            <div className="h-full flex items-center justify-center text-slate-400">Loading comparison...</div>
-                        ) : (blockComparison || []).length === 0 ? (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-400">No data found.</div>
-                        ) : (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={blockComparison || []}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-                                    <XAxis dataKey="block" stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
-                                    <YAxis stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
-                                    <Tooltip
-                                        cursor={{ fill: 'transparent' }}
-                                        contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
-                                    />
-                                    <Bar dataKey="score" name="Efficiency Score" radius={[6, 6, 0, 0]}>
-                                        {(blockComparison || []).map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={getScoreColor(entry.score)} />
-                                        ))}
-                                    </Bar>
-                                </BarChart>
-                            </ResponsiveContainer>
-                        )}
-                    </div>
-                </Card>
+                {!isPrincipal && (
+                    <Card>
+                        <h2 className="text-lg font-bold flex items-center gap-2 mb-6">
+                            <BarChart3 size={20} className="text-amber-500" /> Block Comparison
+                        </h2>
+                        <div className="h-[300px]">
+                            {loading ? (
+                                <div className="h-full flex items-center justify-center text-slate-400">Loading comparison...</div>
+                            ) : (blockComparison || []).length === 0 ? (
+                                <div className="h-full flex flex-col items-center justify-center text-slate-400">No data found.</div>
+                            ) : (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={blockRanking || blockComparison || []}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                                        <XAxis dataKey="block" stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
+                                        <YAxis stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
+                                        <Tooltip
+                                            cursor={{ fill: 'transparent' }}
+                                            contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
+                                        />
+                                        <Bar dataKey="score" name="Efficiency Score" radius={[6, 6, 0, 0]}>
+                                            {(blockComparison || []).map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={getScoreColor(entry.score)} />
+                                            ))}
+                                        </Bar>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            )}
+                        </div>
+                    </Card>
+                )}
             </div>
         </div >
     );

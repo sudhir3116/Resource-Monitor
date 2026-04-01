@@ -34,10 +34,16 @@ const ProfilePage = React.lazy(() => import('./pages/ProfilePage'));
 const DailyReportWarden = React.lazy(() => import('./pages/DailyReportWarden'));
 const GMDashboard = React.lazy(() => import('./pages/gm/GMDashboard'));
 const Reports = React.lazy(() => import('./pages/Reports'));
-const ExecutiveDashboard = React.lazy(() => import('./pages/ExecutiveDashboard'));
 const PrincipalDashboard = React.lazy(() => import('./pages/principal/PrincipalDashboard'));
+const PrincipalAnalytics = React.lazy(() => import('./pages/principal/PrincipalAnalytics'));
+const PrincipalReports = React.lazy(() => import('./pages/principal/PrincipalReports'));
+const PrincipalAnnouncements = React.lazy(() => import('./pages/principal/PrincipalAnnouncements'));
 const UnifiedDashboard = React.lazy(() => import('./pages/common/UnifiedDashboard'));
 const GMResourceConfig = React.lazy(() => import('./pages/gm/ResourceConfig'));
+const DeanDashboard = React.lazy(() => import('./pages/dean/DeanDashboard'));
+const DeanAnalytics = React.lazy(() => import('./pages/dean/DeanAnalytics'));
+const DeanReports = React.lazy(() => import('./pages/dean/DeanReports'));
+const DeanAnnouncements = React.lazy(() => import('./pages/dean/DeanAnnouncements'));
 
 // Redirects /dashboard to role-specific URL
 const RoleDashboard = () => {
@@ -346,7 +352,7 @@ function App() {
             {/* ════════════════════════════════════════════════════════════════ */}
             <Route path="/dean/dashboard" element={
               <ProtectedRoute allowedRoles={['dean', 'admin']}>
-                <UnifiedDashboard />
+                <DeanDashboard />
               </ProtectedRoute>
             } />
             <Route path="/dean/alerts" element={
@@ -356,17 +362,17 @@ function App() {
             } />
             <Route path="/dean/analytics" element={
               <ProtectedRoute allowedRoles={['dean']}>
-                <AnalyticsPage />
+                <DeanAnalytics />
               </ProtectedRoute>
             } />
-            <Route path="/dean/notices" element={
+            <Route path="/dean/announcements" element={
               <ProtectedRoute allowedRoles={['dean']}>
-                <AnnouncementBoard />
+                <DeanAnnouncements />
               </ProtectedRoute>
             } />
             <Route path="/dean/reports" element={
               <ProtectedRoute allowedRoles={['dean']}>
-                <Reports />
+                <DeanReports />
               </ProtectedRoute>
             } />
             <Route path="/dean/complaints" element={<ProtectedRoute allowedRoles={['dean']}><Complaints /></ProtectedRoute>} />
@@ -381,20 +387,20 @@ function App() {
             {/* ════════════════════════════════════════════════════════════════ */}
             <Route path="/principal/dashboard" element={
               <ProtectedRoute allowedRoles={['principal', 'admin']}>
-                <UnifiedDashboard />
+                <PrincipalDashboard />
               </ProtectedRoute>
             } />
             <Route path="/principal/analytics" element={
               <ProtectedRoute allowedRoles={['principal']}>
-                <AnalyticsPage />
+                <PrincipalAnalytics />
               </ProtectedRoute>
             } />
-            <Route path="/principal/notices" element={
+            <Route path="/principal/announcements" element={
               <ProtectedRoute allowedRoles={['principal']}>
-                <AnnouncementBoard />
+                <PrincipalAnnouncements />
               </ProtectedRoute>
             } />
-            <Route path="/principal/reports" element={<ProtectedRoute allowedRoles={['principal']}><Reports /></ProtectedRoute>} />
+            <Route path="/principal/reports" element={<ProtectedRoute allowedRoles={['principal']}><PrincipalReports /></ProtectedRoute>} />
             <Route path="/principal/alerts" element={<ProtectedRoute allowedRoles={['principal']}><Alerts /></ProtectedRoute>} />
             <Route path="/principal/complaints" element={<ProtectedRoute allowedRoles={['principal']}><Complaints /></ProtectedRoute>} />
             <Route path="/principal/audit-logs" element={<ProtectedRoute allowedRoles={['principal']}><AuditLogs /></ProtectedRoute>} />
