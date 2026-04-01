@@ -525,18 +525,23 @@ export default function Complaints() {
         <div className="space-y-6">
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 style={{ color: 'var(--text-primary)' }}>Complaint Management</h1>
-                    <p style={{ color: 'var(--text-secondary)' }}>
-                        Submit and track resource-related complaints
-                    </p>
+                <div />
+
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={fetchComplaints}
+                        className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
+                        title="Refresh Data"
+                    >
+                        <RefreshCw size={18} className={`text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
+                    </button>
+                    {!isGM && !isExecutiveReadOnly && (
+                        <Button variant="primary" onClick={() => setShowForm(v => !v)}>
+                            {showForm ? <X size={16} className="mr-2" /> : <Plus size={16} className="mr-2" />}
+                            {showForm ? 'Cancel' : 'New Complaint'}
+                        </Button>
+                    )}
                 </div>
-                {!isGM && !isExecutiveReadOnly && (
-                    <Button variant="primary" onClick={() => setShowForm(v => !v)}>
-                        {showForm ? <X size={16} className="mr-2" /> : <Plus size={16} className="mr-2" />}
-                        {showForm ? 'Cancel' : 'New Complaint'}
-                    </Button>
-                )}
             </div>
 
             {/* Stats row */}

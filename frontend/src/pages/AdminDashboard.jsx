@@ -182,26 +182,20 @@ export default function AdminDashboard() {
     return (
         <div className="space-y-6 pb-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--border-color)]">
-                <div className="space-y-1">
-                    <h1 className="text-2xl font-bold flex items-center gap-2 text-[var(--text-primary)]">
-                        <Shield className="text-blue-500" size={24} /> System Control Center
-                    </h1>
-                    <p className="text-xs text-[var(--text-secondary)] font-medium">
-                        Master overview of infrastructure, security, and global resources
-                    </p>
-                </div>
+                <div />
                 <div className="flex items-center gap-3">
+                    <button
+                        onClick={fetchData}
+                        className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
+                        title="Refresh Data"
+                    >
+                        <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
+                    </button>
                     <Link to="/admin/users">
                         <Button variant="primary" className="!px-6 !py-2.5">
                             <UserPlus size={18} className="mr-2" /> Manage Users
                         </Button>
                     </Link>
-                    <button
-                        onClick={fetchData}
-                        className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group"
-                    >
-                        <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500`} />
-                    </button>
                 </div>
             </div>
 
@@ -357,7 +351,7 @@ export default function AdminDashboard() {
                     </Card>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }
 

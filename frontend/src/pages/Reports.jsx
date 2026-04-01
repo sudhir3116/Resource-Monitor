@@ -156,19 +156,16 @@ export default function Reports() {
     return (
         <div className="space-y-6 p-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                        <FileText className="text-blue-500" /> Resource Reports
-                    </h1>
-                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                        Generate and export custom resource consumption reports
-                    </p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <Button variant="secondary" onClick={fetchData} disabled={loading}>
-                        <RefreshCw size={16} className={`mr-2 ${loading ? 'animate-spin' : ''}`} />
-                        Refresh
-                    </Button>
+                <div />
+
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={fetchData}
+                        className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
+                        title="Refresh Data"
+                    >
+                        <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
+                    </button>
                     <div className="relative group">
                         <Button variant="primary" disabled={exporting || data.length === 0}>
                             <Download size={16} className="mr-2" />

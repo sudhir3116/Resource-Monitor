@@ -12,6 +12,7 @@ import MetricCard from '../../components/common/MetricCard';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Building2, Settings, AlertTriangle } from 'lucide-react';
 import DonutChart from '../../components/analytics/DonutChart';
 import { logger } from '../../utils/logger';
 import { getSocket } from '../../utils/socket';
@@ -29,46 +30,34 @@ const GMDashboard = () => {
     const [recentActivity, setRecentActivity] = useState(0);
     const [recentAlerts, setRecentAlerts] = useState([]);
     const [recentComplaints, setRecentComplaints] = useState([]);
+    const [totalBlocks, setTotalBlocks] = useState(0);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            const [summaryRes, trendRes, alertCountRes, recentAlertsRes, recentComplaintsRes] = await Promise.all([
-                api.get('/api/usage/summary'),
-                api.get('/api/usage/trends?range=7d'),
-                api.get('/api/alerts/count'),
-                api.get('/api/alerts?limit=5'),
-                api.get('/api/complaints?page=1&limit=5')
-            ]);
+            console.log("Fetching dashboard data for:", user?.role);
+            const res = await api.get('/api/dashboard');
 
-            if (summaryRes.data?.success) setSummaryData(summaryRes.data.data);
-            else setSummaryData(summaryRes.data?.data || {});
-
-            if (trendRes.data?.success) setTrendData(trendRes.data.data || []);
-            else setTrendData(trendRes.data?.data || []);
-
-            const counts = alertCountRes.data?.counts || {};
-            const pending = counts.pending ?? 0;
-            const investigating = counts.investigating ?? 0;
-            const escalated = counts.escalated ?? 0;
-            setActiveAlerts(pending + investigating + escalated);
-
-            const alertsArr = recentAlertsRes.data?.alerts || recentAlertsRes.data?.data || [];
-            const complaintsArr = recentComplaintsRes.data?.data || [];
-            setRecentAlerts(Array.isArray(alertsArr) ? alertsArr : []);
-            setRecentComplaints(Array.isArray(complaintsArr) ? complaintsArr : []);
-            setRecentActivity(
-                (Array.isArray(alertsArr) ? alertsArr.length : 0) +
-                (Array.isArray(complaintsArr) ? complaintsArr.length : 0)
-            );
+            if (res.data?.success) {
+                const data = res.data.data;
+                setSummaryData(data.trends || {}); // Mapping consolidated trends to summary
+                setTrendData(Array.isArray(data.blockRanking) ? data.blockRanking : []);
+                setActiveAlerts(data.activeCampusAlerts || 0);
+                setRecentAlerts(data.criticalAlerts || []);
+                setTotalBlocks(Array.isArray(data.blockRanking) ? data.blockRanking.length : 0);
+                setSummaryData(prev => ({
+                    ...prev,
+                    financial: data.financial
+                }));
+            }
         } catch (err) {
-            logger.error('GM Dashboard Data Fetch Failed:', err);
+            console.error('GM Dashboard Error:', err.response?.data || err.message);
             setError('Failed to load dashboard data. Please try again.');
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [user]);
 
     useEffect(() => {
         fetchData();
@@ -158,32 +147,29 @@ const GMDashboard = () => {
             </div>
 
             {/* KPI row */}
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <MetricCard
-                    icon={<Activity size={18} className="text-blue-500" />}
-                    label="Total Consumption"
-                    value={grandTotal > 0 ? grandTotal.toLocaleString() : 'No data'}
-                    trend={{ value: 'Real-time', isPositive: true }}
+                    icon={<Settings size={22} className="text-emerald-500" />}
+                    label="Total Resources"
+                    value={resources?.length || 0}
                 />
                 <MetricCard
-                    icon={<PieChartIcon size={18} className="text-emerald-500" />}
-                    label="Total Cost"
-                    value={totalCost > 0 ? `₹${totalCost.toLocaleString()}` : 'No data'}
+                    icon={<Activity size={22} className="text-blue-500" />}
+                    label="Total Usage"
+                    value={grandTotal > 0 ? grandTotal.toLocaleString() : '0'}
                 />
                 <MetricCard
-                    icon={<Bell size={18} className="text-rose-500" />}
+                    icon={<AlertTriangle size={22} className="text-rose-500" />}
                     label="Active Alerts"
                     value={activeAlerts}
-                    color={activeAlerts > 0 ? 'text-rose-500' : 'text-slate-500'}
+                    colorClass={activeAlerts > 0 ? 'text-rose-500' : 'text-slate-400'}
+                    trend={activeAlerts > 0 ? 'negative' : 'none'}
                 />
-                {mostUsed && (
-                    <MetricCard
-                        icon={<span className="text-xl">{(resources.find(r => r.name === mostUsed.name)?.icon) || '📊'}</span>}
-                        label="Pace Leader"
-                        value={`${mostUsed.name}`}
-                        subValue={`${mostUsed.data?.total?.toLocaleString() || 0} units`}
-                    />
-                )}
+                <MetricCard
+                    icon={<Building2 size={22} className="text-indigo-500" />}
+                    label="Total Blocks"
+                    value={totalBlocks}
+                />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">

@@ -10,8 +10,8 @@ exports.getAll = async (req, res) => {
         const role = (req.user?.role || '').toLowerCase();
         const filter = {};
 
-        // Non-admins see only active resources (strict check)
-        if (role !== 'admin') {
+        // Admin and GM can see inactive resources; others see only active.
+        if (role !== 'admin' && role !== 'gm') {
             filter.status = "active";
         }
 

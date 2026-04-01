@@ -14,7 +14,8 @@ const getAll = async (req, res) => {
         // Build filter based on role
         const filter = { isDeleted: { $ne: true } };
         // Buyer requirement: inactive resources must not appear anywhere except Admin.
-        if (role !== 'admin') {
+        // Admin and GM can see inactive configurations; others see ONLY active.
+        if (role !== 'admin' && role !== 'gm') {
             filter.isActive = true;
         }
 

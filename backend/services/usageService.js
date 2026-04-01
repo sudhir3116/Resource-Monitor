@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Usage = require('../models/Usage');
 const Alert = require('../models/Alert');
-const SystemConfig = require('../models/Resource');
+const Resource = require('../models/Resource');
 
 /**
  * getUsageSummary

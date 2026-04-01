@@ -212,16 +212,47 @@ exports.getWardenStats = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getExecutiveStats = async (req, res) => {
     try {
-        // ──  Campus-wide monthly trends (no block filter)
+        console.log(`[Dashboard] Fetching executive stats for role: ${req.user?.role}`);
+
+        const { start: monthStart } = currentMonthRange();
+
+        // 1. Trends Over Time (Global Daily Aggregation for last 7 days)
+        const trendsOverTime = await Usage.aggregate([
+            { $match: { usage_date: { $gte: daysAgo(7) }, deleted: { $ne: true } } },
+            {
+                $group: {
+                    _id: { $dateToString: { format: '%Y-%m-%d', date: '$usage_date' } },
+                    total: { $sum: '$usage_value' }
+                }
+            },
+            { $sort: { _id: 1 } },
+            { $project: { _id: 0, date: '$_id', total: { $round: ['$total', 2] } } }
+        ]);
+
+        // 2. Resource-wise Summary (Month to date)
+        const summaryArr = await Usage.aggregate([
+            { $match: { usage_date: { $gte: monthStart }, deleted: { $ne: true } } },
+            { $group: { _id: '$resource_type', total: { $sum: '$usage_value' } } }
+        ]);
+        const summary = summaryArr.reduce((acc, curr) => {
+            acc[curr._id] = curr.total;
+            return acc;
+        }, {});
+
+        // 3. Grand Total Calculation
+        const grandTotal = Object.values(summary).reduce((a, b) => a + b, 0);
+
+        // 4. Campus-wide monthly trends (Specific resources)
         const [electricity, water] = await Promise.all([
             getMonthlyTrend({}, 'Electricity'),
             getMonthlyTrend({}, 'Water'),
         ]);
 
-        // ──  Cost estimation from system config rates
+        // 5. Financials (Cost Estimation)
+        const Resource = require('../models/Resource');
         const configs = await Resource.find({}).lean();
         const rateMap = configs.reduce((acc, c) => {
-            acc[c.resource] = c.costPerUnit ?? c.rate ?? 0;
+            acc[c.resource || c.name] = c.costPerUnit ?? c.rate ?? 0;
             return acc;
         }, {});
 
@@ -230,16 +261,13 @@ exports.getExecutiveStats = async (req, res) => {
                 (water.current * (rateMap['Water'] || 0))).toFixed(2)
         );
 
-        // ──  Block-level electricity usage this month (single aggregation, not N+1)
-        const { start: monthStart } = currentMonthRange();
+        // 6. Block Rankings (Top 5 Consumers)
         const blockUsageAgg = await Usage.aggregate([
             { $match: { resource_type: 'Electricity', usage_date: { $gte: monthStart }, deleted: { $ne: true } } },
             { $group: { _id: '$blockId', total: { $sum: '$usage_value' } } }
         ]);
-
         const blocksArr = await Block.find({}).select('name capacity').lean();
         const blockMap = blocksArr.reduce((m, b) => { m[b._id.toString()] = b; return m; }, {});
-
         const blockRanking = blockUsageAgg
             .map(entry => {
                 const block = blockMap[entry._id?.toString()] || {};
@@ -253,30 +281,49 @@ exports.getExecutiveStats = async (req, res) => {
             .sort((a, b) => b.perCapita - a.perCapita)
             .slice(0, 5);
 
-        // ──  Campus-wide active alerts
+        // 7. Active Alerts & Critical Issues
         const activeCampusAlerts = await Alert.countDocuments({
             status: { $nin: [ALERT_STATUS.RESOLVED, ALERT_STATUS.DISMISSED] }
         });
-
-        // ──  Severe + Critical alerts
         const criticalAlerts = await Alert.find({
             severity: { $in: ['Critical', 'Severe'] },
             status: { $nin: [ALERT_STATUS.RESOLVED, ALERT_STATUS.DISMISSED] }
         })
             .sort({ createdAt: -1 })
             .limit(5)
-            .select('message severity status createdAt resourceType block')
             .populate('block', 'name')
             .lean();
 
-        return apiSuccess(res, {
-            data: {
-                trends: { electricity, water },
-                financial: { estimatedCost, currency: 'INR' },
-                blockRanking,
-                activeCampusAlerts,
-                criticalAlerts,
-            }
+        // 8. Construct Final Structure with Safety Fallback
+        const dashboardData = {
+            summary,
+            grandTotal: parseFloat(grandTotal.toFixed(2)),
+            trendsOverTime,
+            blockRanking,
+            activeCampusAlerts,
+            criticalAlerts,
+            financial: { estimatedCost, currency: 'INR', trend: electricity.direction },
+            trends: { electricity, water }
+        };
+
+        if (!dashboardData) {
+            return res.json({
+                success: true,
+                data: {
+                    summary: {},
+                    grandTotal: 0,
+                    trendsOverTime: [],
+                    blockRanking: [],
+                    activeCampusAlerts: 0,
+                    criticalAlerts: [],
+                    financial: {}
+                }
+            });
+        }
+
+        return res.json({
+            success: true,
+            data: dashboardData
         });
 
     } catch (err) {

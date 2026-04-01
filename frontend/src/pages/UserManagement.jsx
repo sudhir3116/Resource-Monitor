@@ -4,7 +4,7 @@ import { getSocket } from '../utils/socket';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import {
-    Users, Search, Trash2, Edit2, Plus, Key, ToggleLeft, ToggleRight, UserCheck
+    Users, Search, Trash2, Edit2, Plus, Key, ToggleLeft, ToggleRight, UserCheck, RefreshCw
 } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -711,18 +711,24 @@ export default function UserManagement() {
         <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
-                <div>
-                    <h1 style={{ color: 'var(--text-primary)' }}>User Management</h1>
-                    <p style={{ color: 'var(--text-secondary)' }}>
-                        Manage system users, roles, and hostel block assignments
-                    </p>
+                <div />
+
+                <div className="flex gap-3 items-center">
+                    <button
+                        onClick={fetchUsers}
+                        className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
+                        title="Refresh Data"
+                    >
+                        <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
+                    </button>
+
+                    {isAdmin && (
+                        <Button variant="primary" onClick={() => setShowAddModal(true)}>
+                            <Plus size={16} className="mr-2" />
+                            Add User
+                        </Button>
+                    )}
                 </div>
-                {isAdmin && (
-                    <Button variant="primary" onClick={() => setShowAddModal(true)}>
-                        <Plus size={16} className="mr-2" />
-                        Add User
-                    </Button>
-                )}
             </div>
 
             {/* Stats bar */}

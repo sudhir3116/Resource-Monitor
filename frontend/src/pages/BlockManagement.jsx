@@ -402,17 +402,16 @@ export default function BlockManagement() {
         <div className="space-y-6">
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 style={{ color: 'var(--text-primary)' }}>Block Management</h1>
-                    <p style={{ color: 'var(--text-secondary)' }}>
-                        Create, delete and assign wardens to hostel blocks
-                    </p>
-                </div>
+                <div />
+
                 <div className="flex gap-2">
-                    <Button variant="secondary" onClick={fetchData} disabled={loading}>
-                        <RefreshCw size={15} className={`mr-2 ${loading ? 'animate-spin' : ''}`} />
-                        Refresh
-                    </Button>
+                    <button
+                        onClick={fetchData}
+                        className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
+                        title="Refresh Data"
+                    >
+                        <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
+                    </button>
                     <Button variant="primary" onClick={() => setShowCreate(true)}>
                         <Plus size={15} className="mr-2" />
                         New Block

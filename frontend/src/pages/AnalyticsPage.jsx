@@ -70,8 +70,8 @@ export default function AnalyticsPage() {
                             const uDate = typeof (u.date || u.usage_date) === 'string'
                                 ? (u.date || u.usage_date).split('T')[0]
                                 : new Date(u.date || u.usage_date).toISOString().split('T')[0];
-                            const uRes = (u.resource || u.resourceId || u.resource_type);
-                            return uDate === date && (uRes === r._id || uRes === r.name);
+                            const uRes = String(u.resource?._id || u.resourceId?._id || u.resourceId || u.resource || u.resource_type);
+                            return uDate === date && (uRes === String(r._id) || uRes === String(r.name));
                         })
                         .reduce((sum, u) => sum + Number(u.amount || u.usage_value || 0), 0);
                     row[r.name] = total;
@@ -80,6 +80,22 @@ export default function AnalyticsPage() {
             });
 
             setTrendData(pivotedTrendData);
+
+            // Calculate Block Comparison
+            const blockGroups = usage.reduce((acc, u) => {
+                const bName = u.block?.name || u.blockId?.name || u.block || u.blockId || 'Others';
+                if (!acc[bName]) acc[bName] = { block: bName, total: 0 };
+                acc[bName].total += Number(u.amount || u.usage_value || 0);
+                return acc;
+            }, {});
+
+            const maxTotal = Math.max(...Object.values(blockGroups).map(b => b.total), 1);
+            const bComp = Object.values(blockGroups).map(b => ({
+                block: b.block,
+                score: Math.max(40, 100 - Math.floor((b.total / maxTotal) * 40))
+            }));
+
+            setBlockComparison(bComp);
 
             // Mapping for summary
             const grouped = pivotedTrendData.reduce((acc, row) => {
@@ -216,27 +232,28 @@ export default function AnalyticsPage() {
         <div className="space-y-6">
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                        <TrendingUp size={28} className="text-blue-500" /> Consumption Analytics
-                    </h1>
-                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                        Historical trends and summary of hostel resource usage
-                    </p>
-                </div>
-                <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                    {['7d', '30d', '90d', '1y'].map((range) => (
-                        <button
-                            key={range}
-                            onClick={() => setTimeRange(range)}
-                            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${timeRange === range ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                        >
-                            {range.toUpperCase()}
-                        </button>
-                    ))}
-                    <Button variant="secondary" size="sm" onClick={fetchData} className="ml-2">
-                        <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                    </Button>
+                <div />
+
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={fetchData}
+                        className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
+                        title="Refresh Data"
+                    >
+                        <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
+                    </button>
+
+                    <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                        {['7d', '30d', '90d', '1y'].map((range) => (
+                            <button
+                                key={range}
+                                onClick={() => setTimeRange(range)}
+                                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${timeRange === range ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                            >
+                                {range.toUpperCase()}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             </div>
 

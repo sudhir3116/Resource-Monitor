@@ -30,18 +30,18 @@ router.get('/stats',
     getComplaintStatistics
 );
 
-// ── Review: Admin and Warden only ─────────────────────────────────────────
+// ── Review: Admin, GM and Warden ─────────────────────────────────────────
 router.put('/:id/review',
-    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN),
+    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.GM),
     [param('id').isMongoId().withMessage('Invalid id')],
     runValidations,
     auditMiddleware('UPDATE', 'Complaint'),
     reviewComplaint
 );
 
-// ── Resolve: Admin and Warden only ────────────────────────────────────────
+// ── Resolve: Admin, GM and Warden ────────────────────────────────────────
 router.put('/:id/resolve',
-    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN),
+    authorizeRoles(ROLES.ADMIN, ROLES.WARDEN, ROLES.GM),
     [param('id').isMongoId().withMessage('Invalid id')],
     runValidations,
     auditMiddleware('RESOLVE_COMPLAINT', 'Complaint'),

@@ -13,7 +13,8 @@ import {
     ArrowRight,
     Activity,
     TrendingUp,
-    AlertTriangle
+    AlertTriangle,
+    RefreshCw
 } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -111,14 +112,16 @@ export default function Resources() {
     return (
 
         <div className="space-y-6">
-            {/* Header */}
-            <div>
-                <h1 style={{ color: 'var(--text-primary)' }}>Resources Overview</h1>
-                <p style={{ color: 'var(--text-secondary)' }}>
-                    Monitor consumption status across all utility nodes
-                </p>
+            <div className="flex justify-between items-center">
+                <div />
+                <button
+                    onClick={() => window.dispatchEvent(new Event('usage:added'))}
+                    className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
+                    title="Refresh Data"
+                >
+                    <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
+                </button>
             </div>
-
             {/* Top KPI Cards */}
             {loading ? (
                 <div className="py-20 text-center text-slate-500">Loading resources...</div>
@@ -171,47 +174,47 @@ export default function Resources() {
                                     : 'bg-emerald-50';
 
                             return (
-                                <Card key={res.id} className="hover:shadow-xl transition-all duration-300 border-t-4 border-blue-600 group">
-                                    <div className="flex justify-between items-center mb-6">
-                                        <div className="p-4 rounded-2xl shadow-sm group-hover:scale-110 transition-transform flex items-center justify-center" style={{ backgroundColor: res.bg, color: res.color }}>
+                                <Card key={res.id} className="hover:shadow-xl transition-all duration-300 border-t-[3px] border-blue-600 group flex flex-col h-full">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <div className="p-2.5 rounded-xl shadow-sm group-hover:scale-110 transition-transform flex items-center justify-center text-lg" style={{ backgroundColor: res.bg, color: res.color }}>
                                             {res.icon}
                                         </div>
-                                        <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest ${statusBg} ${statusColor}`}>
+                                        <span className={`text-[9px] font-bold px-2.5 py-1 rounded-full uppercase tracking-widest ${statusBg} ${statusColor}`}>
                                             {percentage > 100 ? 'High' : percentage > 80 ? 'Medium' : 'Optimal'}
                                         </span>
                                     </div>
 
-                                    <h3 className="text-2xl font-black mb-1 tracking-tight" style={{ color: 'var(--text-primary)' }}>{res.name}</h3>
-                                    <p className="text-sm text-slate-500 mb-8 font-medium leading-relaxed">
+                                    <h3 className="text-lg font-bold mb-1 tracking-tight" style={{ color: 'var(--text-primary)' }}>{res.name}</h3>
+                                    <p className="text-xs text-[var(--text-secondary)] mb-5 font-medium leading-relaxed line-clamp-2">
                                         {res.description}
                                     </p>
 
-                                    <div className="grid grid-cols-2 gap-4 border-t border-slate-100 dark:border-slate-800 pt-6">
-                                        <div className="space-y-1">
-                                            <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">Total Consumption</p>
+                                    <div className="grid grid-cols-2 gap-4 border-t border-[var(--border-color)] pt-4 mt-auto">
+                                        <div className="space-y-0.5">
+                                            <p className="text-[9px] text-[var(--text-secondary)] uppercase font-bold tracking-widest opacity-80">Total Consumption</p>
                                             <div className="flex items-baseline gap-1">
-                                                <span className={`text-3xl font-black tracking-tighter ${statusColor}`}>
+                                                <span className={`text-xl font-black tracking-tight ${statusColor}`}>
                                                     {usage.toLocaleString()}
                                                 </span>
-                                                <span className="text-xs font-bold text-slate-400 capitalize">{stat.unit || res.unit}</span>
+                                                <span className="text-[10px] font-bold text-[var(--text-secondary)] capitalize opacity-70">{stat.unit || res.unit}</span>
                                             </div>
                                         </div>
-                                        <div className="space-y-1 text-right">
-                                            <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">Accrued Cost</p>
-                                            <div className="text-2xl font-black tracking-tighter" style={{ color: 'var(--text-primary)' }}>
+                                        <div className="space-y-0.5 text-right">
+                                            <p className="text-[9px] text-[var(--text-secondary)] uppercase font-bold tracking-widest opacity-80">Accrued Cost</p>
+                                            <div className="text-lg font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>
                                                 ₹{Math.round(stat.cost || 0).toLocaleString()}
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div className="mt-8">
+                                    <div className="mt-5">
                                         <Button
-                                            variant="primary"
-                                            className="w-full justify-center h-12 text-xs font-black uppercase tracking-widest shadow-lg shadow-blue-600/10 group-hover:shadow-blue-600/20"
+                                            variant="secondary"
+                                            className="w-full justify-center !min-h-[36px] !py-0 text-xs font-semibold shadow-sm group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600 transition-colors"
                                             onClick={() => navigate(`${usageBasePath}/all?resource=${encodeURIComponent(res.name)}`)}
                                         >
                                             View Details
-                                            <ArrowRight size={14} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                                            <ArrowRight size={14} className="ml-1.5 opacity-80 group-hover:translate-x-1 transition-transform" />
                                         </Button>
                                     </div>
                                 </Card>

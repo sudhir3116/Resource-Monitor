@@ -13,6 +13,11 @@ router.get('/student', protect, dashboardController.getStudentStats);
 router.get('/warden', protect, wardenMiddleware, dashboardController.getWardenStats);
 
 // 3. Admin/Principal Executive Dashboard (Campus Totals + Cost)
-router.get('/executive', protect, authorize(ROLES.ADMIN, ROLES.DEAN, ROLES.PRINCIPAL), dashboardController.getExecutiveStats);
+const { allowRoles } = require('../middleware/roleMiddleware');
+
+router.get('/executive', protect, allowRoles('Admin', 'GM', 'Dean', 'Principal'), dashboardController.getExecutiveStats);
+
+// 4. Base Dashboard Redirect/Shared Route
+router.get('/', protect, allowRoles('Admin', 'GM'), dashboardController.getExecutiveStats);
 
 module.exports = router;

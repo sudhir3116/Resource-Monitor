@@ -21,11 +21,11 @@ router.get('/', getAll);
 // POST /api/resource-config — admin only
 router.post('/', authorizeRoles(ROLES.ADMIN), create);
 
-// PUT /api/resource-config/:id — admin only
-router.put('/:id', authorizeRoles(ROLES.ADMIN), update);
+// PUT /api/resource-config/:id — admin and GM only
+router.put('/:id', authorizeRoles(ROLES.ADMIN, ROLES.GM), update);
 
-// PATCH /api/resource-config/:id/toggle — admin only
-router.patch('/:id/toggle', authorizeRoles(ROLES.ADMIN), toggle);
+// PATCH /api/resource-config/:id/toggle — admin and GM only
+router.patch('/:id/toggle', authorizeRoles(ROLES.ADMIN, ROLES.GM), toggle);
 
 // DELETE /api/resource-config/:id — admin only (soft delete)
 router.delete('/:id', authorizeRoles(ROLES.ADMIN), softDelete);

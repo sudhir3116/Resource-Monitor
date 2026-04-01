@@ -332,19 +332,15 @@ export default function Alerts() {
         <div className="space-y-6">
             {/* Page Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 style={{ color: 'var(--text-primary)' }} className="flex items-center gap-3">
-                        Alerts
-                        {isDean && <Badge variant="secondary">View Only</Badge>}
-                    </h1>
-                    <p style={{ color: 'var(--text-secondary)' }}>
-                        Monitor and respond to resource threshold alerts
-                        {(isStudent || isDean) && ' — read-only view'}
-                    </p>
-                </div>
-                <Button variant="secondary" onClick={fetchAlerts}>
-                    <RefreshCw size={16} className="mr-2" /> Refresh
-                </Button>
+                <div />
+
+                <button
+                    onClick={fetchAlerts}
+                    className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
+                    title="Refresh Data"
+                >
+                    <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
+                </button>
             </div>
 
             {/* Summary KPIs */}

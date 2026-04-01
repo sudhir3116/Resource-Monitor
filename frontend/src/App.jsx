@@ -37,6 +37,7 @@ const Reports = React.lazy(() => import('./pages/Reports'));
 const ExecutiveDashboard = React.lazy(() => import('./pages/ExecutiveDashboard'));
 const PrincipalDashboard = React.lazy(() => import('./pages/principal/PrincipalDashboard'));
 const UnifiedDashboard = React.lazy(() => import('./pages/common/UnifiedDashboard'));
+const GMResourceConfig = React.lazy(() => import('./pages/gm/ResourceConfig'));
 
 // Redirects /dashboard to role-specific URL
 const RoleDashboard = () => {
@@ -197,8 +198,8 @@ function App() {
             {/* GM ROUTES (/gm/*)                                               */}
             {/* ════════════════════════════════════════════════════════════════ */}
             <Route path="/gm/dashboard" element={
-              <ProtectedRoute allowedRoles={['gm', 'admin']}>
-                <UnifiedDashboard />
+              <ProtectedRoute allowedRoles={['gm']}>
+                <GMDashboard />
               </ProtectedRoute>
             } />
             <Route path="/gm/usage" element={
@@ -243,7 +244,17 @@ function App() {
             } />
             <Route path="/gm/resource-config" element={
               <ProtectedRoute allowedRoles={['gm']}>
-                <ResourceConfig />
+                <GMResourceConfig />
+              </ProtectedRoute>
+            } />
+            <Route path="/gm/users" element={
+              <ProtectedRoute allowedRoles={['gm']}>
+                <UserManagement />
+              </ProtectedRoute>
+            } />
+            <Route path="/gm/blocks" element={
+              <ProtectedRoute allowedRoles={['gm']}>
+                <BlockManagement />
               </ProtectedRoute>
             } />
 

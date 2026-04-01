@@ -130,19 +130,16 @@ const AnnouncementBoard = () => {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-3" style={{ color: 'var(--text-primary)' }}>
-            <Megaphone size={28} className="text-blue-500" /> Notice Board
-          </h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Official announcements and updates for all residents
-          </p>
-        </div>
+        <div />
+
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={fetchAnnouncements} disabled={loading}>
-            <RefreshCw size={18} className={`mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+          <button
+            onClick={fetchAnnouncements}
+            className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
+            title="Refresh Data"
+          >
+            <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
+          </button>
           {canPostNotice && (
             <Button variant="primary" onClick={() => {
               setEditId(null);

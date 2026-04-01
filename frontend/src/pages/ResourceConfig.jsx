@@ -102,7 +102,7 @@ function InlineNumberInput({ value, onChange, error, min = '0', step = '0.01', s
 }
 
 /* ─── Resource Row (table row with inline edit) ──────────────────────────────── */
-function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
+function ResourceRow({ config, isAdmin, isGM, onSave, onToggle, onDelete }) {
     const [editing, setEditing] = useState(false);
     const [saving, setSaving] = useState(false);
     const [draft, setDraft] = useState({});
@@ -226,8 +226,8 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
 
                 {/* Status */}
                 <td>
-                    <Badge variant={config.isActive ? 'success' : 'danger'}>
-                        {config.isActive ? 'Active' : 'Inactive'}
+                    <Badge variant={(config.status === 'active' || config.isActive) ? 'success' : 'danger'}>
+                        {(config.status === 'active' || config.isActive) ? 'ACTIVE' : 'INACTIVE'}
                     </Badge>
                 </td>
 
@@ -246,30 +246,32 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
 
                 {/* Actions */}
                 <td>
-                    {isAdmin && (
+                    {(isAdmin || isGM) && (
                         <div className="flex items-center gap-1.5">
                             <Button size="sm" variant="secondary" onClick={startEdit}>
                                 <Edit3 size={13} className="mr-1" />
                                 Edit
                             </Button>
                             <button
-                                onClick={() => onToggle(config._id, config.name, config.isActive)}
-                                title={config.isActive ? 'Deactivate' : 'Activate'}
-                                className={`flex items-center justify-center px-2 py-1 rounded-lg transition-colors text-xs font-medium border ${config.isActive
+                                onClick={() => onToggle(config._id, config.name, (config.status === 'active' || config.isActive))}
+                                title={(config.status === 'active' || config.isActive) ? 'Deactivate' : 'Activate'}
+                                className={`flex items-center justify-center px-2 py-1 rounded-lg transition-colors text-xs font-medium border ${(config.status === 'active' || config.isActive)
                                     ? 'bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:border-amber-900/50'
                                     : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-100 dark:bg-green-900/20 dark:border-green-900/50'
                                     }`}
                             >
-                                {config.isActive ? 'Deactivate' : 'Activate'}
+                                {(config.status === 'active' || config.isActive) ? 'Deactivate' : 'Activate'}
                             </button>
-                            <button
-                                onClick={() => onDelete(config._id)}
-                                title="Delete Permanently"
-                                className="flex items-center justify-center h-7 w-7 rounded-lg transition-colors hover:bg-red-50 dark:hover:bg-red-900/20 group"
-                                style={{ backgroundColor: 'var(--bg-hover)' }}
-                            >
-                                <Trash2 size={13} className="text-slate-400 group-hover:text-red-500" />
-                            </button>
+                            {isAdmin && (
+                                <button
+                                    onClick={() => onDelete(config._id)}
+                                    title="Delete Permanently"
+                                    className="flex items-center justify-center h-7 w-7 rounded-lg transition-colors hover:bg-red-50 dark:hover:bg-red-900/20 group"
+                                    style={{ backgroundColor: 'var(--bg-hover)' }}
+                                >
+                                    <Trash2 size={13} className="text-slate-400 group-hover:text-red-500" />
+                                </button>
+                            )}
                         </div>
                     )}
                 </td>
@@ -290,12 +292,14 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
                             value={draft.emoji}
                             onChange={e => setDraft(p => ({ ...p, emoji: e.target.value }))}
                             className="input text-xs p-1 h-7 w-12 text-center"
+                            disabled={!isAdmin}
                         />
                         <input
                             type="color"
                             value={draft.color}
                             onChange={e => setDraft(p => ({ ...p, color: e.target.value }))}
                             className="h-6 w-12 p-0 border-0 bg-transparent cursor-pointer"
+                            disabled={!isAdmin}
                         />
                     </div>
                     <div>
@@ -317,6 +321,7 @@ function ResourceRow({ config, isAdmin, onSave, onToggle, onDelete }) {
                         style={{ width: 110 }}
                         value={draft.unit}
                         onChange={e => setDraft(p => ({ ...p, unit: e.target.value }))}
+                        disabled={!isAdmin}
                     />
                     {errors.unit && <p className="text-red-400 text-xs">{errors.unit}</p>}
                 </div>
@@ -704,7 +709,7 @@ function AddResourceModal({ isOpen, onClose, existingResources, onSave }) {
 }
 
 /* ─── Main Page ──────────────────────────────────────────────────────────────── */
-export default function ResourceConfig() {
+export default function ResourceConfig({ isGM: isGMProp = false }) {
     const { user } = useAuth();
     const { addToast } = useToast();
 
@@ -718,9 +723,9 @@ export default function ResourceConfig() {
     const [showBlockOverrides, setShowBlockOverrides] = useState(false);
 
     const isAdmin = user?.role === 'admin';
-    const isGM = user?.role === 'gm';
-    // GM is view-only here (no create/edit/toggle/delete resource actions).
-    const canManageResources = ['admin'].includes(user?.role);
+    const isGM = isGMProp || user?.role === 'gm';
+    // GM can manage values (edit/toggle) but not create/delete resource objects.
+    const canManageResources = ['admin', 'gm'].includes(user?.role) || isGM;
     const isWarden = user?.role === 'warden';
     const canView = canManageResources || isGM || isWarden;
 
@@ -855,20 +860,25 @@ export default function ResourceConfig() {
         <div className="space-y-6">
             {/* ── Page Header ───────────────────────────────────────────── */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 style={{ color: 'var(--text-primary)' }}>Resource Configuration</h1>
-                    <p className="mt-1" style={{ color: 'var(--text-secondary)' }}>
-                        Manage thresholds, cost rates, and block-level overrides for all monitored resources
-                    </p>
-                </div>
+                <div />
+
                 {canManageResources && (
-                    <div className="flex gap-2 flex-shrink-0">
+                    <div className="flex gap-3 items-center flex-shrink-0">
+                        <button
+                            onClick={fetchData}
+                            className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
+                            title="Refresh Data"
+                        >
+                            <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
+                        </button>
                         <Button variant="secondary" onClick={() => setShowOverrideModal(true)}>
                             <Building2 size={16} className="mr-2" /> Block Override
                         </Button>
-                        <Button variant="primary" onClick={() => setShowAddModal(true)}>
-                            <Plus size={16} className="mr-2" /> Add Resource
-                        </Button>
+                        {!isGM && (
+                            <Button variant="primary" onClick={() => setShowAddModal(true)}>
+                                <Plus size={16} className="mr-2" /> Add Resource
+                            </Button>
+                        )}
                     </div>
                 )}
             </div>
@@ -894,8 +904,7 @@ export default function ResourceConfig() {
 
             {/* ── Configs Table ─────────────────────────────────────────── */}
             <Card
-                title="Resource Settings"
-                description={canManageResources ? 'Click Edit on any row to modify thresholds and cost rates inline.' : 'Read-only view of all resource configurations.'}
+                title="Settings"
             >
                 {/* Edit mode hint */}
                 {canManageResources && !loading && configs.length > 0 && (
@@ -964,6 +973,7 @@ export default function ResourceConfig() {
                                             key={config.name}
                                             config={config}
                                             isAdmin={canManageResources}
+                                            isGM={isGM}
                                             onSave={handleSaveResource}
                                             onToggle={handleToggle}
                                             onDelete={handleDeleteResource}
