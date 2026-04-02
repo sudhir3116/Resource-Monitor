@@ -8,7 +8,22 @@ const jwt = require("jsonwebtoken");
 const crypto = require('crypto');
 const asyncHandler = require('../middleware/asyncHandler');
 const { OAuth2Client } = require('google-auth-library');
+const Block = require("../models/Block");
 require('dotenv').config();
+
+const getBlockFromEmail = async (email) => {
+  if (!email) return null;
+  const e = email.toLowerCase();
+  let blockName = null;
+  if (e.includes('_a@college')) blockName = 'Block A';
+  else if (e.includes('_b@college')) blockName = 'Block B';
+
+  if (blockName) {
+    const block = await Block.findOne({ name: blockName });
+    return block ? block._id : null;
+  }
+  return null;
+};
 
 // Initialize Google OAuth Client
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -65,6 +80,7 @@ const formatUserResponse = (user) => {
     room: user.room || null,
     department: user.department || null,
     avatar: user.avatar || null,
+    status: user.status || 'active',
     provider: user.provider || 'local'
   };
 };
@@ -84,6 +100,7 @@ const register = asyncHandler(async (req, res) => {
   }
 
   email = email.toLowerCase(); // Normalize email
+  const autoBlockId = await getBlockFromEmail(email);
 
   const existingUser = await User.findOne({ email });
   if (existingUser) {
@@ -98,6 +115,7 @@ const register = asyncHandler(async (req, res) => {
     email,
     password: hashedPassword,
     role: ROLES.STUDENT,
+    block: autoBlockId || null,
     provider: 'local'
   });
 
@@ -135,6 +153,11 @@ const login = asyncHandler(async (req, res) => {
     return res.status(401).json({ message: "Invalid credentials" });
   }
 
+  // Check suspension status
+  if (user.status === 'suspended') {
+    return res.status(403).json({ success: false, message: 'Your account has been suspended. Please contact the administrator.' });
+  }
+
   // Handle existing users with plain passwords (Task 5 from previous instruction, Task 1 from this one if needed)
   if (!user.password.startsWith("$2b$") && !user.password.startsWith("$2a$")) {
     const hashedPassword = await bcrypt.hash(user.password, 10);
@@ -145,6 +168,14 @@ const login = asyncHandler(async (req, res) => {
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
     return res.status(401).json({ message: "Invalid credentials" });
+  }
+
+  // Auto-assign block based on email pattern if not already assigned
+  const autoBlockId = await getBlockFromEmail(user.email);
+  if (!user.block && autoBlockId) {
+    user.block = autoBlockId;
+    await user.save();
+    console.log('✅ Retroactively assigned block to user:', user.email);
   }
 
   const { accessToken, refreshToken } = GENERATE_TOKENS(user);
@@ -203,18 +234,33 @@ const googleLogin = asyncHandler(async (req, res) => {
 
     // Check if user exists
     let user = await User.findOne({ email: payload.email }).populate('block', 'name');
+    const autoBlockId = await getBlockFromEmail(payload.email);
 
     if (user) {
       console.log('👤 Existing user found - ID:', user._id);
+
+      // Check suspension status
+      if (user.status === 'suspended') {
+        return res.status(403).json({ success: false, message: 'Your account has been suspended. Please contact the administrator.' });
+      }
       // Update Google ID and avatar if not set
+      let needsSave = false;
       if (!user.googleId) {
         user.googleId = payload.sub;
         user.provider = 'google';
-        if (!user.avatar && payload.picture) {
-          user.avatar = payload.picture;
-        }
+        needsSave = true;
+      }
+      if (!user.avatar && payload.picture) {
+        user.avatar = payload.picture;
+        needsSave = true;
+      }
+      if (!user.block && autoBlockId) {
+        user.block = autoBlockId;
+        needsSave = true;
+      }
+      if (needsSave) {
         await user.save();
-        console.log('✅ Updated existing user with Google info');
+        console.log('✅ Updated existing user with Google info and block assignment');
       }
     } else {
       console.log('🆕 Creating new user from Google account');
@@ -227,9 +273,10 @@ const googleLogin = asyncHandler(async (req, res) => {
         googleId: payload.sub,
         provider: 'google',
         avatar: payload.picture,
-        role: ROLES.STUDENT // Default role - admin can update later
+        block: autoBlockId || null,
+        role: ROLES.STUDENT // Default role
       });
-      console.log('✅ New user created with STUDENT role - ID:', user._id);
+      console.log('✅ New user created with STUDENT role - ID:', user._id, 'Block:', autoBlockId || 'None');
     }
 
     // Generate JWT tokens
@@ -350,6 +397,14 @@ const refresh = asyncHandler(async (req, res) => {
       res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
       res.status(401);
       throw new Error('User account not found');
+    }
+
+    // Block refresh for suspended accounts
+    if (user.status === 'suspended') {
+      res.clearCookie('accessToken');
+      res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+      res.status(403);
+      throw new Error('Your account has been suspended. Please contact the administrator.');
     }
 
     const accessToken = jwt.sign(

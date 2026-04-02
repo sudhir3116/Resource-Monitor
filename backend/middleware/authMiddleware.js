@@ -38,6 +38,11 @@ module.exports = async function (req, res, next) {
     try {
       const userObj = await User.findById(decoded.id).select('-password').populate('block', 'name location')
       if (userObj) {
+        // Enforce account suspension
+        if (userObj.status === 'suspended') {
+          return res.status(403).json({ success: false, message: 'Your account has been suspended. Please contact the administrator.' });
+        }
+
         req.userObj = userObj
         req.user.role = userObj.role  // Guarantee role is fresh from DB
         req.user.block = userObj.block // Attach block (ObjectId or populated doc)

@@ -458,6 +458,51 @@ function BulkResetPasswordModal({ isOpen, onClose, selectedCount, onConfirm }) {
     );
 }
 
+// ─── Bulk Block Modal ────────────────────────────────────────────────────────
+function BulkBlockModal({ isOpen, onClose, selectedCount, onConfirm, blocks }) {
+    const [blockId, setBlockId] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (isOpen) { setBlockId(''); }
+    }, [isOpen]);
+
+    return (
+        <Modal
+            isOpen={isOpen}
+            onClose={loading ? undefined : onClose}
+            title={`Change Block — ${selectedCount} Users`}
+            size="md"
+            footer={
+                <>
+                    <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
+                    <Button variant="primary" onClick={() => onConfirm(blockId)} disabled={loading || !blockId}>
+                        {loading ? 'Applying…' : `Apply to ${selectedCount} Users`}
+                    </Button>
+                </>
+            }
+        >
+            <div className="space-y-4">
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    Select the new block to assign to all selected users:
+                </p>
+                <select className="input" value={blockId} onChange={e => setBlockId(e.target.value)}>
+                    <option value="">— Select a block —</option>
+                    {blocks.map(b => (
+                        <option key={b._id} value={b._id}>{b.name}</option>
+                    ))}
+                </select>
+                <div className="p-3 rounded-lg border flex gap-3" style={{ backgroundColor: 'rgba(59,130,246,0.05)', borderColor: 'rgba(59,130,246,0.2)' }}>
+                    <Users size={20} className="flex-shrink-0 text-blue-500" />
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        Applying change to <strong>{selectedCount}</strong> selected users.
+                    </p>
+                </div>
+            </div>
+        </Modal>
+    );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function UserManagement() {
     const [users, setUsers] = useState([]);
@@ -483,10 +528,11 @@ export default function UserManagement() {
 
     // Bulk Modals
     const [showBulkRole, setShowBulkRole] = useState(false);
+    const [showBulkBlock, setShowBulkBlock] = useState(false);
     const [showBulkDelete, setShowBulkDelete] = useState(false);
     const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState('');
     const [showBulkResetPw, setShowBulkResetPw] = useState(false);
-    const [bulkActionConfirm, setBulkActionConfirm] = useState(null); // { type, status }
+    const [bulkActionConfirm, setBulkActionConfirm] = useState(null); // { type, actionType, count }
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchUsers = useCallback(async () => {
@@ -660,6 +706,27 @@ export default function UserManagement() {
         }
     };
 
+    const handleBulkBlockChange = async (newBlockId) => {
+        setIsBulkLoading(true);
+        try {
+            // As per Step 5: loop through existing API
+            const updatePromises = selectedIds.map(id =>
+                api.put(`/api/admin/users/${id}`, { block: newBlockId })
+            );
+
+            await Promise.all(updatePromises);
+
+            addToast(`Block updated for ${selectedIds.length} users`, 'success');
+            setSelectedIds([]);
+            setShowBulkBlock(false);
+            fetchUsers();
+        } catch (err) {
+            addToast(err.response?.data?.message || 'Bulk block update failed. Some users might not have updated correctly.', 'error');
+        } finally {
+            setIsBulkLoading(false);
+        }
+    };
+
     // ── Inline role change (quick dropdown) ───────────────────────────────────
     const handleRoleChange = async (userId, newRole) => {
         if (!isAdmin) return;
@@ -783,73 +850,86 @@ export default function UserManagement() {
                 </div>
             </Card>
 
-            {/* Bulk Actions Toolbar */}
-            {selectedIds.length > 0 && (
-                <div className="flex items-center justify-between
-                                px-4 py-2.5 mb-3
-                                bg-blue-900/30 border 
-                                border-blue-600/40 rounded-xl">
+            {/* Bulk Actions Toolbar (Sticky Top) */}
+            <div className={`sticky top-0 z-20 transition-all duration-300 ${selectedIds.length > 0 ? 'translate-y-0 opacity-100 mb-6' : '-translate-y-4 opacity-0 h-0 pointer-events-none'}`}>
+                <div className="flex items-center justify-between px-6 py-4 bg-white dark:bg-slate-900 border-2 border-blue-500/30 rounded-2xl shadow-xl shadow-blue-500/10">
+                    <div className="flex items-center gap-4">
+                        <div className="h-10 w-10 rounded-xl bg-blue-500 flex items-center justify-center text-white font-bold shadow-lg shadow-blue-500/20">
+                            {selectedIds.length}
+                        </div>
+                        <div>
+                            <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                                {selectedIds.length} User{selectedIds.length !== 1 ? 's' : ''} Selected
+                            </p>
+                            <button
+                                onClick={() => setSelectedIds([])}
+                                className="text-xs font-bold text-blue-500 hover:text-blue-600 transition-colors uppercase tracking-wider"
+                            >
+                                Clear Selection
+                            </button>
+                        </div>
+                    </div>
 
                     <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium 
-                                     text-blue-300">
-                            {selectedIds.length} user
-                            {selectedIds.length !== 1 ? 's' : ''} selected
-                        </span>
-                        <button
-                            onClick={() => setSelectedIds([])}
-                            className="text-xs text-gray-400 
-                                 hover:text-white"
+                        <div className="relative group">
+                            <select
+                                className="appearance-none bg-slate-100 dark:bg-slate-800 border-none rounded-xl px-5 py-2.5 pr-10 text-sm font-bold text-slate-700 dark:text-slate-200 cursor-pointer focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (!val) return;
+                                    if (val === 'delete') {
+                                        setShowBulkDelete(true);
+                                    } else if (val === 'activate') {
+                                        setBulkActionConfirm({ type: 'status', actionType: 'active', count: selectedIds.length });
+                                    } else if (val === 'deactivate') {
+                                        setBulkActionConfirm({ type: 'status', actionType: 'suspended', count: selectedIds.length });
+                                    } else if (val === 'role') {
+                                        setShowBulkRole(true);
+                                    } else if (val === 'block') {
+                                        setShowBulkBlock(true);
+                                    } else if (val === 'password') {
+                                        setShowBulkResetPw(true);
+                                    }
+                                    e.target.value = ''; // reset dropdown
+                                }}
+                            >
+                                <option value="">Bulk Actions</option>
+                                <optgroup label="Account Status">
+                                    <option value="activate">Activate Selected</option>
+                                    <option value="deactivate">Deactivate Selected</option>
+                                </optgroup>
+                                <optgroup label="Management">
+                                    <option value="role">Change Roles</option>
+                                    <option value="block">Change Block</option>
+                                    <option value="password">Reset Passwords</option>
+                                </optgroup>
+                                <optgroup label="Destructive">
+                                    <option value="delete">Delete Permanently</option>
+                                </optgroup>
+                            </select>
+                            <ChevronRight size={16} className="absolute right-3 top-1/2 -translate-y-1/2 rotate-90 text-slate-400 pointer-events-none" />
+                        </div>
+
+                        <div className="h-8 w-[1px] bg-slate-200 dark:bg-slate-700 mx-2" />
+
+                        <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => setBulkActionConfirm({ type: 'status', actionType: 'active', count: selectedIds.length })}
+                            className="bg-green-600 hover:bg-green-700"
                         >
-                            ✕ Clear
-                        </button>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-
-                        {/* Activate */}
-                        {/* Activate */}
-                        <button
-                            onClick={() => handleBulkStatus('active')}
-                            disabled={isBulkLoading}
-                            className="flex items-center gap-1 px-3 py-1.5
-                                 bg-green-600 hover:bg-green-700 disabled:opacity-50
-                                 text-white text-xs font-medium
-                                 rounded-lg transition-colors"
-                        >
-                            {isBulkLoading ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
-                            ✓ Activate
-                        </button>
-
-                        {/* Deactivate */}
-                        <button
-                            onClick={() => handleBulkStatus('suspended')}
-                            disabled={isBulkLoading}
-                            className="flex items-center gap-1 px-3 py-1.5
-                                 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50
-                                 text-white text-xs font-medium
-                                 rounded-lg transition-colors"
-                        >
-                            {isBulkLoading ? <Loader2 size={12} className="animate-spin" /> : <AlertCircle size={12} />}
-                            ⊘ Deactivate
-                        </button>
-
-                        {/* Delete */}
-                        <button
+                            Activate All
+                        </Button>
+                        <Button
+                            variant="danger"
+                            size="sm"
                             onClick={() => setShowBulkDelete(true)}
-                            disabled={isBulkLoading}
-                            className="flex items-center gap-1 px-3 py-1.5
-                                 bg-red-600 hover:bg-red-700 disabled:opacity-50
-                                 text-white text-xs font-medium
-                                 rounded-lg transition-colors"
                         >
-                            <Trash2 size={12} />
-                            🗑 Delete
-                        </button>
-
+                            Delete All
+                        </Button>
                     </div>
                 </div>
-            )}
+            </div>
 
             {/* Users Table */}
             <Card>
@@ -1087,6 +1167,18 @@ export default function UserManagement() {
                 onConfirm={handleBulkResetPw}
             />
 
+            {/* Bulk Status Change Confirm */}
+            <ConfirmModal
+                isOpen={!!bulkActionConfirm}
+                onClose={() => setBulkActionConfirm(null)}
+                onConfirm={() => handleBulkStatus(bulkActionConfirm.actionType)}
+                disabled={isBulkLoading}
+                title={bulkActionConfirm?.actionType === 'active' ? 'Activate Users?' : 'Deactivate Users?'}
+                message={`Are you sure you want to ${bulkActionConfirm?.actionType === 'active' ? 'activate' : 'deactivate'} ${bulkActionConfirm?.count} selected users?\n\nThis will instantly update their access permissions.`}
+                confirmText={isBulkLoading ? 'Processing…' : (bulkActionConfirm?.actionType === 'active' ? 'Activate Now' : 'Deactivate Now')}
+                type={bulkActionConfirm?.actionType === 'active' ? 'primary' : 'warning'}
+            />
+
             {/* Bulk Delete */}
             <BulkDeleteModal
                 isOpen={showBulkDelete}
@@ -1099,6 +1191,15 @@ export default function UserManagement() {
                 confirmText={bulkDeleteConfirmation}
                 setConfirmText={setBulkDeleteConfirmation}
                 loading={isBulkLoading}
+            />
+
+            {/* Bulk Block Change */}
+            <BulkBlockModal
+                isOpen={showBulkBlock}
+                onClose={() => setShowBulkBlock(false)}
+                selectedCount={selectedIds.length}
+                onConfirm={handleBulkBlockChange}
+                blocks={blocks}
             />
         </div>
     );

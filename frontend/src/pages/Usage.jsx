@@ -10,17 +10,29 @@ import {
     Wind,
     Trash2,
     Sun,
+    Search,
+    Plus,
     ArrowRight,
     Activity,
     TrendingUp,
     AlertTriangle,
     RefreshCw
 } from 'lucide-react';
+import { getSocket } from '../utils/socket';
+import { logger } from '../utils/logger';
+import Badge from '../components/common/Badge';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import EmptyState from '../components/common/EmptyState';
-import { getSocket } from '../utils/socket';
-import { logger } from '../utils/logger';
+import TableSkeleton from '../components/common/TableSkeleton';
+import SortIcon from '../components/common/SortIcon';
+import useSortableTable from '../hooks/useSortableTable';
+import timeAgo from '../utils/timeAgo';
+import { Download, Edit2 } from 'lucide-react';
+import { exportToCSV } from '../utils/export';
+import { ROLES } from '../utils/roles';
+import { ConfirmModal } from '../components/common/Modal';
+import { useToast } from '../context/ToastContext';
 
 // Dynamic resource metadata is now fetched via useResources hook and Managed in Admin Panel.
 
@@ -29,50 +41,60 @@ export default function Resources() {
     const [stats, setStats] = useState(null);
     const [alerts, setAlerts] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [usages, setUsages] = useState([]);
+    const [sortMode] = useState('newest');
+    const [deleteId, setDeleteId] = useState(null);
+    const [deleteItem, setDeleteItem] = useState(null);
+
     const navigate = useNavigate();
     const { user } = useContext(AuthContext);
-    const { resources: activeResources } = useResources(); // Only active, from hook
+    const { addToast } = useToast();
+    const { resources: activeResources } = useResources();
 
-    const usageBasePath = user?.role === 'admin' ? '/admin/usage'
-        : user?.role === 'warden' ? '/warden/usage'
-            : user?.role === 'gm' ? '/gm/usage'
-                : '/usage';
+    const canEdit = user && [ROLES.WARDEN].includes(user.role);
+    const canDelete = user && [ROLES.ADMIN].includes(user.role);
+    const showActions = canEdit || canDelete;
+
+    const fetchAllData = async () => {
+        try {
+            const [summaryRes, alertsRes, usagesRes] = await Promise.all([
+                api.get('/api/usage/summary'),
+                api.get('/api/alerts?status=pending,investigating,escalated'),
+                api.get('/api/usage?limit=50')
+            ]);
+
+            const summary = summaryRes.data?.data?.summary || summaryRes.data?.summary || {};
+            const statsObj = {};
+            Object.entries(summary).forEach(([name, data]) => {
+                statsObj[name] = {
+                    current: data.total || 0,
+                    unit: data.unit || 'units',
+                    cost: data.total ? Math.round(data.total * 2.5) : 0,
+                    monthlyLimit: data.monthlyLimit || 1000
+                };
+            });
+            setStats(statsObj);
+            setAlerts(alertsRes.data?.alerts || alertsRes.data?.data || []);
+
+            const arr = usagesRes.data?.data || usagesRes.data?.usages || (Array.isArray(usagesRes.data) ? usagesRes.data : []);
+            setUsages(Array.isArray(arr) ? arr : []);
+        } catch (err) {
+            logger.error('Failed to fetch resource stats', err);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const fetchStats = async () => {
-            try {
-                const [summaryRes, alertsRes] = await Promise.all([
-                    api.get('/api/usage/summary'),
-                    api.get('/api/alerts?status=pending,investigating,escalated')
-                ]);
-                const summary = summaryRes.data?.data?.summary || summaryRes.data?.summary || {};
-                const statsObj = {};
-                Object.entries(summary).forEach(([name, data]) => {
-                    statsObj[name] = {
-                        current: data.total || 0,
-                        unit: data.unit || 'units',
-                        cost: data.total ? Math.round(data.total * 2.5) : 0,
-                        monthlyLimit: data.monthlyLimit || 1000
-                    };
-                });
-                setStats(statsObj);
-                setAlerts(alertsRes.data?.alerts || alertsRes.data?.data || []);
-            } catch (err) {
-                logger.error('Failed to fetch resource stats', err);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchStats();
+        fetchAllData();
 
         // Real-time synchronization
         const socket = getSocket();
-        const refresh = () => fetchStats();
+        const refresh = () => fetchAllData();
 
         if (socket) {
             socket.on('usage:refresh', refresh);
-            socket.on('usage:new', refresh);
             socket.on('usage:added', refresh);
         }
 
@@ -81,7 +103,6 @@ export default function Resources() {
         return () => {
             if (socket) {
                 socket.off('usage:refresh', refresh);
-                socket.off('usage:new', refresh);
                 socket.off('usage:added', refresh);
             }
             window.removeEventListener('usage:added', refresh);
@@ -106,23 +127,97 @@ export default function Resources() {
                 bg: (res?.color || '#64748b') + '15', // light transparency
                 unit: res?.unit || 'units',
                 description: res?.description || 'Real-time resource monitoring'
-            })) || [];
-    }, [activeResources]);
+            }))
+            .filter(res =>
+                res.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                res.description.toLowerCase().includes(searchTerm.toLowerCase())
+            ) || [];
+    }, [activeResources, searchTerm]);
+
+    const filteredUsages = useMemo(() => {
+        return usages.filter(u => {
+            const matchesSearch = (u.userId?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (u.notes || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (u.resource_type || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (u.blockId?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+            return matchesSearch;
+        });
+    }, [usages, searchTerm]);
+
+    const { sortedData: finalUsages, sortField, sortDirection, handleSort } = useSortableTable(
+        filteredUsages,
+        'usage_date',
+        [searchTerm]
+    );
+
+    const handleExport = () => {
+        if (finalUsages.length === 0) {
+            addToast('No records to export', 'warning');
+            return;
+        }
+        const dataToExport = finalUsages.map(u => ({
+            Resource: u.resource_type,
+            Value: u.usage_value,
+            Unit: u.unit || 'units',
+            Location: u.blockId?.name || 'N/A',
+            Date: new Date(u.usage_date).toLocaleString(),
+            LoggedBy: u.createdBy?.name || 'N/A',
+            Notes: u.notes || ''
+        }));
+        exportToCSV(dataToExport, `usage_records_${new Date().toISOString().split('T')[0]}.csv`);
+        addToast('Usage data exported');
+    };
+
+    const handleDelete = async () => {
+        if (!deleteId) return;
+        try {
+            await api.delete(`/api/usage/${deleteId}`);
+            await fetchAllData();
+            addToast('Record deleted successfully');
+        } catch (err) {
+            addToast(err.response?.data?.message || 'Failed to delete record', 'error');
+        } finally {
+            setDeleteId(null);
+            setDeleteItem(null);
+        }
+    };
 
     return (
-
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <div />
-                <button
-                    onClick={() => window.dispatchEvent(new Event('usage:added'))}
-                    className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
-                    title="Refresh Data"
-                >
-                    <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
-                </button>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h1 className="text-2xl font-black text-[var(--text-primary)]">Usage Dashboard</h1>
+                    <p className="text-[var(--text-secondary)] text-sm font-medium">Monitor and manage campus resource consumption</p>
+                </div>
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                    <div className="relative flex-1 md:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                        <input
+                            type="text"
+                            placeholder="Search everything..."
+                            className="input pl-10 w-full"
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                        />
+                    </div>
+                    <Button variant="secondary" size="sm" onClick={handleExport} disabled={loading || finalUsages.length === 0}>
+                        <Download size={16} />
+                    </Button>
+                    <button
+                        onClick={fetchAllData}
+                        className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center h-[38px]"
+                        title="Refresh Data"
+                    >
+                        <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
+                    </button>
+                    {canEdit && (
+                        <Button variant="primary" size="sm" onClick={() => navigate('/warden/usage/new')}>
+                            <Plus size={16} className="mr-2" /> Log Usage
+                        </Button>
+                    )}
+                </div>
             </div>
-            {/* Top KPI Cards */}
+
             {loading ? (
                 <div className="py-20 text-center text-slate-500">Loading resources...</div>
             ) : (
@@ -164,7 +259,6 @@ export default function Resources() {
                             const limit = stat.monthlyLimit || 1000;
                             const percentage = (usage / limit) * 100;
 
-                            // Visual indicator logic
                             const statusColor = percentage > 100 ? 'text-rose-600'
                                 : percentage > 80 ? 'text-amber-500'
                                     : 'text-emerald-500';
@@ -211,7 +305,9 @@ export default function Resources() {
                                         <Button
                                             variant="secondary"
                                             className="w-full justify-center !min-h-[36px] !py-0 text-xs font-semibold shadow-sm group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600 transition-colors"
-                                            onClick={() => navigate(`${usageBasePath}/all?resource=${encodeURIComponent(res.name)}`)}
+                                            onClick={() => {
+                                                setSearchTerm(res.name);
+                                            }}
                                         >
                                             View Details
                                             <ArrowRight size={14} className="ml-1.5 opacity-80 group-hover:translate-x-1 transition-transform" />
@@ -221,8 +317,84 @@ export default function Resources() {
                             );
                         })}
                     </div>
+
+                    <div className="mt-12">
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-xl font-bold flex items-center gap-2">
+                                <TrendingUp size={20} className="text-blue-500" /> Recent Usage Activity
+                            </h2>
+                        </div>
+
+                        <Card flush>
+                            {loading && usages.length === 0 ? (
+                                <TableSkeleton rows={5} columns={5} />
+                            ) : finalUsages.length === 0 ? (
+                                <div className="py-12">
+                                    <EmptyState title="No Records Found" description="Try searching for a different resource or location." />
+                                </div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="table">
+                                        <thead>
+                                            <tr>
+                                                <th onClick={() => handleSort('resource_type')} className="cursor-pointer">
+                                                    Resource <SortIcon field="resource_type" sortField={sortField} sortDirection={sortDirection} />
+                                                </th>
+                                                <th onClick={() => handleSort('blockId.name')} className="cursor-pointer">
+                                                    Location <SortIcon field="blockId.name" sortField={sortField} sortDirection={sortDirection} />
+                                                </th>
+                                                <th onClick={() => handleSort('usage_value')} className="cursor-pointer">
+                                                    Consumption <SortIcon field="usage_value" sortField={sortField} sortDirection={sortDirection} />
+                                                </th>
+                                                <th onClick={() => handleSort('usage_date')} className="cursor-pointer">
+                                                    Recorded <SortIcon field="usage_date" sortField={sortField} sortDirection={sortDirection} />
+                                                </th>
+                                                {showActions && <th>Action</th>}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {finalUsages.map(u => (
+                                                <tr key={u._id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                                                    <td className="font-bold">{u.resource_type}</td>
+                                                    <td>{u.blockId?.name || 'N/A'}</td>
+                                                    <td>
+                                                        {u.usage_value.toLocaleString()} <span className="text-[10px] text-slate-400">{u.unit}</span>
+                                                    </td>
+                                                    <td className="text-sm">{timeAgo(u.usage_date)}</td>
+                                                    {showActions && (
+                                                        <td className="text-right">
+                                                            <div className="flex justify-end gap-1">
+                                                                {canEdit && (
+                                                                    <Button size="sm" variant="secondary" className="!p-1.5" onClick={() => navigate(`/usage/${u._id}/edit`)}>
+                                                                        <Edit2 size={13} />
+                                                                    </Button>
+                                                                )}
+                                                                {canDelete && (
+                                                                    <Button size="sm" variant="danger" className="!p-1.5" onClick={() => { setDeleteItem(u); setDeleteId(u._id); }}>
+                                                                        <Trash2 size={13} />
+                                                                    </Button>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    )}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </Card>
+                    </div>
                 </>
             )}
+
+            <ConfirmModal
+                isOpen={!!deleteId}
+                onClose={() => { setDeleteId(null); setDeleteItem(null); }}
+                onConfirm={handleDelete}
+                title="Delete Usage Record"
+                message={deleteItem ? `Delete this ${deleteItem.resource_type} record?` : "Confirm delete?"}
+            />
         </div>
     );
 }

@@ -9,6 +9,7 @@ const { body, param } = require('express-validator');
 const runValidations = require('../middleware/validate');
 const { auditMiddleware } = require('../utils/auditLogger');
 
+const User = require('../models/User'); // Added User Model
 const GM = ROLES.GM;
 
 // All routes require authentication
@@ -27,19 +28,29 @@ router.get('/summary',
     ),
     async (req, res) => {
         try {
-            const { startDate, endDate, blockId } = req.query;
-            let finalBlockId = blockId || null;
-            if (typeof finalBlockId === 'string' && finalBlockId.includes('[object')) finalBlockId = null;
+            const { startDate, endDate, blockId: queryBlockId } = req.query;
+            let finalId = null;
 
-            if (!finalBlockId && ['warden', 'student'].includes(req.user.role)) {
-                finalBlockId = req.userObj?.block?._id || req.userObj?.block || req.user?.block?._id || req.user?.block || null;
+            if (['warden', 'student'].includes(req.user.role)) {
+                // FORCE: No query param allowed for these roles
+                const u = req.userObj || await User.findById(req.userId).lean();
+                finalId = u?.block?._id || u?.block || req.user?.block?._id || req.user?.block;
+
+                if (!finalId) {
+                    return res.status(403).json({ success: false, message: 'No block assigned.' });
+                }
+                finalId = finalId.toString();
+            } else {
+                finalId = queryBlockId || null;
             }
-            if (finalBlockId && typeof finalBlockId === 'object') finalBlockId = finalBlockId._id || finalBlockId.toString();
+
+            // Cleanup
+            if (typeof finalId === 'string' && finalId.includes('[object')) finalId = null;
 
             const data = await getUsageSummary({
                 role: req.user.role,
-                userId: req.user.id || req.userId,
-                blockId: finalBlockId,
+                userId: req.userId,
+                blockId: finalId,
                 startDate,
                 endDate
             });
@@ -58,19 +69,28 @@ router.get('/trends',
     ),
     async (req, res) => {
         try {
-            const { range = '7d', blockId } = req.query;
-            let finalBlockId = blockId || null;
-            if (typeof finalBlockId === 'string' && finalBlockId.includes('[object')) finalBlockId = null;
+            const { range = '7d', blockId: queryBlockId } = req.query;
+            let finalId = null;
 
-            if (!finalBlockId && ['warden', 'student'].includes(req.user.role)) {
-                finalBlockId = req.userObj?.block?._id || req.userObj?.block || req.user?.block?._id || req.user?.block || null;
+            if (['warden', 'student'].includes(req.user.role)) {
+                const u = req.userObj || await User.findById(req.userId).lean();
+                finalId = u?.block?._id || u?.block || req.user?.block?._id || req.user?.block;
+
+                if (!finalId) {
+                    return res.status(403).json({ success: false, message: 'No block assigned.' });
+                }
+                finalId = finalId.toString();
+            } else {
+                finalId = queryBlockId || null;
             }
-            if (finalBlockId && typeof finalBlockId === 'object') finalBlockId = finalBlockId._id || finalBlockId.toString();
+
+            // Cleanup
+            if (typeof finalId === 'string' && finalId.includes('[object')) finalId = null;
 
             const data = await getUsageTrends({
                 role: req.user.role,
-                userId: req.user.id || req.userId,
-                blockId: finalBlockId,
+                userId: req.userId,
+                blockId: finalId,
                 range
             });
             return res.status(200).json({ success: true, data });

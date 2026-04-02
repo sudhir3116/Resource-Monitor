@@ -670,6 +670,11 @@ exports.toggleStatus = async (req, res) => {
             if (io) {
                 io.emit('users:refresh');
                 io.emit('dashboard:refresh');
+
+                // Real-time Logout Enforcement
+                if (newStatus === 'suspended') {
+                    io.emit('user:suspended', { userId: id });
+                }
             }
         } catch (e) { /* non-fatal */ }
 
@@ -754,6 +759,11 @@ exports.bulkUpdateStatus = async (req, res) => {
             if (io) {
                 io.emit('users:refresh');
                 io.emit('dashboard:refresh');
+
+                // Real-time Logout Enforcement for Bulk Suspension
+                if (status === 'suspended') {
+                    io.emit('user:suspended', { userIds: targetIds });
+                }
             }
         } catch (e) { /* non-fatal */ }
 
@@ -842,6 +852,9 @@ exports.bulkDelete = async (req, res) => {
                 io.emit('users:refresh');
                 io.emit('dashboard:refresh');
                 io.emit('blocks:refresh'); // Wardens might have been cleared from blocks
+
+                // Real-time Logout Enforcement for Deleted Users
+                io.emit('user:suspended', { userIds: finalTargetIds });
             }
         } catch (e) { /* non-fatal */ }
 

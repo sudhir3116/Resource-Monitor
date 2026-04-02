@@ -3,6 +3,7 @@ import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { ThemeContext } from '../../context/ThemeContext';
 import { Activity, Leaf, RefreshCw } from 'lucide-react';
+import { getSocket } from '../../utils/socket';
 import {
   LineChart,
   Line,
@@ -76,9 +77,30 @@ const StudentDashboard = () => {
 
   useEffect(() => {
     fetchData();
-    const refresh = () => fetchData();
-    window.addEventListener('usage:added', refresh);
-    return () => window.removeEventListener('usage:added', refresh);
+
+    // SETUP REAL-TIME REFRESH
+    const socket = getSocket();
+    const handleRefresh = () => {
+      fetchData();
+    };
+
+    if (socket) {
+      socket.on('usage:refresh', handleRefresh);
+      socket.on('usage:added', handleRefresh);
+      socket.on('dashboard:refresh', handleRefresh);
+    }
+
+    // INTERNAL EVENT FALLBACK
+    window.addEventListener('usage:added', handleRefresh);
+
+    return () => {
+      if (socket) {
+        socket.off('usage:refresh', handleRefresh);
+        socket.off('usage:added', handleRefresh);
+        socket.off('dashboard:refresh', handleRefresh);
+      }
+      window.removeEventListener('usage:added', handleRefresh);
+    };
   }, [fetchData]);
 
   const getResourceMeta = (type) => {

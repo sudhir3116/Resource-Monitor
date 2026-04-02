@@ -291,7 +291,6 @@ exports.getExecutiveStats = async (req, res) => {
             { $match: { usage_date: { $gte: monthStart }, deleted: { $ne: true } } },
             { $group: { _id: '$resource_type', total: { $sum: '$usage_value' } } }
         ]);
-        console.log("[Dashboard] Executive aggregated summary:", summaryArr);
 
         const summary = {};
         summaryArr.forEach(item => {
@@ -304,7 +303,6 @@ exports.getExecutiveStats = async (req, res) => {
 
         // 3. Grand Total Calculation
         const grandTotal = summaryArr.reduce((a, b) => a + (b.total || 0), 0);
-        console.log("[Dashboard] Grand Total Calculated:", grandTotal);
 
         // 4. Campus-wide monthly trends (Specific resources)
         const [electricity, water] = await Promise.all([
@@ -315,6 +313,7 @@ exports.getExecutiveStats = async (req, res) => {
         // 5. Financials (Cost Estimation)
         const Resource = require('../models/Resource');
         const configs = await Resource.find({}).lean();
+
         const rateMap = configs.reduce((acc, c) => {
             acc[c.resource || c.name] = c.costPerUnit ?? c.rate ?? 0;
             return acc;
@@ -358,14 +357,13 @@ exports.getExecutiveStats = async (req, res) => {
             .populate('block', 'name')
             .lean();
 
-        const recentComplaints = await Complaint.find({ status: { $ne: 'Resolved' } })
+        const recentComplaints = await Complaint.find({ status: { $ne: 'resolved' } })
             .sort({ createdAt: -1 })
             .limit(5)
-            .populate('userId', 'name')
-            .populate('blockId', 'name')
+            .populate('user', 'name')
             .lean();
 
-        const unresolvedComplaintsCount = await Complaint.countDocuments({ status: { $ne: 'Resolved' } });
+        const unresolvedComplaintsCount = await Complaint.countDocuments({ status: { $ne: 'resolved' } });
 
         // 8. Construct Final Structure with Safety Fallback
         const dashboardData = {

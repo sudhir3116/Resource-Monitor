@@ -40,6 +40,12 @@ router.get(
     '/google/callback',
     passport.authenticate('google', { session: false, failureRedirect: 'http://localhost:5173/login?error=failed' }),
     (req, res) => {
+        // Enforce suspension even in legacy flow
+        if (req.user && req.user.status === 'suspended') {
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+            return res.redirect(`${frontendUrl}/login?error=suspended`);
+        }
+
         // Generate Tokens using shared logic
         const { accessToken, refreshToken } = GENERATE_TOKENS(req.user);
         SET_COOKIES(res, accessToken, refreshToken);

@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import api from '../services/api'
 import Loading from '../components/Loading'
 import { logger } from '../utils/logger'
-import { connectSocket, disconnectSocket } from '../utils/socket'
+import { connectSocket, disconnectSocket, getSocket } from '../utils/socket'
 import { getDashboardRoute } from '../utils/roleRoutes'
 
 export const AuthContext = createContext()
@@ -130,6 +130,23 @@ const AuthProvider = ({ children }) => {
     window.addEventListener('auth:unauthorized', handleAuthError)
     window.addEventListener('storage', handleStorageChange)
 
+    // Socket listener for real-time suspension/deletion logout
+    const s = getSocket()
+    const handleSuspended = (data) => {
+      const myId = user?._id || user?.id
+      if (!myId) return
+
+      const isAffected = (data.userId && data.userId === myId) ||
+        (data.userIds && data.userIds.some(id => id.toString() === myId.toString()))
+
+      if (isAffected) {
+        logout()
+        // Force redirect to login with query param to explain why
+        window.location.replace('/login?error=account_deactivated')
+      }
+    }
+    s.on('user:suspended', handleSuspended)
+
     let inactivityTimer
     const resetTimer = () => {
       if (inactivityTimer) clearTimeout(inactivityTimer)
@@ -149,6 +166,7 @@ const AuthProvider = ({ children }) => {
     return () => {
       window.removeEventListener('auth:unauthorized', handleAuthError)
       window.removeEventListener('storage', handleStorageChange)
+      s.off('user:suspended', handleSuspended) // Clean up socket listener
       if (inactivityTimer) clearTimeout(inactivityTimer)
       events.forEach(event => window.removeEventListener(event, resetTimer))
     }

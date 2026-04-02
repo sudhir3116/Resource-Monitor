@@ -43,6 +43,17 @@ const ProtectedRoute = ({
     )
   }
 
+  // Suspension check
+  if (user.status === 'suspended') {
+    return (
+      <Navigate
+        to="/login"
+        state={{ from: location.pathname, error: 'Your account has been suspended.' }}
+        replace
+      />
+    )
+  }
+
   // Role check — case insensitive
   const userRole = (user.role || '').toLowerCase()
   const allowed = allowedRoles.map(r => r.toLowerCase())

@@ -13,7 +13,6 @@ import {
 } from 'chart.js';
 import { useTheme } from '../../context/ThemeContext';
 
-// Register ChartJS components
 ChartJS.register(
     CategoryScale,
     LinearScale,
@@ -25,59 +24,70 @@ ChartJS.register(
     Filler
 );
 
+const RESOURCE_COLORS = {
+    Electricity: '#eab308',
+    Water: '#3b82f6',
+    Diesel: '#1e3a8a',
+    Food: '#16a34a',
+    LPG: '#dc2626',
+    Waste: '#0d9488',
+    Petrol: '#7c3aed',
+    Default: '#64748b'
+};
+
 export default function TrendChart({ data, resources, title, height = 300 }) {
     const { theme } = useTheme();
     const isDark = theme === 'dark';
 
-    if (!data || data.length === 0) {
+    if (!data || data.length === 0 || !data[0]?.data) {
         return (
-            <div className="flex flex-col items-center justify-center p-20 bg-slate-50 dark:bg-slate-900/50 rounded-[40px] border border-dashed border-slate-200 dark:border-white/5">
-                <p className="text-slate-400 dark:text-slate-500 font-black uppercase tracking-[0.4em] text-xs">No Telemetry Stream Detected</p>
+            <div className="flex flex-col items-center justify-center h-full min-h-[200px]" style={{ color: 'var(--text-secondary)' }}>
+                <p className="text-sm font-medium opacity-50 uppercase tracking-widest">No data available</p>
             </div>
         );
     }
 
-    // Prepare chart data
     const labels = data[0]?.data?.map(d => {
         const date = new Date(d.date);
         return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     }) || [];
 
-    const datasets = data.map((trend, index) => {
-        const resource = (resources || []).find(r => r.name === trend.resource);
-        const color = resource?.color || ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#0ea5e9'][index % 6];
-        const emoji = resource?.icon || resource?.emoji || '📊';
+    const datasets = data.map((trend) => {
+        const resourceName = trend.resource || 'Unknown';
+        const color = RESOURCE_COLORS[resourceName] || RESOURCE_COLORS.Default;
+        const resourceMeta = resources?.find(r => r.name === resourceName);
+        const unit = resourceMeta?.unit || '';
+
         return {
-            label: `${emoji} ${resource?.name || trend.resource || 'UNKNOWN'}`,
-            data: trend.data.map(d => d.value),
+            label: resourceName,
+            data: trend.data.map(d => d.value || d.total || 0),
             borderColor: color,
-            backgroundColor: color + '33', // gradient fill
-            borderWidth: 4,
-            tension: 0.45,
+            backgroundColor: (context) => {
+                const chart = context.chart;
+                const { ctx, chartArea } = chart;
+                if (!chartArea) return null;
+                const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                gradient.addColorStop(0, color + '33'); // 20% opacity at top
+                gradient.addColorStop(1, color + '00'); // 0% opacity at bottom
+                return gradient;
+            },
+            borderWidth: 2.5,
+            tension: 0.4,
             fill: true,
-            pointRadius: 6,
-            pointHoverRadius: 10,
-            pointBackgroundColor: color,
-            pointBorderColor: isDark ? '#0f172a' : '#fff',
-            pointBorderWidth: 3,
+            pointRadius: 0,
+            pointHoverRadius: 5,
             pointHoverBackgroundColor: color,
             pointHoverBorderColor: '#fff',
-            pointHoverBorderWidth: 4,
+            pointHoverBorderWidth: 2,
+            unit // store unit for tooltip
         };
     });
 
-    const chartData = {
-        labels,
-        datasets
-    };
+    const chartData = { labels, datasets };
 
     const options = {
         responsive: true,
         maintainAspectRatio: false,
-        animation: {
-            duration: 1200,
-            easing: 'easeInOutQuart',
-        },
         plugins: {
             legend: {
                 display: true,
@@ -85,42 +95,29 @@ export default function TrendChart({ data, resources, title, height = 300 }) {
                 align: 'end',
                 labels: {
                     usePointStyle: true,
-                    pointStyle: 'rectRounded',
-                    padding: 30,
+                    pointStyle: 'circle',
+                    padding: 20,
                     color: isDark ? '#94a3b8' : '#64748b',
-                    font: {
-                        size: 13,
-                        weight: 'bold',
-                        family: 'Outfit'
-                    }
+                    font: { size: 12, weight: '600', family: 'Inter, sans-serif' }
                 }
             },
             tooltip: {
                 mode: 'index',
                 intersect: false,
-                backgroundColor: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-                titleColor: isDark ? '#f8fafc' : '#0f172a',
-                bodyColor: isDark ? '#94a3b8' : '#64748b',
-                padding: 16,
-                cornerRadius: 20,
-                titleFont: {
-                    size: 15,
-                    weight: 'bold',
-                    family: 'Outfit'
-                },
-                bodyFont: {
-                    size: 13,
-                    weight: 'bold',
-                    family: 'Outfit'
-                },
+                backgroundColor: isDark ? '#1e293b' : '#fff',
+                titleColor: isDark ? '#f1f5f9' : '#0f172a',
+                bodyColor: isDark ? '#94a3b8' : '#475569',
+                borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
                 borderWidth: 1,
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                shadowColor: 'rgba(0,0,0,0.5)',
+                padding: 12,
+                cornerRadius: 8,
+                titleFont: { size: 13, weight: '700' },
+                bodyFont: { size: 12, weight: '500' },
                 callbacks: {
                     label: function (context) {
-                        const label = context.dataset.label || '';
-                        const value = context.parsed.y;
-                        return `${label}: ${value?.toLocaleString?.() ?? value}`;
+                        const val = context.parsed.y;
+                        const unit = context.dataset.unit || '';
+                        return ` ${context.dataset.label}: ${val.toLocaleString()} ${unit}`;
                     }
                 }
             }
@@ -129,47 +126,29 @@ export default function TrendChart({ data, resources, title, height = 300 }) {
             y: {
                 beginAtZero: true,
                 grid: {
-                    color: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)',
+                    color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)',
                     drawBorder: false
                 },
                 ticks: {
-                    padding: 15,
-                    color: isDark ? '#475569' : '#94a3b8',
-                    font: {
-                        size: 12,
-                        weight: 'bold',
-                        family: 'Outfit'
-                    }
+                    color: isDark ? '#64748b' : '#94a3b8',
+                    font: { size: 11, weight: '500' },
+                    callback: (value) => value >= 1000 ? (value / 1000) + 'k' : value
                 }
             },
             x: {
-                grid: {
-                    display: false,
-                    drawBorder: false
-                },
+                grid: { display: false, drawBorder: false },
                 ticks: {
-                    padding: 15,
-                    color: isDark ? '#475569' : '#94a3b8',
-                    font: {
-                        size: 12,
-                        weight: 'bold',
-                        family: 'Outfit'
-                    }
+                    color: isDark ? '#64748b' : '#94a3b8',
+                    font: { size: 11, weight: '500' }
                 }
             }
         },
-        interaction: {
-            mode: 'nearest',
-            axis: 'x',
-            intersect: false
-        }
+        interaction: { mode: 'index', intersect: false }
     };
 
     return (
-        <div className="p-8 pb-12">
-            <div style={{ height, position: 'relative' }}>
-                <Line data={chartData} options={options} />
-            </div>
+        <div className="w-full" style={{ height }}>
+            <Line data={chartData} options={options} />
         </div>
     );
 }

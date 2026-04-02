@@ -1,433 +1,339 @@
-import React, { useEffect, useState, useContext, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
-import { getSocket } from '../utils/socket';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { AuthContext } from '../context/AuthContext';
-import { ROLES } from '../utils/roles';
-import { exportToCSV } from '../utils/export';
 import {
-  Plus,
-  Search,
-  Download,
-  Edit2,
-  Trash2,
-  Zap,
-  Droplets,
-  Flame,
-  Wind,
-  Sun,
-  Trash,
-  Filter,
-  Activity
+    Search,
+    Download,
+    RefreshCw,
+    ArrowLeft,
+    Filter,
+    Calendar,
+    Activity,
+    Trash2,
+    Edit2
 } from 'lucide-react';
+import { AuthContext } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { logger } from '../utils/logger';
+import { exportToCSV } from '../utils/export';
+import { ROLES } from '../utils/roles';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import EmptyState from '../components/common/EmptyState';
-import { ConfirmModal } from '../components/common/Modal';
-import { useToast } from '../context/ToastContext';
-import useSortableTable from '../hooks/useSortableTable';
-import SortIcon from '../components/common/SortIcon';
 import TableSkeleton from '../components/common/TableSkeleton';
+import SortIcon from '../components/common/SortIcon';
+import useSortableTable from '../hooks/useSortableTable';
 import timeAgo from '../utils/timeAgo';
-import { logger } from '../utils/logger';
+import { ConfirmModal } from '../components/common/Modal';
 
-import { useResources } from '../hooks/useResources';
-
-const renderResIcon = (resName, resources) => {
-  const r = (resources || []).find(rc => rc.name === resName);
-  const icon = r?.icon || r?.emoji || '📊';
-  const color = r?.color || '#3B82F6';
-  if (typeof icon === 'string' && icon.length <= 4) return <span style={{ color }}>{icon}</span>;
-  return <Activity size={16} style={{ color }} />;
-};
-
+/**
+ * @desc Full usage history view with advanced filtering and search
+ */
 export default function UsageList() {
-  const { resources: globalResources } = useResources();
-  const [usages, setUsages] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [searchParams] = useSearchParams();
-  const [resourceFilter, setResourceFilter] = useState(searchParams.get('resource') || 'All');
-  const [blockFilter, setBlockFilter] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [sortMode, setSortMode] = useState('newest');
-  const [blocks, setBlocks] = useState([]);
-  const [dynamicResources, setDynamicResources] = useState([]);
-  const [deleteId, setDeleteId] = useState(null);
-  const [deleteItem, setDeleteItem] = useState(null);
+    const navigate = useNavigate();
+    const { user } = useContext(AuthContext);
+    const { addToast } = useToast();
 
-  const { user } = useContext(AuthContext);
-  const { addToast } = useToast();
-  const navigate = useNavigate();
+    const [loading, setLoading] = useState(true);
+    const [usages, setUsages] = useState([]);
+    const [blocks, setBlocks] = useState([]);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filters, setFilters] = useState({
+        resource: 'All',
+        block: 'All',
+        date: ''
+    });
 
-  const canEdit = user && [ROLES.ADMIN, ROLES.WARDEN].includes(user.role);
-  const canDelete = user && [ROLES.ADMIN].includes(user.role);
-  const showActions = canEdit || canDelete;
-  const isExecutive = user && [ROLES.DEAN, ROLES.ADMIN, ROLES.GM].includes(user.role);
-  const showBlockFilter = isExecutive;
+    const [deleteId, setDeleteId] = useState(null);
+    const [deleteItem, setDeleteItem] = useState(null);
 
-  useEffect(() => {
-    async function init() {
-      setLoading(true);
-      try {
-        const [configRes] = await Promise.all([
-          api.get('/api/resource-config'),
-        ]);
-        setDynamicResources(configRes.data.data || []);
+    const canEdit = user && [ROLES.WARDEN].includes(user.role);
+    const canDelete = user && [ROLES.ADMIN].includes(user.role);
+    const showActions = canEdit || canDelete;
 
-        if (showBlockFilter) {
-          const blockRes = await api.get('/api/admin/blocks').catch(() => ({ data: { data: [] } }));
-          setBlocks(blockRes.data.data || []);
+    const fetchMeta = useCallback(async () => {
+        try {
+            const res = await api.get('/api/admin/blocks');
+            setBlocks(res.data.data || []);
+        } catch (e) {
+            logger.error('Failed to fetch blocks', e);
+        }
+    }, []);
+
+    const fetchUsages = useCallback(async () => {
+        setLoading(true);
+        try {
+            const params = new URLSearchParams();
+            if (filters.resource !== 'All') params.set('resource', filters.resource);
+            if (filters.block !== 'All') params.set('blockId', filters.block);
+            if (filters.date) params.set('startDate', filters.date);
+
+            // Get last 200 records for the global list
+            params.set('limit', '200');
+
+            const res = await api.get(`/api/usage?${params.toString()}`);
+            const data = res.data?.data || res.data?.usages || (Array.isArray(res.data) ? res.data : []);
+            setUsages(Array.isArray(data) ? data : []);
+        } catch (err) {
+            logger.error('Failed to fetch usages', err);
+            addToast('Error loading usage data', 'error');
+        } finally {
+            setLoading(false);
+        }
+    }, [filters, addToast]);
+
+    useEffect(() => {
+        fetchMeta();
+        fetchUsages();
+    }, [fetchMeta, fetchUsages]);
+
+    const filteredUsages = useMemo(() => {
+        return usages.filter(u => {
+            const search = searchTerm.toLowerCase();
+            return (
+                (u.resource_type || '').toLowerCase().includes(search) ||
+                (u.blockId?.name || '').toLowerCase().includes(search) ||
+                (u.userId?.name || '').toLowerCase().includes(search) ||
+                (u.notes || '').toLowerCase().includes(search)
+            );
+        });
+    }, [usages, searchTerm]);
+
+    const { sortedData, sortField, sortDirection, handleSort } = useSortableTable(
+        filteredUsages,
+        'usage_date',
+        [searchTerm]
+    );
+
+    const handleExport = () => {
+        if (sortedData.length === 0) {
+            addToast('No data to export', 'warning');
+            return;
         }
 
-        await load();
-      } catch (err) {
-        logger.error('UsageList init error:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
+        const dataToExport = sortedData.map(u => ({
+            Resource: u.resource_type,
+            Consumption: u.usage_value,
+            Unit: u.unit || 'units',
+            Location: u.blockId?.name || 'N/A',
+            Date: new Date(u.usage_date).toLocaleString(),
+            LoggedBy: u.userId?.name || 'N/A',
+            Notes: u.notes || ''
+        }));
 
-    init();
-
-    const socket = getSocket();
-    const refresh = () => load();
-
-    if (socket) {
-      socket.on('usage:refresh', refresh);
-      socket.on('usage:added', refresh);
-    }
-
-    window.addEventListener('usage:added', refresh);
-
-    return () => {
-      if (socket) {
-        socket.off('usage:refresh', refresh);
-        socket.off('usage:added', refresh);
-      }
-      window.removeEventListener('usage:added', refresh);
+        exportToCSV(dataToExport, `usage_history_${new Date().toISOString().split('T')[0]}.csv`);
+        addToast('File exported successfully', 'success');
     };
-  }, []);
 
-  useEffect(() => {
-    load();
-  }, [resourceFilter, blockFilter, startDate, endDate, sortMode]);
+    const handleDelete = async () => {
+        if (!deleteId) return;
+        try {
+            await api.delete(`/api/usage/${deleteId}`);
+            addToast('Record deleted');
+            fetchUsages();
+        } catch (err) {
+            addToast('Failed to delete record', 'error');
+        } finally {
+            setDeleteId(null);
+            setDeleteItem(null);
+        }
+    };
 
-  async function load() {
-    try {
-      const params = new URLSearchParams();
-      if (resourceFilter && resourceFilter !== 'All') {
-        params.set('resource_type', resourceFilter);
-      }
-      if (blockFilter) {
-        params.set('blockId', blockFilter);
-      }
-      if (startDate) {
-        params.set('startDate', startDate);
-      }
-      if (endDate) {
-        params.set('endDate', endDate);
-      }
+    const resourceTypes = [...new Set(usages.map(u => u.resource_type).filter(Boolean))];
 
-      if (sortMode === 'highest_consumption') {
-        params.set('sort', '-usage_value');
-      } else if (sortMode === 'oldest') {
-        params.set('sort', 'usage_date');
-      } else if (sortMode === 'block_name') {
-        params.set('sort', 'blockId');
-      } else {
-        params.set('sort', '-usage_date');
-      }
+    return (
+        <div className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => navigate(-1)}
+                        className="p-2 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all"
+                    >
+                        <ArrowLeft size={18} />
+                    </button>
+                    <div>
+                        <h1 className="text-2xl font-black text-primary">Usage History</h1>
+                        <p className="text-sm text-secondary font-medium">Viewing all resource consumption records</p>
+                    </div>
+                </div>
 
-      const res = await api.get(`/api/usage?${params.toString()}`);
-      const arr =
-        res.data?.data ||
-        res.data?.usages ||
-        (Array.isArray(res.data) ? res.data : []);
-      setUsages(Array.isArray(arr) ? arr : []);
-    } catch (err) {
-      addToast('Failed to load usage records', 'error');
-      setUsages([]);
-    }
-  }
-
-  async function handleDelete() {
-    if (!deleteId) return;
-    try {
-      await api.delete(`/api/usage/${deleteId}`);
-      await load();
-      addToast('Record deleted successfully');
-    } catch (err) {
-      addToast(err.response?.data?.message || 'Failed to delete record', 'error');
-    } finally {
-      setDeleteId(null);
-      setDeleteItem(null);
-    }
-  }
-
-  const confirmDelete = (item) => {
-    setDeleteItem(item);
-    setDeleteId(item._id);
-  };
-
-  const filteredUsages = useMemo(() => {
-    return usages.filter(u => {
-      const matchesSearch = (u.userId?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (u.notes || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (u.resource_type || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (u.blockId?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
-      return matchesSearch;
-    });
-  }, [usages, searchTerm]);
-
-  const { sortedData: finalUsages, sortField, sortDirection, handleSort } = useSortableTable(
-    filteredUsages,
-    'usage_date',
-    [searchTerm, blockFilter, startDate, endDate, sortMode]
-  );
-
-  const getResourceIcon = (type) => {
-    const r = (globalResources || []).find(res => res.name === type);
-    const icon = r?.icon || r?.emoji || '📊';
-    const color = r?.color || '#3B82F6';
-    if (typeof icon === 'string' && icon.length <= 4) return <span style={{ color }}>{icon}</span>;
-    return <Activity size={16} style={{ color }} />;
-  };
-
-  const handleExport = () => {
-    if (finalUsages.length === 0) {
-      addToast('No records to export', 'warning');
-      return;
-    }
-    const dataToExport = finalUsages.map(u => ({
-      Resource: u.resource_type,
-      Value: u.usage_value,
-      Unit: u.unit || 'units',
-      Location: u.blockId?.name || 'N/A',
-      Date: new Date(u.usage_date).toLocaleString(),
-      LoggedBy: u.createdBy?.name || 'N/A',
-      Notes: u.notes || ''
-    }));
-    exportToCSV(dataToExport, `usage_records_${new Date().toISOString().split('T')[0]}.csv`);
-    addToast('Usage data exported');
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--border-color)]">
-        <div>
-          <h1 className="text-xl font-semibold text-[var(--text-primary)]">
-            {resourceFilter !== 'All'
-              ? `${resourceFilter} Usage Details`
-              : 'Usage Records'
-            }
-          </h1>
-          <p className="text-[var(--text-secondary)] text-xs mt-1">
-            {resourceFilter !== 'All'
-              ? `Showing all ${resourceFilter} records`
-              : 'View and manage resource consumption logs'
-            }
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={handleExport} disabled={loading || usages.length === 0}>
-            <Download size={16} className="mr-2" />
-            Export
-          </Button>
-          {canEdit && (
-            <Button variant="primary" onClick={() => navigate(
-              user?.role === 'warden' ? '/warden/usage/new'
-                : user?.role === 'admin' ? '/admin/usage/new'
-                  : '/usage/new'
-            )}>
-              <Plus size={16} className="mr-2" />
-              Log Usage
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-[var(--text-secondary)] font-medium">
-          Filter by:
-        </span>
-        <div className="flex gap-1 p-1 rounded-xl bg-[var(--bg-muted)]/50 border border-[var(--border-color)]">
-          {['All', ...(globalResources?.map(r => r.name) || [])].map(res => (
-            <button
-              key={res}
-              onClick={() => setResourceFilter(res)}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${resourceFilter === res
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                }`}
-            >
-              {res}
-            </button>
-          ))}
-        </div>
-      </div>
-      <Card>
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-              <input
-                type="text"
-                placeholder="Search records..."
-                className="input pl-10 w-full"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-              />
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={fetchUsages}
+                        className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all flex items-center justify-center"
+                        title="Refresh Data"
+                    >
+                        <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+                    </button>
+                    <Button variant="secondary" onClick={handleExport} disabled={loading || sortedData.length === 0}>
+                        <Download size={18} className="mr-2" /> Export CSV
+                    </Button>
+                </div>
             </div>
-            <select
-              className="input w-full md:w-48"
-              value={resourceFilter}
-              onChange={e => setResourceFilter(e.target.value)}
-            >
-              <option value="All">All Resources</option>
-              {dynamicResources.map(r => (
-                <option key={r._id} value={r.name}>{r.name}</option>
-              ))}
-            </select>
-          </div>
 
-          {showBlockFilter && (
-            <div className="flex flex-col md:flex-row gap-3 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-              <div className="flex items-center gap-1 text-xs font-medium" style={{ color: 'var(--text-secondary)', minWidth: 70 }}>
-                <Filter size={13} /> Filters
-              </div>
-              <select
-                className="input text-sm"
-                style={{ minWidth: 150 }}
-                value={blockFilter}
-                onChange={e => setBlockFilter(e.target.value)}
-              >
-                <option value="">All Blocks</option>
-                {blocks.map(b => (
-                  <option key={b._id} value={b._id}>{b.name}</option>
-                ))}
-              </select>
+            {/* Advanced Filters */}
+            <Card className="p-4 bg-[var(--bg-muted)]/30">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                    <div className="relative">
+                        <label className="text-[10px] uppercase font-black tracking-widest text-secondary mb-1.5 block">Search Records</label>
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                            <input
+                                type="text"
+                                placeholder="Filter by user or notes..."
+                                className="input pl-9 h-10 text-sm"
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                    </div>
 
-              <input
-                type="date"
-                className="input text-sm"
-                value={startDate}
-                onChange={e => setStartDate(e.target.value)}
-              />
-              <input
-                type="date"
-                className="input text-sm"
-                value={endDate}
-                onChange={e => setEndDate(e.target.value)}
-              />
+                    <div>
+                        <label className="text-[10px] uppercase font-black tracking-widest text-secondary mb-1.5 block">Resource Type</label>
+                        <div className="relative">
+                            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                            <select
+                                className="input pl-9 h-10 text-sm appearance-none"
+                                value={filters.resource}
+                                onChange={e => setFilters({ ...filters, resource: e.target.value })}
+                            >
+                                <option value="All">All Resources</option>
+                                {resourceTypes.map(rt => <option key={rt} value={rt}>{rt}</option>)}
+                            </select>
+                        </div>
+                    </div>
 
-              <select
-                className="input text-sm"
-                style={{ minWidth: 180 }}
-                value={sortMode}
-                onChange={e => setSortMode(e.target.value)}
-              >
-                <option value="newest">Sort: Newest First</option>
-                <option value="oldest">Sort: Oldest First</option>
-                <option value="highest_consumption">Sort: Highest Consumption</option>
-                <option value="block_name">Sort: Block Name</option>
-              </select>
+                    <div>
+                        <label className="text-[10px] uppercase font-black tracking-widest text-secondary mb-1.5 block">Block/Area</label>
+                        <div className="relative">
+                            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                            <select
+                                className="input pl-9 h-10 text-sm appearance-none"
+                                value={filters.block}
+                                onChange={e => setFilters({ ...filters, block: e.target.value })}
+                            >
+                                <option value="All">All Areas</option>
+                                {blocks.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
+                            </select>
+                        </div>
+                    </div>
 
-              {(blockFilter || startDate || endDate) && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => { setBlockFilter(''); setStartDate(''); setEndDate(''); setSortMode('newest'); }}
-                >
-                  Clear
-                </Button>
-              )}
-            </div>
-          )}
+                    <div>
+                        <label className="text-[10px] uppercase font-black tracking-widest text-secondary mb-1.5 block">From Date</label>
+                        <div className="relative">
+                            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                            <input
+                                type="date"
+                                className="input pl-9 h-10 text-sm"
+                                value={filters.date}
+                                onChange={e => setFilters({ ...filters, date: e.target.value })}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </Card>
+
+            <Card flush className="overflow-hidden">
+                {loading && usages.length === 0 ? (
+                    <TableSkeleton rows={8} columns={5} />
+                ) : sortedData.length === 0 ? (
+                    <div className="py-20">
+                        <EmptyState
+                            icon={<Activity size={48} className="text-slate-300" />}
+                            title="No records found"
+                            description="Adjust your filters or search term to find what you're looking for."
+                        />
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="table">
+                            <thead>
+                                <tr>
+                                    <th onClick={() => handleSort('resource_type')} className="cursor-pointer group">
+                                        Resource <SortIcon field="resource_type" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
+                                    <th onClick={() => handleSort('blockId.name')} className="cursor-pointer group">
+                                        Location <SortIcon field="blockId.name" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
+                                    <th onClick={() => handleSort('usage_value')} className="cursor-pointer group">
+                                        Consumption <SortIcon field="usage_value" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
+                                    <th onClick={() => handleSort('usage_date')} className="cursor-pointer group">
+                                        Recorded <SortIcon field="usage_date" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
+                                    <th onClick={() => handleSort('userId.name')} className="cursor-pointer group">
+                                        Logged By <SortIcon field="userId.name" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
+                                    {showActions && <th className="text-right">Actions</th>}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sortedData.map(u => (
+                                    <tr key={u._id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                        <td>
+                                            <div className="font-bold flex items-center gap-2">
+                                                <div className="w-2 h-2 rounded-full bg-blue-500" />
+                                                {u.resource_type}
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <Badge variant="secondary" className="font-medium">
+                                                {u.blockId?.name || 'N/A'}
+                                            </Badge>
+                                        </td>
+                                        <td className="font-bold tabular-nums">
+                                            {u.usage_value.toLocaleString()} <span className="text-[10px] text-secondary font-normal">{u.unit || 'units'}</span>
+                                        </td>
+                                        <td className="text-sm font-medium text-secondary">
+                                            {new Date(u.usage_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                                            <span className="ml-2 opacity-50 text-[10px]">{new Date(u.usage_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                        </td>
+                                        <td>
+                                            <div className="text-sm font-semibold truncate max-w-[120px]">
+                                                {u.userId?.name || 'System'}
+                                            </div>
+                                        </td>
+                                        {showActions && (
+                                            <td className="text-right">
+                                                <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {canEdit && (
+                                                        <Button size="sm" variant="secondary" className="!p-1.5 h-8 w-8" onClick={() => navigate(`/warden/usage/${u._id}/edit`)}>
+                                                            <Edit2 size={14} />
+                                                        </Button>
+                                                    )}
+                                                    {canDelete && (
+                                                        <Button size="sm" variant="danger" className="!p-1.5 h-8 w-8" onClick={() => { setDeleteItem(u); setDeleteId(u._id); }}>
+                                                            <Trash2 size={14} />
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        )}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
+                <div className="p-4 border-t border-[var(--border-color)] bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
+                    <p className="text-xs font-bold text-secondary uppercase tracking-widest">
+                        Total {sortedData.length} records in view
+                    </p>
+                    <div className="text-[10px] font-black uppercase text-secondary opacity-50">
+                        Showing last 200 activity entries
+                    </div>
+                </div>
+            </Card>
+
+            <ConfirmModal
+                isOpen={!!deleteId}
+                onClose={() => { setDeleteId(null); setDeleteItem(null); }}
+                onConfirm={handleDelete}
+                title="Delete Usage Record"
+                message={deleteItem ? `Confirm deletion of ${deleteItem.resource_type} entry for ${deleteItem.blockId?.name}?` : "Proceed with deletion?"}
+            />
         </div>
-      </Card>
-
-      <Card>
-        {loading ? (
-          <TableSkeleton rows={5} columns={5} />
-        ) : finalUsages.length === 0 ? (
-          <EmptyState title="No Records Found" description="Try adjusting your filters or add a new record." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th onClick={() => handleSort('resource_type')} className={`cursor-pointer ${sortField === 'resource_type' ? 'text-blue-600' : ''}`}>
-                    Resource <SortIcon field="resource_type" sortField={sortField} sortDirection={sortDirection} />
-                  </th>
-                  <th onClick={() => handleSort('blockId.name')} className={`cursor-pointer ${sortField === 'blockId.name' ? 'text-blue-600' : ''}`}>
-                    Location <SortIcon field="blockId.name" sortField={sortField} sortDirection={sortDirection} />
-                  </th>
-                  <th onClick={() => handleSort('usage_value')} className={`cursor-pointer ${sortField === 'usage_value' ? 'text-blue-600' : ''}`}>
-                    Value <SortIcon field="usage_value" sortField={sortField} sortDirection={sortDirection} />
-                  </th>
-                  <th onClick={() => handleSort('usage_date')} className={`cursor-pointer ${sortField === 'usage_date' ? 'text-blue-600' : ''}`}>
-                    Date <SortIcon field="usage_date" sortField={sortField} sortDirection={sortDirection} />
-                  </th>
-                  <th onClick={() => handleSort('createdBy.name')} className={`cursor-pointer ${sortField === 'createdBy.name' ? 'text-blue-600' : ''}`}>
-                    Logged By <SortIcon field="createdBy.name" sortField={sortField} sortDirection={sortDirection} />
-                  </th>
-                  {showActions && <th className="text-right">Actions</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {finalUsages.map(u => {
-                  const resName = u.resource_type;
-                  const resUnit = u.unit || 'units';
-                  const resValue = u.usage_value ?? 0;
-
-                  return (
-                    <tr key={u._id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                      <td className="py-4 font-bold">{resName}</td>
-                      <td className="py-4">{u.blockId?.name || 'N/A'}</td>
-                      <td className="py-4">
-                        {resValue.toLocaleString()} <span className="text-[10px] text-slate-400">{resUnit}</span>
-                      </td>
-                      <td>{timeAgo(u.usage_date)}</td>
-                      <td>{u.createdBy?.name || 'System'}</td>
-                      {showActions && (
-                        <td className="text-right">
-                          <div className="flex justify-end gap-2">
-                            {canEdit && (
-                              <Button size="sm" variant="secondary" onClick={() => navigate(`/usage/${u._id}/edit`)}>
-                                <Edit2 size={14} />
-                              </Button>
-                            )}
-                            {canDelete && (
-                              <Button size="sm" variant="danger" onClick={() => confirmDelete(u)}>
-                                <Trash2 size={14} />
-                              </Button>
-                            )}
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-
-      <ConfirmModal
-        isOpen={!!deleteId}
-        onClose={() => { setDeleteId(null); setDeleteItem(null); }}
-        onConfirm={handleDelete}
-        title="Delete Usage Record"
-        message={deleteItem
-          ? `Are you sure you want to delete the ${deleteItem.resource_type} usage record of ${deleteItem.usage_value} units recorded on ${new Date(deleteItem.usage_date).toLocaleDateString()}?`
-          : "Are you sure you want to delete this record?"}
-      />
-    </div>
-  );
+    );
 }

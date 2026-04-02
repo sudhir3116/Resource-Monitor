@@ -203,7 +203,7 @@ exports.getBillEstimate = async (req, res) => {
  */
 exports.getBlockComparison = async (req, res) => {
   try {
-    if (![ROLES.ADMIN, ROLES.DEAN].includes(req.user.role)) {
+    if (![ROLES.ADMIN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         error: 'Access denied'
@@ -751,10 +751,10 @@ exports.exportPDF = async (req, res) => {
 exports.getManagementReport = async (req, res) => {
   try {
     // Role check
-    if (!['admin', 'gm', 'dean'].includes(req.user.role)) {
+    if (!['admin', 'gm', 'dean', 'principal'].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
-        message: 'Access denied. Only admin, GM, and Dean can access this report.'
+        message: 'Access denied. Only authorized executive roles can access this report.'
       });
     }
 

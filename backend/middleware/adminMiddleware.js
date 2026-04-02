@@ -13,11 +13,23 @@ module.exports = (req, res, next) => {
     const role = (req.user.role || '').toLowerCase();
     const isAdmin = role === ROLES.ADMIN;
     const isGM = role === ROLES.GM;
+    const isExecutive = [ROLES.DEAN, ROLES.PRINCIPAL].includes(role);
 
     // 1. Admin gets pass-through for everything
     if (isAdmin) return next();
 
-    // 2. GM Role Logic (Limited Control)
+    // 2. Executive Role Logic (Read-only for Admin module)
+    if (isExecutive) {
+        if (req.method === 'GET') {
+            return next();
+        }
+        return res.status(403).json({
+            success: false,
+            message: `Dean/Principal roles are restricted to read-only access (GET) in the Administrative module.`
+        });
+    }
+
+    // 3. GM Role Logic (Limited Control)
     if (isGM) {
         const method = req.method.toUpperCase();
         const url = req.originalUrl;
@@ -32,17 +44,13 @@ module.exports = (req, res, next) => {
             return res.status(403).json({ success: false, message: 'GM cannot modify administrative user roles.' });
         }
 
-        // GM CANNOT: Create new resources or blocks (Rule from Part 1/2) 
+        // GM CANNOT: Create new resources or blocks
         if ((url.includes('/resources') || url.includes('/blocks')) && method === 'POST') {
             return res.status(403).json({ success: false, message: 'GM cannot create new core system modules (Resources/Blocks).' });
         }
 
         // GM CANNOT: Modify system config keys
         if (url.includes('/config') && method !== 'GET') {
-            // But allow specifically threshold/resource config? 
-            // The rules say: "GM CAN EDIT: cost per unit, daily limit, monthly limit"
-            // Those go through /api/resource-config or /api/resources, handled separately.
-            // General /config routes are restricted.
             return res.status(403).json({ success: false, message: 'GM cannot modify core system configurations.' });
         }
 

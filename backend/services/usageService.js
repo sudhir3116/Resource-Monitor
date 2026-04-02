@@ -133,15 +133,66 @@ exports.getUsageSummary = async (options = {}) => {
     }
     const alertsCount = await Alert.countDocuments(alertFilter);
 
+    const sustainabilityScore = await calculateSustainabilityScore(uId, normalizedRole, bId);
+
     return {
         summary,
         summaryArray,
         grandTotal: Math.round(grandTotal * 100) / 100,
         alertsCount,
         resourceCount: configs.length,
+        sustainabilityScore,
         role: normalizedRole
     };
 };
+
+/**
+ * calculateSustainabilityScore
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Calculates the score based on thresholds and trends.
+ */
+async function calculateSustainabilityScore(userId, userRole, blockId) {
+    try {
+        let score = 100;
+        const now = new Date();
+        const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        let matchStage = { usage_date: { $gte: currentMonthStart }, deleted: { $ne: true } };
+
+        if (userRole === 'student') {
+            if (blockId) matchStage.blockId = blockId;
+            else if (userId) matchStage.userId = userId;
+            else return 0;
+        } else if (userRole === 'warden' && blockId) {
+            matchStage.blockId = blockId;
+        }
+
+        const usageStats = await Usage.aggregate([
+            { $match: matchStage },
+            { $group: { _id: '$resource_type', total: { $sum: '$usage_value' } } }
+        ]);
+
+        let totalPenalty = 0;
+        // If it's block-wide data (common for students viewing block stats), we use higher thresholds.
+        // Otherwise, it's individual usage and we use personal thresholds.
+        const multiplier = (blockId) ? 50 : 1;
+
+        usageStats.forEach(stat => {
+            const type = stat._id;
+            const total = stat.total || 0;
+            if (type === 'Solar' && total > (100 * multiplier)) totalPenalty -= 10;
+            if (type === 'Waste' && total > (100 * multiplier)) totalPenalty += 20;
+            if (type === 'Diesel' && total > (50 * multiplier)) totalPenalty += 20;
+            if (type === 'Electricity' && total > (1000 * multiplier)) totalPenalty += 15;
+            if (type === 'Water' && total > (5000 * multiplier)) totalPenalty += 10;
+        });
+
+        score -= totalPenalty;
+        return Math.max(0, Math.min(100, Math.round(score)));
+    } catch (err) {
+        return 70;
+    }
+}
 
 /**
  * getUsageTrends

@@ -38,8 +38,13 @@ const calculateSustainabilityScore = async (userId, userRole, blockId) => {
     let matchStage = { usage_date: { $gte: currentMonthStart } };
 
     if (userRole === 'student' || !userRole) {
-      if (!userId) return 0;
-      matchStage.userId = new mongoose.Types.ObjectId(userId);
+      if (blockId) {
+        matchStage.blockId = blockId;
+      } else if (userId) {
+        matchStage.userId = new mongoose.Types.ObjectId(userId);
+      } else {
+        return 0;
+      }
     } else if (userRole === 'warden' && blockId) {
       matchStage.blockId = blockId;
     } else if (userRole === 'warden' && !blockId) {
@@ -224,14 +229,18 @@ exports.createUsage = async (req, res) => {
       });
     }
 
-    // 5. Create Record (Mapping amount/date to usage_value/usage_date)
     // 5. Create Record
+    const usageAmount = Number(numAmount || finalAmount);
+    const unitCost = resource.costPerUnit || resource.rate || 0;
+    const totalCost = usageAmount * unitCost;
+
     const usage = await Usage.create({
       blockId: blockObjectId,
-      resourceId: resource._id,
+      resourceId: resource._id, // Ensure resource link exists
       resource_type: canonicalResourceType,
-      usage_value: Number(numAmount || finalAmount),
+      usage_value: usageAmount,
       unit: finalUnit,
+      cost: totalCost,
       usage_date: new Date(finalDate),
       notes: resolvedNotes.trim() || "",
       category,
