@@ -333,7 +333,7 @@ function App() {
             {/* ════════════════════════════════════════════════════════════════ */}
             <Route path="/student/dashboard" element={
               <ProtectedRoute allowedRoles={['student', 'admin']}>
-                <UnifiedDashboard />
+                <StudentDashboard />
               </ProtectedRoute>
             } />
             <Route path="/student/complaints" element={

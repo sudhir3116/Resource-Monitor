@@ -243,7 +243,7 @@ const ProfilePage = () => {
                   <label className="text-sm text-gray-400 mb-1 block">Assigned Block (Read-only)</label>
                   <input
                     type="text"
-                    value={profileData.block || 'Not assigned'}
+                    value={typeof profileData.block === 'object' ? profileData.block.name : (profileData.block || 'Not assigned')}
                     disabled
                     className="input-field w-full rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-sm text-slate-400 opacity-60 cursor-not-allowed outline-none"
                   />

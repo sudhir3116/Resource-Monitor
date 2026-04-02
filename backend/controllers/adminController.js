@@ -87,6 +87,15 @@ exports.deleteUser = async (req, res) => {
             changes: { before: user.toObject() }
         });
 
+        try {
+            const socketUtil = require('../utils/socket');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                io.emit('users:refresh');
+                io.emit('dashboard:refresh');
+            }
+        } catch (e) { /* non-fatal */ }
+
         res.json({ success: true, message: 'User deleted successfully' });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Failed to delete user', error: err.message });
@@ -131,44 +140,69 @@ exports.updateUserRole = async (req, res) => {
 
 exports.getSystemUsageSummary = async (req, res) => {
     try {
-        const totalUsers = await User.countDocuments();
-        const totalUsage = await Usage.countDocuments({ deleted: { $ne: true } });
-        const totalAlerts = await Alert.countDocuments();
+        const { getUsageSummary } = require('../services/usageService');
+        const Resource = require('../models/Resource');
+        const Complaint = require('../models/Complaint');
 
-        const [resourceStats, hostelStats] = await Promise.all([
-            Usage.aggregate([
-                { $match: { deleted: { $ne: true } } },
-                { $group: { _id: '$resource_type', total: { $sum: '$usage_value' } } }
-            ]),
-            Usage.aggregate([
-                { $match: { deleted: { $ne: true } } },
-                { $group: { _id: '$category', total: { $sum: '$usage_value' } } }
-            ])
+        const role = (req.user?.role || '').toLowerCase();
+        const results = await Promise.allSettled([
+            User.countDocuments(),
+            Block.countDocuments(),
+            Resource.countDocuments({ isActive: true }),
+            getUsageSummary({ role: role }),
+            Alert.countDocuments({ status: { $ne: 'Resolved' } }),
+            Complaint.countDocuments({ status: { $ne: 'Resolved' } })
         ]);
 
-        const resourceTotals = {};
-        resourceStats.forEach(stat => {
-            resourceTotals[stat._id] = stat.total;
-        });
+        const userCount = results[0].status === 'fulfilled' ? results[0].value : 0;
+        const blockCount = results[1].status === 'fulfilled' ? results[1].value : 0;
+        const resourceCount = results[2].status === 'fulfilled' ? results[2].value : 0;
+        const usageData = results[3].status === 'fulfilled' ? results[3].value : { summary: {}, grandTotal: 0 };
+        const activeAlertsCount = results[4].status === 'fulfilled' ? results[4].value : 0;
+        const unresolvedComplaintsCount = results[5].status === 'fulfilled' ? results[5].value : 0;
 
-        const hostelTotals = {};
-        hostelStats.forEach(stat => {
-            if (stat._id) hostelTotals[stat._id] = stat.total;
-        });
+        // Dashboard models expect different field names (aliasing for compatibility)
+        const responseData = {
+            totalUsers: userCount,
+            totalBlocks: blockCount,
+            totalResources: resourceCount,
+            totalAlerts: activeAlertsCount,
+            activeCampusAlerts: activeAlertsCount, // Principal/GM Alias
+            unresolvedComplaintsCount: unresolvedComplaintsCount, // Admin Alias
+            grandTotal: usageData?.grandTotal || 0,
+            usageSummary: usageData?.summary || {}, // Object mapping
+            summary: usageData?.summary || {},      // Common Alias
+            alertsCount: activeAlertsCount,
+            criticalAlerts: [], // To be populated safely below
+            recentComplaints: []
+        };
 
-        res.json({
+        try {
+            // Fix: Alert uses 'block', Complaint uses 'user' (NOT userId), and Complaint lacks 'block'
+            responseData.criticalAlerts = await Alert.find({ status: { $ne: 'Resolved' } })
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .populate({ path: 'block', select: 'name' })
+                .setOptions({ strictPopulate: false })
+                .lean();
+
+            responseData.recentComplaints = await Complaint.find({ status: { $ne: 'resolved' } })
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .populate({ path: 'user', select: 'name' })
+                .lean();
+        } catch (e) {
+            console.warn('[AdminCtrl] Dashboard sub-fetch failed:', e.message);
+        }
+
+        return res.status(200).json({
             success: true,
-            message: 'System summary fetched',
-            data: {
-                totalUsers,
-                totalUsage,
-                totalAlerts,
-                resourceTotals,
-                hostelTotals
-            }
+            data: responseData,
+            stats: responseData
         });
     } catch (err) {
-        res.status(500).json({ success: false, message: 'Failed to fetch summary', error: err.message });
+        console.error('[AdminCtrl] getSystemUsageSummary error:', err);
+        return res.status(500).json({ success: false, message: err.message });
     }
 };
 
@@ -403,7 +437,16 @@ exports.createUser = async (req, res) => {
         }
 
         // Enforce one warden per block
-        if (block) await enforceOneWardenPerBlock(block, role);
+        if (role === ROLES.WARDEN) {
+            if (!block) {
+                return res.status(400).json({ success: false, message: 'Block assignment is required for Warden role.' });
+            }
+            const blockExists = await Block.findById(block);
+            if (!blockExists) {
+                return res.status(404).json({ success: false, message: 'Assigned block not found.' });
+            }
+            await enforceOneWardenPerBlock(block, role);
+        }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -429,7 +472,7 @@ exports.createUser = async (req, res) => {
             resourceType: 'User',
             resourceId: user._id,
             userId: req.user.id,
-            description: `Created user: ${user.email} (${user.role})`,
+            description: `Created user: ${user.email} (${user.role})${user.block ? ` for ${user.block}` : ''}`,
             ipAddress: req.ip,
             userAgent: req.get('User-Agent'),
             changes: { after: { email: user.email, role: user.role } }
@@ -493,7 +536,16 @@ exports.updateUser = async (req, res) => {
 
         if (blockChanged || (newRole === ROLES.WARDEN && newBlock)) {
             // Enforce one warden per block (exclude current user)
-            if (newBlock) {
+            if (newRole === ROLES.WARDEN) {
+                if (!newBlock) {
+                    return res.status(400).json({ success: false, message: 'Block assignment is required for Warden role.' });
+                }
+                const blockExists = await Block.findById(newBlock);
+                if (!blockExists) {
+                    return res.status(404).json({ success: false, message: 'Assigned block not found.' });
+                }
+                await enforceOneWardenPerBlock(newBlock, newRole, id);
+            } else if (newBlock) {
                 await enforceOneWardenPerBlock(newBlock, newRole, id);
             }
         }

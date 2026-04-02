@@ -202,7 +202,7 @@ const googleLogin = asyncHandler(async (req, res) => {
     }
 
     // Check if user exists
-    let user = await User.findOne({ email: payload.email });
+    let user = await User.findOne({ email: payload.email }).populate('block', 'name');
 
     if (user) {
       console.log('👤 Existing user found - ID:', user._id);

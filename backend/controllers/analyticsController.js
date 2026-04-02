@@ -1,6 +1,19 @@
 const Resource = require('../models/Resource');
+const Usage = require('../models/Usage');
+const Block = require('../models/Block');
+const User = require('../models/User');
 const { ROLES } = require('../config/roles');
 const mongoose = require('mongoose');
+
+// STEP 2: Safe blockId — prevents [object Object] crashes
+const safeBlockId = (raw) => {
+    if (!raw) return null;
+    if (typeof raw === 'object' && raw._id) raw = raw._id;
+    const str = raw.toString();
+    if (str.includes('[object') || str.length !== 24) return null;
+    if (!mongoose.Types.ObjectId.isValid(str)) return null;
+    return new mongoose.Types.ObjectId(str);
+};
 
 /**
  * Calculate percentage change between two values
@@ -58,162 +71,80 @@ const getDateRange = (period) => {
  */
 const getAnalyticsSummary = async (req, res) => {
     try {
-        const { period = 'daily' } = req.query;
+        const { period = 'monthly' } = req.query;
+        const role = (req.user?.role || '').toLowerCase();
+        const isExecutive = ['admin', 'gm', 'dean', 'principal'].includes(role);
+        const blockId = isExecutive ? null : (req.user.block || req.userObj?.block);
+
+        // 1. Build Match Stage (Role-based Filtering)
+        const matchStage = { deleted: { $ne: true } };
+
+        if (!isExecutive) {
+            const blockObjId = safeBlockId(blockId);
+            if (!blockObjId) {
+                console.log(`[Analytics] Non-executive ${role} missing blockId, returning empty.`);
+                return res.status(200).json({ success: true, data: [] });
+            }
+            matchStage.blockId = blockObjId;
+        } else if (req.query.blockId) {
+            // Executives can optionally filter by a specific block via query param
+            const targetBlockId = safeBlockId(req.query.blockId);
+            if (targetBlockId) matchStage.blockId = targetBlockId;
+        }
+
+        console.log(`[Analytics] Role: ${role}, Match:`, JSON.stringify(matchStage));
+
+        // 2. Resolve Date Range
         const ranges = getDateRange(period);
-
-        if (!ranges) {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid period. Use daily, weekly, or monthly'
-            });
+        if (ranges) {
+            matchStage.usage_date = { $gte: ranges.current.start, $lte: ranges.current.end };
+        } else {
+            // Default to 30 days if range failed
+            const days = parseInt(req.query.range) || 30;
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            matchStage.usage_date = { $gte: startDate };
         }
 
-        const role = (req.user.role || '').toLowerCase()
-        let filter = {}
-
-        if (role === 'warden' || role === 'student') {
-            const user = await require('../models/User').findById(req.user.id);
-            const blockId = user?.block || user?.blockId;
-            if (!blockId) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Not assigned to any block'
-                })
-            }
-            filter.blockId = new mongoose.Types.ObjectId(blockId)
-        }
-
-        // Current period stats
-        const currentStats = await Usage.aggregate([
-            {
-                $match: {
-                    ...filter,
-                    deleted: { $ne: true },
-                    usage_date: {
-                        $gte: ranges.current.start,
-                        $lte: ranges.current.end
-                    }
-                }
-            },
+        // 3. Aggregate by Resource Type
+        const results = await Usage.aggregate([
+            { $match: matchStage },
             {
                 $group: {
-                    _id: null,
-                    value: { $sum: '$usage_value' },
-                    totalRecords: { $sum: 1 },
-                    avgUsage: { $avg: '$usage_value' },
-                    resources: { $addToSet: '$resource_type' }
+                    _id: '$resource_type',
+                    total: { $sum: '$usage_value' },
                 }
             }
         ]);
 
-        // Previous period stats
-        const previousStats = await Usage.aggregate([
-            {
-                $match: {
-                    ...filter,
-                    deleted: { $ne: true },
-                    usage_date: {
-                        $gte: ranges.previous.start,
-                        $lte: ranges.previous.end
-                    }
-                }
-            },
-            {
-                $group: {
-                    _id: null,
-                    value: { $sum: '$usage_value' },
-                    totalRecords: { $sum: 1 }
-                }
-            }
-        ]);
+        // 4. Fetch Configs to inject Units & Meta
+        const Resource = require('../models/Resource');
+        const configs = await Resource.find({ isActive: true }).lean();
 
-        const current = currentStats[0] || { value: 0, totalRecords: 0, avgUsage: 0, resources: [] };
-        const previous = previousStats[0] || { value: 0, totalRecords: 0 };
-
-        const percentageChange = calculatePercentageChange(current.value, previous.value);
-        const trend = percentageChange > 0 ? 'up' : percentageChange < 0 ? 'down' : 'stable';
-
-        // Task 6: Aggregation uses resourceId
-        const currentByResource = await Usage.aggregate([
-            {
-                $match: {
-                    ...filter,
-                    deleted: { $ne: true },
-                    usage_date: {
-                        $gte: ranges.current.start,
-                        $lte: ranges.current.end
-                    }
-                }
-            },
-            {
-                $group: {
-                    _id: '$resourceId',
-                    current: { $sum: '$usage_value' }
-                }
-            }
-        ]);
-
-        // Populate resource names (mocking populate for aggregate)
-        await Resource.populate(currentByResource, { path: '_id', select: 'name' });
-
-        // Previous period stats by resourceId
-        const previousByResource = await Usage.aggregate([
-            {
-                $match: {
-                    ...filter,
-                    deleted: { $ne: true },
-                    usage_date: {
-                        $gte: ranges.previous.start,
-                        $lte: ranges.previous.end
-                    }
-                }
-            },
-            {
-                $group: {
-                    _id: '$resourceId',
-                    previous: { $sum: '$usage_value' }
-                }
-            }
-        ]);
-
-        const resourceData = currentByResource.map(curr => {
-            const prev = previousByResource.find(p => String(p._id) === String(curr._id)) || { previous: 0 };
-            const change = calculatePercentageChange(curr.current, prev.previous);
+        // 5. Map results to requested format
+        const summary = configs.map(cfg => {
+            const result = results.find(r => r._id === cfg.name) || {};
             return {
-                resource: curr._id?.name || 'Unknown',
-                resourceId: curr._id?._id,
-                current: Math.round(curr.current * 100) / 100,
-                change: Math.round(change * 100) / 100
+                resource: cfg.name,
+                total: Math.round((result.total || 0) * 100) / 100,
+                unit: cfg.unit || 'units',
+                icon: cfg.icon || '📊',
+                color: cfg.color || '#64748b'
             };
         });
 
-        res.json({
+        return res.status(200).json({
             success: true,
-            period,
-            current: {
-                total: Math.round(current.value * 100) / 100,
-                value: Math.round(current.value * 100) / 100, // Phase 2 compliance
-                records: current.totalRecords,
-                average: Math.round(current.avgUsage * 100) / 100,
-                resources: current.resources.length
-            },
-            previous: {
-                total: Math.round(previous.value * 100) / 100,
-                value: Math.round(previous.value * 100) / 100, // Phase 2 compliance
-                records: previous.totalRecords
-            },
-            percentageChange: Math.round(percentageChange * 100) / 100,
-            trend,
-            data: resourceData
+            data: summary,
+            period
         });
-    } catch (error) {
-        console.error('Analytics summary error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+
+    } catch (err) {
+        console.error('[AnalyticsCtrl] getAnalyticsSummary error:', err);
+        return res.status(500).json({ success: false, message: err.message });
     }
 };
+
 
 /**
  * @desc    Get resource trend data
@@ -237,20 +168,23 @@ const getResourceTrends = async (req, res) => {
         startDate.setDate(startDate.getDate() - daysInt);
         startDate.setHours(0, 0, 0, 0); // Start from beginning of that day
 
+        const role = (req.user?.role || '').toLowerCase();
+        const isExecutive = ['admin', 'gm', 'dean', 'principal'].includes(role);
         let filter = { usage_date: { $gte: startDate, $lte: endDate } };
 
-        const role = (req.user.role || '').toLowerCase()
-        if (role === 'warden' || role === 'student') {
-            const user = await require('../models/User').findById(req.user.id);
-            const blockId = user?.block || user?.blockId;
-            if (!blockId) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Not assigned to any block'
-                })
+        if (!isExecutive) {
+            const blockObjId = safeBlockId(req.user?.block || req.userObj?.block);
+            if (!blockObjId) {
+                return res.status(403).json({ success: false, message: 'Warden/Student must be assigned to a block' });
             }
-            filter.blockId = new mongoose.Types.ObjectId(blockId)
+            filter.blockId = blockObjId;
+        } else if (req.query.blockId) {
+            const targetBlockId = safeBlockId(req.query.blockId);
+            if (targetBlockId) filter.blockId = targetBlockId;
         }
+
+        console.log(`[Trends] Role: ${role}, Filter:`, JSON.stringify(filter));
+        console.log('ROLE:', role, '| TRENDS FILTER:', JSON.stringify(filter));
 
 
         if (resource) {
@@ -434,20 +368,21 @@ const getSustainabilityScore = async (req, res) => {
 
         let filter = { usage_date: { $gte: startOfMonth } };
 
-        const role = (req.user.role || '').toLowerCase()
-        if (role === 'warden' || role === 'student') {
-            const user = await require('../models/User').findById(req.user.id);
-            const userBlockId = user?.block || user?.blockId;
-            if (!userBlockId) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Not assigned to any block'
-                })
+        const role = (req.user?.role || '').toLowerCase();
+        const isExecutive = ['admin', 'gm', 'dean', 'principal'].includes(role);
+
+        if (!isExecutive) {
+            const blockObjId = safeBlockId(req.user?.block || req.userObj?.block);
+            if (!blockObjId) {
+                return res.status(403).json({ success: false, message: 'Warden/Student must be assigned to a block' });
             }
-            filter.blockId = new mongoose.Types.ObjectId(userBlockId)
+            filter.blockId = blockObjId;
         } else if (blockId) {
-            filter.blockId = new mongoose.Types.ObjectId(blockId);
+            const blockObjId = safeBlockId(blockId);
+            if (blockObjId) filter.blockId = blockObjId;
         }
+
+        console.log(`[Sustainability] Role: ${role}, Filter:`, JSON.stringify(filter));
 
 
         // Get actual usage by resource
@@ -523,18 +458,16 @@ const getEfficiencyRating = async (req, res) => {
 
         let filter = { usage_date: { $gte: startOfMonth } };
 
-        const role = (req.user.role || '').toLowerCase()
+        const role = (req.user.role || '').toLowerCase();
         if (role === 'warden' || role === 'student') {
             const user = await require('../models/User').findById(req.user.id);
-            const blockId = user?.block || user?.blockId;
-            if (!blockId) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Not assigned to any block'
-                })
+            const blockObjId = safeBlockId(user?.block || user?.blockId);
+            if (!blockObjId) {
+                return res.status(403).json({ success: false, message: 'Not assigned to any block' });
             }
-            filter.blockId = new mongoose.Types.ObjectId(blockId)
+            filter.blockId = blockObjId;
         }
+        // Admin / GM / Dean / Principal → campus-wide (no blockId filter)
 
 
         const usage = await Usage.aggregate([

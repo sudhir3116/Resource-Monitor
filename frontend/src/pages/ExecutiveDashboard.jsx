@@ -208,189 +208,56 @@ export default function ExecutiveDashboard() {
                 </div>
             </div>
 
-            {/* Full resource cards grid for Dean */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Object.entries(usageSummary)
-                    .filter(([, d]) => d.total > 0 || d.dailyThreshold > 0)
-                    .map(([name, data]) => {
-                        const pct = data.dailyThreshold
-                            ? Math.min(
-                                Math.round(
-                                    (data.total / data.dailyThreshold) * 100
-                                ), 200)
-                            : 0;
-                        const pctColor =
-                            pct >= 150 ? '#EF4444'
-                                : pct >= 100 ? '#F97316'
-                                    : pct >= 80 ? '#F59E0B'
-                                        : '#10B981';
-                        const meta = getResourceMeta(name);
-
-                        return (
-                            <Card key={name}
-                                className="p-5 flex flex-col gap-3"
-                                style={{
-                                    borderLeftWidth: '3px',
-                                    borderLeftColor: meta.color
-                                }}>
-
-                                {/* Header */}
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-2xl">
-                                            {meta.icon}
-                                        </span>
-                                        <span className="font-semibold text-sm"
-                                            style={{
-                                                color: 'var(--text-primary)'
-                                            }}>
-                                            {name}
-                                        </span>
-                                    </div>
-                                    {pct > 0 && (
-                                        <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-                                            style={{
-                                                backgroundColor: pctColor + '20',
-                                                color: pctColor
-                                            }}>
-                                            {pct}%
-                                        </span>
-                                    )}
-                                </div>
-
-                                {/* Value */}
-                                <div>
-                                    <p className="text-2xl font-bold"
-                                        style={{
-                                            color: 'var(--text-primary)'
-                                        }}>
-                                        {data.total > 0
-                                            ? data.total.toLocaleString()
-                                            : '—'}
-                                    </p>
-                                    <p className="text-sm"
-                                        style={{
-                                            color: 'var(--text-secondary)'
-                                        }}>
-                                        {data.unit}
-                                        {data.dailyThreshold > 0 &&
-                                            ` / ${data.dailyThreshold} limit`}
-                                    </p>
-                                </div>
-
-                                {/* Progress bar */}
-                                {pct > 0 && (
-                                    <div className="w-full h-1.5 rounded-full overflow-hidden"
-                                        style={{
-                                            backgroundColor: 'var(--bg-secondary)'
-                                        }}>
-                                        <div
-                                            className="h-full rounded-full transition-all duration-500"
-                                            style={{
-                                                width: `${Math.min(pct, 100)}%`,
-                                                backgroundColor: pctColor
-                                            }}
-                                        />
-                                    </div>
-                                )}
-
-                                {/* No data state */}
-                                {data.total === 0 && (
-                                    <p className="text-xs"
-                                        style={{
-                                            color: 'var(--text-secondary)'
-                                        }}>
-                                        No data recorded yet
-                                    </p>
-                                )}
-                            </Card>
-                        );
-                    })}
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <Card className="lg:col-span-2" title="Consumption Trends">
-                    <div className="h-[350px] w-full mt-4">
-                        {loading ? (
-                            <div className="h-full flex items-center justify-center text-slate-400">Loading trends...</div>
-                        ) : !Array.isArray(trendData) ? (
-                            <div className="h-full flex items-center justify-center text-slate-400">No data available</div>
-                        ) : trendData.length === 0 ? (
-                            <div className="h-full flex items-center justify-center text-slate-400">No trend data available.</div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card title="Executive Watchlist (Critical Alerts)" icon={<Bell size={18} />} description="Latest pending resource threshold alerts">
+                    <div className="space-y-4 mt-4">
+                        {(recentAlerts || []).length === 0 ? (
+                            <div className="py-12 flex flex-col items-center justify-center opacity-30 italic text-sm">
+                                <CheckCircle size={32} className="mb-2" />
+                                All campus systems report nominal status.
+                            </div>
                         ) : (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={(Array.isArray(trendData) ? trendData : []).slice(0, 10)}>
-                                    <defs>
-                                        {resources.map(res => (
-                                            <linearGradient key={res._id || res.name} id={`color${res.name}`} x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor={getResourceMeta(res.name).color} stopOpacity={0.1} />
-                                                <stop offset="95%" stopColor={getResourceMeta(res.name).color} stopOpacity={0} />
-                                            </linearGradient>
-                                        ))}
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-                                    <XAxis
-                                        dataKey="_id"
-                                        stroke="var(--text-secondary)"
-                                        fontSize={12}
-                                        tickLine={false}
-                                        axisLine={false}
-                                        tickFormatter={(val) => new Date(val).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                    />
-                                    <YAxis
-                                        stroke="var(--text-secondary)"
-                                        fontSize={12}
-                                        tickLine={false}
-                                        axisLine={false}
-                                    />
-                                    <Tooltip
-                                        contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
-                                    />
-                                    {resources.map(res => (
-                                        <Area
-                                            key={res._id || res.name}
-                                            type="monotone"
-                                            dataKey={res.name}
-                                            stroke={getResourceMeta(res.name).color}
-                                            fillOpacity={1}
-                                            fill={`url(#color${res.name})`}
-                                            strokeWidth={3}
-                                            dot={false}
-                                        />
-                                    ))}
-                                </AreaChart>
-                            </ResponsiveContainer>
+                            recentAlerts.map(alert => (
+                                <div key={alert._id} className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex items-start gap-3 group hover:border-rose-500/30 transition-all">
+                                    <div className="mt-1 h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="font-bold text-sm truncate">{alert.resourceType || 'Resource'} Threshold</span>
+                                            <Badge variant="danger">{alert.severity}</Badge>
+                                        </div>
+                                        <p className="text-xs text-slate-500 line-clamp-1">{alert.message}</p>
+                                    </div>
+                                </div>
+                            ))
                         )}
+                        <Button variant="link" size="sm" className="w-full text-blue-500" onClick={() => navigate(`/${user?.role?.toLowerCase()}/alerts`)}>
+                            Access Operational Alert Center &rarr;
+                        </Button>
                     </div>
                 </Card>
 
-                <Card title="Resource Distribution">
-                    <div className="h-[350px] mt-4">
-                        {distributionData.length === 0 ? (
-                            <div className="h-full flex items-center justify-center text-slate-400">No distribution data.</div>
+                <Card title="System Activity Feed" icon={<History size={18} />} description="Recent administrative actions and updates">
+                    <div className="space-y-4 mt-4">
+                        {(recentLogs || []).length === 0 ? (
+                            <p className="text-sm text-center py-4 text-slate-400">No recent activity detected.</p>
                         ) : (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={distributionData}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={60}
-                                        outerRadius={100}
-                                        paddingAngle={5}
-                                        dataKey="value"
-                                    >
-                                        {distributionData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={getResourceMeta(entry.name).color} />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip
-                                        contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
-                                    />
-                                    <Legend iconType="circle" />
-                                </PieChart>
-                            </ResponsiveContainer>
+                            recentLogs.map(log => (
+                                <div key={log._id} className="flex gap-3 items-start p-2 hover:bg-slate-50 dark:hover:bg-slate-800/30 rounded-lg transition-colors">
+                                    <div className="mt-1 flex-shrink-0 w-6 h-6 rounded-md bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-[10px]">
+                                        {log.action?.charAt(0)}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-xs text-slate-600 dark:text-slate-300">
+                                            <span className="font-bold">{log.userId?.name || 'System'}</span> {log.description}
+                                        </p>
+                                        <p className="text-[10px] text-slate-400 font-bold tabular-nums">{new Date(log.timestamp || log.createdAt).toLocaleString()}</p>
+                                    </div>
+                                </div>
+                            ))
                         )}
+                        <Button variant="link" size="sm" className="w-full text-blue-500 uppercase text-[10px] font-black" onClick={() => navigate(`/${user?.role?.toLowerCase()}/audit-logs`)}>
+                            Review Full Audit Trail &rarr;
+                        </Button>
                     </div>
                 </Card>
             </div>

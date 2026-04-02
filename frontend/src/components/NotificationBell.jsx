@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useContext } from 'react'
 import { Bell } from 'lucide-react'
 import api from '../services/api'
 import { AuthContext } from '../context/AuthContext'
+import { getSocket } from '../utils/socket'
 
 const NotificationBell = () => {
     const { user } = useContext(AuthContext)
@@ -303,10 +304,26 @@ const NotificationBell = () => {
     useEffect(() => {
         if (!user) return
         fetchAllNotifications()
+
+        // Socket real-time sync (Requirement Part 7)
+        const socket = (typeof getSocket === 'function') ? getSocket() : null;
+        if (socket) {
+            socket.on('alerts:refresh', fetchAllNotifications);
+            socket.on('usage:refresh', fetchAllNotifications);
+            socket.on('dashboard:refresh', fetchAllNotifications);
+        }
+
         const interval = setInterval(
             fetchAllNotifications, 30000
         )
-        return () => clearInterval(interval)
+        return () => {
+            clearInterval(interval);
+            if (socket) {
+                socket.off('alerts:refresh', fetchAllNotifications);
+                socket.off('usage:refresh', fetchAllNotifications);
+                socket.off('dashboard:refresh', fetchAllNotifications);
+            }
+        }
     }, [user])
 
     // ─── CLOSE ON OUTSIDE CLICK ──────────────────────────

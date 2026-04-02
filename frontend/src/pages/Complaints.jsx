@@ -420,8 +420,8 @@ export default function Complaints() {
         if (!validateForm()) return;
         setSubmitLoading(true);
         try {
-            const res = await api.post('/api/complaints', formData);
-            setComplaints(prev => [res.data.data, ...prev]);
+            await api.post('/api/complaints', formData);
+            await fetchComplaints();
             addToast('Complaint submitted successfully', 'success');
             setShowForm(false);
             setFormData({ title: '', description: '', category: 'plumbing', priority: 'medium' });
@@ -438,8 +438,8 @@ export default function Complaints() {
     const handleReview = async (id) => {
         setActioning(id, true);
         try {
-            const res = await api.put(`/api/complaints/${id}/review`, { note: 'Marked under review' });
-            setComplaints(prev => prev.map(c => c._id === id ? res.data.data : c));
+            await api.put(`/api/complaints/${id}/review`, { note: 'Marked under review' });
+            await fetchComplaints();
             addToast('Complaint marked as Under Review', 'success');
         } catch (err) {
             addToast(err.response?.data?.error || err.message || 'Failed to update', 'error');
@@ -453,12 +453,13 @@ export default function Complaints() {
         if (!resolveTarget) return;
         setResolveLoading(true);
         try {
-            const res = await api.put(`/api/complaints/${resolveTarget._id}/resolve`, {
+            await api.put(`/api/complaints/${resolveTarget._id}/resolve`, {
                 resolutionNote: `Resolved by ${user?.name}`
             });
-            setComplaints(prev => prev.map(c => c._id === resolveTarget._id ? res.data.data : c));
+            await fetchComplaints();
             addToast('Complaint resolved', 'success');
             setResolveTarget(null);
+            setDetailTarget(null); // Close detail if open
         } catch (err) {
             addToast(err.response?.data?.error || err.message || 'Failed to resolve', 'error');
         } finally {
@@ -470,9 +471,11 @@ export default function Complaints() {
     const handleEscalate = async (id, reason) => {
         setActioning(id, true);
         try {
-            const res = await api.put(`/api/complaints/${id}/escalate`, { reason });
-            setComplaints(prev => prev.map(c => c._id === id ? res.data.data : c));
+            await api.put(`/api/complaints/${id}/escalate`, { reason });
+            await fetchComplaints();
             addToast('Complaint escalated', 'success');
+            setEscalateTarget(null);
+            setDetailTarget(null); // Close detail if open
         } catch (err) {
             addToast(err.response?.data?.error || err.message || 'Failed to escalate', 'error');
             throw err;
@@ -489,9 +492,7 @@ export default function Complaints() {
         setDeleteLoading(true);
         try {
             await api.delete(`/api/complaints/${target._id}`);
-
-            // Immediate local update
-            setComplaints(prev => prev.filter(c => c._id !== target._id));
+            await fetchComplaints();
             addToast('Complaint permanent removal successful', 'success');
 
             // UI cleanup
@@ -535,7 +536,7 @@ export default function Complaints() {
                     >
                         <RefreshCw size={18} className={`text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
                     </button>
-                    {!isGM && !isExecutiveReadOnly && (
+                    {(user?.role === 'admin' || user?.role === 'warden' || user?.role === 'student' || user?.role === 'gm') && (
                         <Button variant="primary" onClick={() => setShowForm(v => !v)}>
                             {showForm ? <X size={16} className="mr-2" /> : <Plus size={16} className="mr-2" />}
                             {showForm ? 'Cancel' : 'New Complaint'}

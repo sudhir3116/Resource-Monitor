@@ -73,51 +73,69 @@ mongoose.connect(process.env.MONGO_URI, {
 
   await seedUsers();
 
-  // ── Seed SystemConfig on startup (the single source of truth) ─────────────────
+  // ── Seed ResourceConfig on startup (the single source of truth for Dashboard/Analytics) ──
+  const ResourceConfig = require('./models/ResourceConfig');
   const SystemConfig = require('./models/SystemConfig');
   const Usage = require('./models/Usage');
 
-  const seedSystemConfig = async () => {
+  const seedResourceConfig = async () => {
     try {
       const defaults = [
-        { resource: 'Electricity', unit: 'kWh', dailyThreshold: 400, monthlyThreshold: 12000, costPerUnit: 8.5, icon: '⚡', color: '#F59E0B', isActive: true },
-        { resource: 'Water', unit: 'Liters', dailyThreshold: 20000, monthlyThreshold: 600000, costPerUnit: 0.05, icon: '💧', color: '#3B82F6', isActive: true },
-        { resource: 'LPG', unit: 'kg', dailyThreshold: 45, monthlyThreshold: 1350, costPerUnit: 65, icon: '🔥', color: '#EF4444', isActive: true },
-        { resource: 'Diesel', unit: 'Liters', dailyThreshold: 70, monthlyThreshold: 2100, costPerUnit: 95, icon: '⛽', color: '#8B5CF6', isActive: true },
-        { resource: 'Solar', unit: 'kWh', dailyThreshold: 200, monthlyThreshold: 6000, costPerUnit: 0, icon: '☀️', color: '#10B981', isActive: true },
-        { resource: 'Waste', unit: 'kg', dailyThreshold: 80, monthlyThreshold: 2400, costPerUnit: 2, icon: '♻️', color: '#6B7280', isActive: true },
+        { name: 'Electricity', unit: 'kWh', dailyLimit: 400, monthlyLimit: 12000, costPerUnit: 8.5, icon: '⚡', color: '#F59E0B', isActive: true, isDeleted: false },
+        { name: 'Water', unit: 'Liters', dailyLimit: 20000, monthlyLimit: 600000, costPerUnit: 0.05, icon: '💧', color: '#3B82F6', isActive: true, isDeleted: false },
+        { name: 'LPG', unit: 'kg', dailyLimit: 45, monthlyLimit: 1350, costPerUnit: 65, icon: '🔥', color: '#EF4444', isActive: true, isDeleted: false },
+        { name: 'Diesel', unit: 'Liters', dailyLimit: 70, monthlyLimit: 2100, costPerUnit: 95, icon: '⛽', color: '#8B5CF6', isActive: true, isDeleted: false },
+        { name: 'Solar', unit: 'kWh', dailyLimit: 200, monthlyLimit: 6000, costPerUnit: 0, icon: '☀️', color: '#10B981', isActive: true, isDeleted: false },
+        { name: 'Waste', unit: 'kg', dailyLimit: 80, monthlyLimit: 2400, costPerUnit: 2, icon: '♻️', color: '#6B7280', isActive: true, isDeleted: false },
       ];
       for (const r of defaults) {
-        await SystemConfig.findOneAndUpdate(
-          { resource: r.resource },
+        // Seed ResourceConfig
+        await ResourceConfig.findOneAndUpdate(
+          { name: r.name },
           { $setOnInsert: r },
           { upsert: true }
         ).catch(() => { });
+
+        // Seed SystemConfig for backward compatibility
+        await SystemConfig.findOneAndUpdate(
+          { resource: r.name },
+          {
+            $setOnInsert: {
+              resource: r.name,
+              unit: r.unit,
+              dailyThreshold: r.dailyLimit,
+              monthlyThreshold: r.monthlyLimit,
+              costPerUnit: r.costPerUnit,
+              icon: r.icon,
+              color: r.color,
+              isActive: true
+            }
+          },
+          { upsert: true }
+        ).catch(() => { });
       }
-      console.log('✅ SystemConfig seeded');
+      console.log('✅ ResourceConfig & SystemConfig seeded');
     } catch (e) {
       console.error('Seed error:', e.message);
     }
   };
-  seedSystemConfig();
+  seedResourceConfig();
 
-  // ⭐ NORMALIZATION: Align all usage resource_type to match SystemConfig.resource exactly
+  // ⭐ NORMALIZATION: Align all usage resource_type to match ResourceConfig.name exactly
   const normalizeUsageResourceTypes = async () => {
     try {
-      const SC = require('./models/SystemConfig')
-      const configs = await SC.find({ isActive: true }).select('resource').lean()
+      const configs = await ResourceConfig.find({ isActive: true, isDeleted: { $ne: true } }).select('name').lean()
 
       for (const cfg of configs) {
-        // Fix all usages with wrong casing to match exact SystemConfig.resource name
-        const regex = new RegExp(`^${cfg.resource.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}$`, 'i')
+        const regex = new RegExp(`^${cfg.name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}$`, 'i')
         const result = await Usage.updateMany(
           {
-            resource_type: { $regex: regex, $ne: cfg.resource }
+            resource_type: { $regex: regex, $ne: cfg.name }
           },
-          { $set: { resource_type: cfg.resource } }
+          { $set: { resource_type: cfg.name } }
         )
         if (result.modifiedCount > 0) {
-          console.log(`✅ Normalized ${result.modifiedCount} records → "${cfg.resource}"`)
+          console.log(`✅ Normalized ${result.modifiedCount} records → "${cfg.name}"`)
         }
       }
       console.log('✅ Resource type normalization complete')
@@ -126,36 +144,6 @@ mongoose.connect(process.env.MONGO_URI, {
     }
   }
   normalizeUsageResourceTypes()
-
-  // ── FIX MISSING FIELDS IN RESOURCECONFIG ——————————————————────
-  const fixResourceConfigFields = async () => {
-    try {
-      const RC = require('./models/ResourceConfig')
-      
-      // Ensure isDeleted field exists on all records
-      const result1 = await RC.updateMany(
-        { isDeleted: { $exists: false } },
-        { $set: { isDeleted: false } }
-      )
-      if (result1.modifiedCount > 0) {
-        console.log(`✅ Fixed isDeleted on ${result1.modifiedCount} ResourceConfig records`)
-      }
-      
-      // Ensure isActive field exists on all records
-      const result2 = await RC.updateMany(
-        { isActive: { $exists: false } },
-        { $set: { isActive: true } }
-      )
-      if (result2.modifiedCount > 0) {
-        console.log(`✅ Fixed isActive on ${result2.modifiedCount} ResourceConfig records`)
-      }
-      
-      console.log('✅ ResourceConfig fields verified')
-    } catch (e) {
-      console.error('ResourceConfig field fix error:', e.message)
-    }
-  }
-  fixResourceConfigFields()
 
   const PORT = process.env.PORT || 5000;
   // Create HTTP server and attach socket.io so controllers can emit events

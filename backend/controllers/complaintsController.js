@@ -35,6 +35,8 @@ const emitComplaintsRefresh = async () => {
         if (!io) return;
 
         io.emit('complaints:refresh');
+        io.emit('dashboard:refresh');
+        io.emit('usage:refresh');
         socketManager.emitToRole(io, 'admin', 'complaints:refresh', {});
         socketManager.emitToRole(io, 'gm', 'complaints:refresh', {});
     } catch {
@@ -104,9 +106,9 @@ const getComplaints = async (req, res) => {
             Complaint.countDocuments(filter)
         ]);
 
-        res.json({ 
-            success: true, 
-            count: complaints.length, 
+        res.json({
+            success: true,
+            count: complaints.length,
             data: complaints,
             pagination: {
                 page: parseInt(page),

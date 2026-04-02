@@ -3,6 +3,7 @@ import api from '../services/api';
 import { getSocket } from '../utils/socket';
 import { AlertTriangle, Plus, Activity, TrendingUp, ArrowRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import Card from '../components/common/Card';
 import MetricCard from '../components/common/MetricCard';
 import Button from '../components/common/Button';
@@ -16,7 +17,9 @@ export default function WardenDashboard() {
     const [loading, setLoading] = useState(true);
     const { addToast } = useToast();
     const navigate = useNavigate();
+    const { user } = useAuth();
     const { resources } = useResources();  // Get active resources from single source
+    const blockName = user?.block?.name || user?.blockName || 'Your Block';
 
     const fetchStats = useCallback(async () => {
         try {
@@ -82,7 +85,7 @@ export default function WardenDashboard() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 style={{ color: 'var(--text-primary)' }}>Block Dashboard</h1>
+                    <h1 style={{ color: 'var(--text-primary)' }}>{blockName} Dashboard</h1>
                     <p style={{ color: 'var(--text-secondary)' }}>Monitor resource usage for your assigned block</p>
                 </div>
                 <div className="flex items-center gap-3">

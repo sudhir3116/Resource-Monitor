@@ -12,106 +12,108 @@ const UsageForm = () => {
   const { addToast } = useToast();
   const { resources, loading: resourcesLoading } = useResources();
 
-  const [formData, setFormData] = useState({
-    value: '',
-    date: new Date().toISOString().split('T')[0],
-    notes: ''
-  });
-  const [selectedResource, setSelectedResource] = useState(null);
+  const [selectedResource, setSelectedResource] = useState(null)
+  const [amount, setAmount] = useState('')
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const [notes, setNotes] = useState('')
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
-  const [validationError, setValidationError] = useState(null);
 
   const role = (user?.role || '').toLowerCase();
   const rawBlock = user?.block;
   const blockName = rawBlock?.name || user?.blockName || 'Your Block';
-  const blockId = rawBlock?._id?.toString() || rawBlock?.toString() || '';
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError(null)
+
+    // Validate resource selected
+    if (!selectedResource || !selectedResource._id) {
+      setError('Please select a resource')
+      return
+    }
+
+    // Convert amount to number for validation
+    const numericAmount = Number(amount)
+
+    if (!numericAmount || isNaN(numericAmount) || numericAmount <= 0) {
+      setError('Please enter a valid amount greater than 0')
+      return
+    }
+
+    // Validate date
+    if (!date) {
+      setError('Please select a date')
+      return
+    }
+
+    // Build exact payload backend expects
+    // Convert date to ISO format (backend requirement)
+    const isoDate = new Date(date).toISOString()
+
+    const payload = {
+      resourceId: selectedResource._id,
+      amount: numericAmount,
+      date: isoDate,
+      notes: (notes || '').trim()
+    }
+
+    console.log('PAYLOAD:', payload)
+
+    try {
+      setSubmitting(true)
+
+      const res = await api.post('/api/usage', payload)
+
+      if (res.data?.success || res.status === 201 || res.status === 200) {
+
+        // Clear form
+        setAmount('')
+        setNotes('')
+        setSelectedResource(null)
+        setDate(new Date().toISOString().split('T')[0])
+
+        // Show success
+        if (typeof addToast === 'function') {
+          addToast('Usage logged successfully!', 'success')
+        }
+
+        // Trigger refresh on other pages
+        window.dispatchEvent(new CustomEvent('usage:added'))
+
+        // Navigate back
+        const paths = {
+          admin: '/admin/usage',
+          warden: '/warden/usage',
+          gm: '/gm/usage'
+        }
+        navigate(paths[role] || '/usage')
+
+      } else {
+        setError(res.data?.message || 'Failed to save usage record')
+      }
+    } catch (err) {
+      console.error('Usage submit error:', err)
+      console.log('ERROR:', err.response?.data)
+
+      const msg =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        (err.response?.data && typeof err.response.data === 'string' ? err.response.data : null) ||
+        err.message ||
+        'Failed to save usage record'
+
+      setError(msg)
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   // Route-scoped path prefix
   const usageBasePath = role === 'admin' ? '/admin/usage'
     : role === 'warden' ? '/warden/usage'
       : '/usage';
-
-  // Validation
-  const validate = () => {
-    if (!selectedResource) {
-      setValidationError('Please select a resource');
-      return false;
-    }
-    if (!formData.value || Number(formData.value) <= 0) {
-      setValidationError('Usage amount must be greater than 0');
-      return false;
-    }
-    if (!formData.date) {
-      setValidationError('Date is required');
-      return false;
-    }
-    if (!blockId) {
-      setValidationError('No block assigned. Contact admin.');
-      return false;
-    }
-    setValidationError(null);
-    return true;
-  };
-
-  const handleSubmit = async (e) => {
-    e?.preventDefault();
-
-    if (!validate()) return;
-
-    const payload = {
-      blockId,
-      resourceId: selectedResource._id,
-      usage_value: Number(formData.value),
-      unit: selectedResource.unit || '',
-      usage_date: formData.date || new Date().toISOString(),
-      notes: formData.notes || ''
-    };
-
-    try {
-      setSubmitting(true);
-      setError(null);
-
-      const res = await api.post('/api/usage', payload);
-
-      if (res.data.success || res.status === 201) {
-        // Success
-        addToast('Usage logged successfully!', 'success');
-
-        // Reset form
-        setFormData({
-          value: '',
-          date: new Date().toISOString().split('T')[0],
-          notes: ''
-        });
-        setSelectedResource(null);
-
-        // Trigger global refresh
-        window.dispatchEvent(
-          new CustomEvent('usage:added', {
-            detail: {
-              resource_type: payload.resource_type,
-              blockId: payload.blockId
-            }
-          })
-        );
-
-        // Refetch resources to ensure cache is fresh (in case admin deleted it)
-        await refetchResources();
-
-        // Navigate back
-        navigate(`${usageBasePath}/all`);
-      } else {
-        setError(res.data.message || 'Failed to log usage');
-      }
-    } catch (err) {
-      const msg = err.response?.data?.message || err.message || 'Failed to connect to server';
-      setError(msg);
-      console.error('UsageForm submit error:', err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   if (resourcesLoading) {
     return (
@@ -153,76 +155,72 @@ const UsageForm = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* 1. RESOURCE SELECTION */}
-        <div className="bg-[var(--card-bg)] rounded-xl border border-[var(--border-color)] p-4 shadow-sm">
+        {/* 1. RESOURCE SELECTION (PART 4) */}
+        <div className="bg-[var(--card-bg)] rounded-xl border border-[var(--border-color)] p-5 shadow-sm">
           <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-3 flex items-center gap-1.5">
             <LayoutGrid size={12} /> Select Resource Type *
           </label>
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
-            {(Array.isArray(resources) ? resources : []).map(r => {
-              const isSelected = selectedResource?.name === r.name;
-              const resColor = r.color || '#3B82F6';
-              return (
-                <button
-                  key={r.name}
-                  type="button"
-                  onClick={() => {
-                    setSelectedResource(r);
-                    setValidationError(null);
-                  }}
-                  className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 transition-all ${isSelected
-                    ? 'border-blue-500 bg-blue-500/5 ring-1 ring-blue-500/20 scale-105'
-                    : 'border-[var(--border-color)] bg-[var(--bg-muted)]/30 hover:border-blue-500/30'
-                    }`}
-                >
-                  <span className="text-xl">{r.icon || r.emoji || '📊'}</span>
-                  <span className="text-[10px] font-bold text-[var(--text-primary)] leading-tight text-center">{r.name}</span>
-                </button>
-              );
-            })}
-          </div>
-          {validationError && (
-            <p className="text-[11px] text-red-500 mt-3 font-medium flex items-center gap-1">
-              ⚠️ {validationError}
-            </p>
-          )}
+          <select
+            className="w-full h-11 px-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-muted)] text-[var(--text-primary)] outline-none focus:border-blue-500 transition-all font-medium appearance-none cursor-pointer"
+            onChange={e => {
+              const selected = resources.find(r => r._id === e.target.value)
+              setSelectedResource(selected || null)
+              setError(null);
+            }}
+            value={selectedResource?._id || ''}
+          >
+            <option value="">-- Choose a Resource --</option>
+            {resources
+              .filter(r => r.status === "active" || r.isActive !== false)
+              .map(r => (
+                <option key={r._id} value={r._id}>
+                  {r.icon || r.emoji || "📊"} {r.name} ({r.unit})
+                </option>
+              ))}
+          </select>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* 2. USAGE VALUE */}
           <div className="bg-[var(--card-bg)] rounded-xl border border-[var(--border-color)] p-4 shadow-sm">
             <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <Activity size={12} /> Usage Amount *
             </label>
             <div className="relative">
               <input
-                type="number"
-                min="0.01"
-                step="any"
-                placeholder={selectedResource ? `Enter ${selectedResource.unit}` : 'Select resource'}
-                disabled={!selectedResource}
-                value={formData.value || ''}
-                onChange={e => setFormData(p => ({ ...p, value: e.target.value }))}
-                className="w-full h-10 px-3 pr-16 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--bg-muted)] text-[var(--text-primary)] outline-none focus:border-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                type="text"
+                inputMode="decimal"
+                placeholder="0.00"
+                value={amount ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setError(null);
+                  if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                    setAmount(val);
+                  }
+                }}
+                className="w-full h-10 px-3 pr-10 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--bg-muted)] text-[var(--text-primary)] outline-none focus:border-blue-500 transition-colors"
               />
-              {selectedResource && (
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider pointer-events-none">
-                  {selectedResource.unit}
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                <span className="text-[10px] font-bold text-slate-400">
+                  {selectedResource?.unit || 'units'}
                 </span>
-              )}
+              </div>
             </div>
           </div>
 
-          {/* 3. DATE */}
+          {/* 3. DATE (PART 5) */}
           <div className="bg-[var(--card-bg)] rounded-xl border border-[var(--border-color)] p-4 shadow-sm">
             <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <Calendar size={12} /> Date *
             </label>
             <input
               type="date"
+              value={date}
               max={new Date().toISOString().split('T')[0]}
-              value={formData.date || new Date().toISOString().split('T')[0]}
-              onChange={e => setFormData(p => ({ ...p, date: e.target.value }))}
+              onChange={e => {
+                setDate(e.target.value);
+                setError(null);
+              }}
               className="w-full h-10 px-3 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--bg-muted)] text-[var(--text-primary)] outline-none focus:border-blue-500 transition-colors cursor-pointer"
             />
           </div>
@@ -244,10 +242,13 @@ const UsageForm = () => {
             <FileText size={12} className="inline mr-1" /> Additional Notes
           </label>
           <textarea
-            placeholder="Optional: add notes or observations..."
+            placeholder="Optional: add notes..."
             rows={2}
-            value={formData.notes || ''}
-            onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))}
+            value={notes}
+            onChange={e => {
+              setNotes(e.target.value);
+              setError(null);
+            }}
             className="w-full p-3 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--bg-muted)] text-[var(--text-primary)] outline-none focus:border-blue-500 transition-colors resize-none"
           />
         </div>
@@ -263,8 +264,8 @@ const UsageForm = () => {
         <div className="pt-2">
           <button
             type="submit"
-            disabled={submitting || !selectedResource || !formData.value || Number(formData.value) <= 0}
-            className={`w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${selectedResource && formData.value && Number(formData.value) > 0 && !submitting
+            disabled={submitting}
+            className={`w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${!submitting
               ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25 hover:bg-blue-700 active:scale-[0.98]'
               : 'bg-slate-700 text-slate-400 cursor-not-allowed'
               }`}

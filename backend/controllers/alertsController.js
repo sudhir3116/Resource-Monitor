@@ -46,8 +46,16 @@ async function _buildScopeFilter(reqUser) {
   const filter = {};
   const role = (reqUser.role || '').toLowerCase();
 
-  // Principal/Dean have campus visibility handled by default return below
-  if (role === 'student' || role === 'warden') {
+  // Students see alerts associated with their block OR their own usage
+  if (role === 'student') {
+    const user = await User.findById(reqUser.id).lean();
+    filter.$or = [
+      { userId: user?._id || reqUser.id }
+    ];
+    if (user?.block) {
+      filter.$or.push({ block: user.block });
+    }
+  } else if (role === 'warden') {
     const user = await User.findById(reqUser.id).lean();
     if (user?.block) {
       filter.block = user.block; // Only their assigned block
@@ -126,12 +134,13 @@ exports.getAlerts = async (req, res) => {
     };
     delete counts._id;
 
-    return apiSuccess(res, {
-      alerts,
+    return res.status(200).json({
+      success: true,
+      data: alerts,
+      alerts, // legacy compatibility
       pagination: { page: parseInt(page), limit: pageSize, total },
-      counts,
+      counts
     });
-
   } catch (err) {
     console.error('[Alerts] getAlerts error:', err);
     return apiError(res, err.message);
@@ -511,6 +520,12 @@ exports.acknowledgeAlert = async (req, res) => {
     await _audit('REVIEW_ALERT', alert._id, req.user.id,
       `Alert acknowledged by ${req.user.role}`);
 
+    try {
+      const socketUtil = require('../utils/socket');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) io.emit('alerts:refresh');
+    } catch (e) { /* non-fatal */ }
+
     return apiSuccess(res, { message: 'Alert acknowledged', alert });
 
   } catch (err) {
@@ -813,16 +828,9 @@ exports.getAlertCount = async (req, res) => {
       Alert.countDocuments({ ...scopeFilter, severity: { $in: ['High', 'Critical', 'Severe'] }, status: { $nin: [ALERT_STATUS.RESOLVED, ALERT_STATUS.DISMISSED] } }),
     ]);
 
-    return apiSuccess(res, {
-      counts: {
-        totalActive,
-        pending,
-        investigating,
-        reviewed,
-        escalated,
-        unread,
-        critical,
-      }
+    return res.status(200).json({
+      success: true,
+      count: totalActive
     });
   } catch (err) {
     console.error('[Alerts] getAlertCount error:', err);

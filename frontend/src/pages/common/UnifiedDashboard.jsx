@@ -11,9 +11,9 @@ import MetricCard from '../../components/common/MetricCard';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
 import { logger } from '../../utils/logger';
+import { getSocket } from '../../utils/socket';
 import {
-    AreaChart, Area,
-    XAxis, YAxis, CartesianGrid,
+    AreaChart, Area, XAxis, YAxis, CartesianGrid,
     Tooltip, Legend, ResponsiveContainer,
     PieChart, Pie, Cell
 } from 'recharts';
@@ -96,7 +96,8 @@ export default function UnifiedDashboard() {
         setLoading(true);
         setError(null);
         try {
-            const blockParam = (!perms.seesAllBlocks && blockId) ? `&blockId=${blockId}` : '';
+            const bId = blockId?._id || (typeof blockId === 'string' ? blockId : null);
+            const blockParam = (!perms.seesAllBlocks && bId) ? `&blockId=${bId}` : '';
 
             const requests = [
                 // [0] Usage summary
@@ -174,9 +175,27 @@ export default function UnifiedDashboard() {
 
     useEffect(() => {
         fetchData();
+
+        // Listen for browser events
         const refresh = () => fetchData();
         window.addEventListener('usage:added', refresh);
-        return () => window.removeEventListener('usage:added', refresh);
+
+        // Listen for socket events (Requirement Part 4)
+        const socket = getSocket();
+        if (socket) {
+            socket.on('usage:added', refresh);
+            socket.on('dashboard:refresh', refresh);
+            socket.on('usage:refresh', refresh);
+        }
+
+        return () => {
+            window.removeEventListener('usage:added', refresh);
+            if (socket) {
+                socket.off('usage:added', refresh);
+                socket.off('dashboard:refresh', refresh);
+                socket.off('usage:refresh', refresh);
+            }
+        };
     }, [fetchData]);
 
     // ── Computed values ────────────────────────────────────────────────────────

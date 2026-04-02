@@ -29,7 +29,7 @@ const StudentDashboard = () => {
   const [error, setError] = useState(null);
   const { theme } = useContext(ThemeContext);
   const { resources } = useResources();  // Get active resources from single source
-
+  const [score, setScore] = useState(0);
   const fetchData = useCallback(async () => {
     if (authLoading || !user) return;
 
@@ -39,12 +39,14 @@ const StudentDashboard = () => {
     try {
       const [summaryRes, trendsRes, complaintsRes] = await Promise.allSettled([
         api.get('/api/usage/summary'),
-        api.get('/api/usage/trends?range=30d'),
+        api.get('/api/usage/trends?range=7d'),
         api.get('/api/complaints')
       ]);
 
       if (summaryRes.status === 'fulfilled') {
-        setSummary(summaryRes.value.data?.data?.summary || {});
+        const data = summaryRes.value.data?.data;
+        setSummary(data?.summary || {});
+        setScore(data?.sustainabilityScore || 0);
       } else {
         logger.error('Summary fetch failed:', summaryRes.reason?.message);
       }
@@ -119,11 +121,7 @@ const StudentDashboard = () => {
     );
   }
 
-  const sustainabilityScore = (() => {
-    const totals = Object.values(summary || {}).map(v => Number(v?.total || 0));
-    const any = totals.some(v => v > 0);
-    return any ? 85 : 0;
-  })();
+  const sustainabilityScore = score;
 
   const sustainabilityColor = (score) => {
     if (score >= 80) return 'text-emerald-500';
@@ -160,56 +158,56 @@ const StudentDashboard = () => {
           if (!name) return null;
           const data = summary?.[name] || {};
           const meta = getResourceMeta(name);
-            const pct = data.dailyThreshold && data.total > 0
-              ? Math.round((data.total / data.dailyThreshold) * 100)
-              : 0;
+          const pct = data.dailyThreshold && data.total > 0
+            ? Math.round((data.total / data.dailyThreshold) * 100)
+            : 0;
 
-            return (
-              <Card key={name} className="p-4"
-                style={{
-                  borderLeftWidth: '3px',
-                  borderLeftColor: meta.color
-                }}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xl">{meta.icon || '📊'}</span>
-                  <span className="font-medium text-sm"
-                    style={{
-                      color: 'var(--text-primary)'
-                    }}>
-                    {name}
-                  </span>
-                </div>
-                <p className="text-2xl font-bold"
-                  style={{ color: 'var(--text-primary)' }}>
-                  {data.total > 0
-                    ? data.total.toLocaleString()
-                    : 'No data'}
-                </p>
-                <p className="text-xs mt-1"
+          return (
+            <Card key={name} className="p-4"
+              style={{
+                borderLeftWidth: '3px',
+                borderLeftColor: meta.color
+              }}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xl">{meta.icon || '📊'}</span>
+                <span className="font-medium text-sm"
                   style={{
-                    color: 'var(--text-secondary)'
+                    color: 'var(--text-primary)'
                   }}>
-                  {data.unit}
-                  {data.dailyThreshold > 0 &&
-                    ` / ${data.dailyThreshold} daily limit`}
-                </p>
+                  {name}
+                </span>
+              </div>
+              <p className="text-2xl font-bold"
+                style={{ color: 'var(--text-primary)' }}>
+                {data.total > 0
+                  ? data.total.toLocaleString()
+                  : 'No data'}
+              </p>
+              <p className="text-xs mt-1"
+                style={{
+                  color: 'var(--text-secondary)'
+                }}>
+                {data.unit}
                 {data.dailyThreshold > 0 &&
-                  data.total > 0 && (
-                    <div className="w-full h-1 rounded-full mt-2 overflow-hidden"
+                  ` / ${data.dailyThreshold} daily limit`}
+              </p>
+              {data.dailyThreshold > 0 &&
+                data.total > 0 && (
+                  <div className="w-full h-1 rounded-full mt-2 overflow-hidden"
+                    style={{
+                      backgroundColor: 'var(--bg-secondary)'
+                    }}>
+                    <div
+                      className="h-full rounded-full"
                       style={{
-                        backgroundColor: 'var(--bg-secondary)'
-                      }}>
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${Math.min(pct, 100)}%`,
-                          backgroundColor: meta.color
-                        }}
-                      />
-                    </div>
-                  )}
-              </Card>
-            );
+                        width: `${Math.min(pct, 100)}%`,
+                        backgroundColor: meta.color
+                      }}
+                    />
+                  </div>
+                )}
+            </Card>
+          );
         })}
       </div>
 
@@ -255,7 +253,7 @@ const StudentDashboard = () => {
           <div className="space-y-1">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Block</span>
             <div className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-              {user?.blockName || user?.block || 'Not assigned'}
+              {user?.blockName || (typeof user?.block === 'object' ? user.block.name : user.block) || 'Not assigned'}
             </div>
             <p className="text-[11px] text-slate-400">Your assigned hostel block</p>
           </div>

@@ -83,7 +83,9 @@ export default function AnomalyAlerts({ anomalies, loading }) {
                                         {anomaly.resource}
                                     </h4>
                                     <p className="text-xs text-slate-500 dark:text-slate-500">
-                                        {anomaly.block}
+                                        <span className="text-[10px] font-black uppercase tracking-widest opacity-60">
+                                            {typeof anomaly.block === 'object' ? anomaly.block.name : (anomaly.block || 'Campus')}
+                                        </span>
                                     </p>
                                 </div>
                             </div>

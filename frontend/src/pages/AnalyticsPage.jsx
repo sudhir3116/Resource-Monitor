@@ -15,8 +15,6 @@ import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import {
-    LineChart,
-    Line,
     AreaChart,
     Area,
     XAxis,
@@ -29,7 +27,9 @@ import {
     Legend,
     Cell,
     PieChart,
-    Pie
+    Pie,
+    LineChart,
+    Line
 } from 'recharts';
 import { useToast } from '../context/ToastContext';
 import { logger } from '../utils/logger';
@@ -48,73 +48,67 @@ export default function AnalyticsPage() {
     const [trendData, setTrendData] = useState([]);
     const [dynamicResources, setDynamicResources] = useState([]);
     const [blockComparison, setBlockComparison] = useState([]);
+    const [blockRanking, setBlockRanking] = useState([]);
+    const [stats, setStats] = useState({}); // Restored missing stats state
 
-    const fetchData = useCallback(async () => {
+    const COLORS = {
+        Diesel: "#3b82f6",
+        Electricity: "#facc15",
+        Food: "#22c55e",
+        LPG: "#ef4444",
+        Petrol: "#a855f7",
+        Waste: "#10b981",
+        Water: "#38bdf8"
+    };
+
+    const fetchAnalytics = useCallback(async () => {
         setLoading(true);
         try {
-            const { data: usageRes } = await api.get("/api/usage");
-            const { data: resourcesRes } = await api.get("/api/resources");
+            const blockIdForQuery = user?.block?._id || user?.block || null;
 
-            const usage = usageRes?.data || usageRes || [];
-            const resources = resourcesRes?.data || resourcesRes || [];
+            const [resourcesRes, summaryRes, trendsRes] = await Promise.all([
+                api.get("/api/resources"),
+                api.get(`/api/usage/summary`, { params: { blockId: blockIdForQuery } }),
+                api.get(`/api/usage/trends`, { params: { blockId: blockIdForQuery, range: timeRange } })
+            ]);
 
-            setDynamicResources(resources.filter(r => r?.status === "active"));
+            const resources = resourcesRes.data.data || resourcesRes.data || [];
+            const summaryRaw = summaryRes.data.data || summaryRes.data || {};
+            const trendsRaw = trendsRes.data.data || trendsRes.data || [];
 
-            // Map and group by date for charts (Normalize to YYYY-MM-DD)
-            const dates = Array.from(new Set(usage.map(u => {
-                const raw = u.date || u.usage_date;
-                return typeof raw === 'string' ? raw.split('T')[0] : new Date(raw).toISOString().split('T')[0];
-            }))).sort();
+            setDynamicResources(resources.filter(r => r?.isActive !== false));
 
-            const pivotedTrendData = dates.map(date => {
-                const row = { date };
-                resources.forEach(r => {
-                    const total = usage
-                        .filter(u => {
-                            const uDate = typeof (u.date || u.usage_date) === 'string'
-                                ? (u.date || u.usage_date).split('T')[0]
-                                : new Date(u.date || u.usage_date).toISOString().split('T')[0];
-                            const uRes = String(u.resource?._id || u.resourceId?._id || u.resourceId || u.resource || u.resource_type);
-                            return uDate === date && (uRes === String(r._id) || uRes === String(r.name));
-                        })
-                        .reduce((sum, u) => sum + Number(u.amount || u.usage_value || 0), 0);
-                    row[r.name] = total;
-                });
-                return row;
-            });
+            // FIX DATA MAPPING (Requirement Step 1 & 5)
+            console.log("Analytics API Raw Data (summaryRaw):", summaryRaw);
 
-            setTrendData(pivotedTrendData);
+            // Handle both object-based summary and array-based summaryArray
+            const rawItems = Array.isArray(summaryRaw.summaryArray) ? summaryRaw.summaryArray
+                : (Array.isArray(summaryRaw.summary) ? summaryRaw.summary
+                    : Object.values(summaryRaw.summary || {}));
 
-            // Calculate Block Comparison
-            const blockGroups = usage.reduce((acc, u) => {
-                const bName = u.block?.name || u.blockId?.name || u.block || u.blockId || 'Others';
-                if (!acc[bName]) acc[bName] = { block: bName, total: 0 };
-                acc[bName].total += Number(u.amount || u.usage_value || 0);
-                return acc;
-            }, {});
-
-            const maxTotal = Math.max(...Object.values(blockGroups).map(b => b.total), 1);
-            const bComp = Object.values(blockGroups).map(b => ({
-                block: b.block,
-                score: Math.max(40, 100 - Math.floor((b.total / maxTotal) * 40))
+            const summary = rawItems.map(item => ({
+                name: item.resource_type || item._id,
+                value: item.total || item.usage_value || 0,
+                total: item.total || 0,
+                _id: item._id,
+                ...item
             }));
 
-            setBlockComparison(bComp);
+            const trends = (trendsRaw || []).map(item => ({
+                name: item.resource_type || item.date,
+                value: item.total || item.usage_value,
+                ...item
+            }));
 
-            // Mapping for summary
-            const grouped = pivotedTrendData.reduce((acc, row) => {
-                resources.forEach(r => {
-                    if (!acc[r.name]) acc[r.name] = { resource: r.name, total: 0, unit: r.unit || 'units' };
-                    acc[r.name].total += row[r.name] || 0;
-                });
-                return acc;
-            }, {});
+            // Create keyed object for card lookups
+            const statsMap = {};
+            summary.forEach(item => {
+                statsMap[item.name] = item;
+            });
 
-            setSummaryData(Object.entries(grouped).map(([key, val]) => ({
-                resource: key,
-                current: val.total,
-                unit: val.unit
-            })));
+            setSummaryData(summary);
+            setStats(statsMap); // Set card data
+            setTrendData(trends);
 
         } catch (err) {
             logger.error('Failed to fetch analytics data', err);
@@ -122,76 +116,62 @@ export default function AnalyticsPage() {
         } finally {
             setLoading(false);
         }
-    }, [addToast]);
+    }, [addToast, user, timeRange]);
 
     useEffect(() => {
-        fetchData();
+        fetchAnalytics();
         const socket = getSocket();
-        const refresh = () => fetchData();
-        if (socket) {
-            socket.on('usage:refresh', refresh);
-            socket.on('alerts:refresh', refresh);
-            socket.on('dashboard:refresh', refresh);
-            socket.on('resources:refresh', refresh);
-            socket.on('usage:added', refresh);
-        }
 
-        window.addEventListener('usage:added', refresh);
+        if (socket) {
+            socket.on('usage:refresh', fetchAnalytics);
+            socket.on('dashboard:refresh', fetchAnalytics);
+            socket.on('alerts:refresh', fetchAnalytics);
+            socket.on('analytics:refresh', fetchAnalytics);
+        }
 
         return () => {
             if (socket) {
-                socket.off('usage:refresh', refresh);
-                socket.off('alerts:refresh', refresh);
-                socket.off('dashboard:refresh', refresh);
-                socket.off('resources:refresh', refresh);
-                socket.off('usage:added', refresh);
+                socket.off('usage:refresh', fetchAnalytics);
+                socket.off('dashboard:refresh', fetchAnalytics);
+                socket.off('alerts:refresh', fetchAnalytics);
+                socket.off('analytics:refresh', fetchAnalytics);
             }
-            window.removeEventListener('usage:added', refresh);
         };
-    }, [fetchData]);
+    }, [fetchAnalytics]);
 
     const resourcesForCharts = useMemo(() => {
         if (Array.isArray(dynamicResources) && dynamicResources.length > 0) return dynamicResources;
-        // Fallback: build resource list from the usage summary so charts don't go empty
-        // when config thresholds are temporarily missing/empty.
         return (Array.isArray(summaryData) ? summaryData : []).map(s => ({
             _id: s.resource,
-            resource: s.resource,
-            name: s.resource,
+            resource: s.resource_type,
+            name: s.resource_type,
             unit: s.unit
         }));
     }, [dynamicResources, summaryData]);
 
     const activeSummary = useMemo(() => {
-        const activeResourceNames = resourcesForCharts.map(r => r.resource || r.name);
-        return summaryData.filter(s => activeResourceNames.includes(s.resource));
-    }, [summaryData, resourcesForCharts]);
+        return Array.isArray(summaryData) ? summaryData : [];
+    }, [summaryData]);
 
     const selectedRange = parseInt(timeRange) || 7;
-    const filteredData = useMemo(() => {
-        return trendData.filter((d) => {
-            const days = selectedRange;
-            return new Date(d.date) >= new Date(Date.now() - days * 86400000);
-        });
-    }, [trendData, selectedRange]);
-
-    const hasData = filteredData && filteredData.length > 0;
+    // FIX EMPTY CHECK (Requirement Step 5)
+    const hasData = Array.isArray(activeSummary) && activeSummary.length > 0;
     const trendSeries = useMemo(
         () => resourcesForCharts.map(r => r.resource || r.name).filter(Boolean),
         [resourcesForCharts]
     );
 
     const hasAnyTrendSeriesData = useMemo(() => {
-        return hasData;
-    }, [hasData]);
+        return Array.isArray(trendData) && trendData.length > 0;
+    }, [trendData]);
 
     const getResourceMeta = (type) => {
         const res = (Array.isArray(resourcesForCharts) ? resourcesForCharts : [])
             .find(r => (r?.name || r?.resource) === type);
         return {
             icon: res?.icon || '📊',
-            color: res?.color || '#64748b',
-            bg: (res?.color || '#64748b') + '15',
+            color: COLORS[type] || res?.color || '#64748b',
+            bg: (COLORS[type] || res?.color || '#64748b') + '15',
             unit: res?.unit || 'units'
         };
     };
@@ -240,7 +220,7 @@ export default function AnalyticsPage() {
 
                 <div className="flex items-center gap-3">
                     <button
-                        onClick={fetchData}
+                        onClick={fetchAnalytics}
                         className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
                         title="Refresh Data"
                     >
@@ -266,23 +246,22 @@ export default function AnalyticsPage() {
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 {resourcesForCharts.map((res) => {
-                    const resName = res.resource || res.name;
-                    const stats = activeSummary.find(s => s.resource === resName) || { current: 0, change: 0, unit: res.unit || 'units' };
+                    const resName = res.resource || res.resource_type || res.name;
+                    const stats = activeSummary.find(s => (s.resource_type || s.resource || s.name) === resName) || { value: 0, unit: res.unit || 'units' };
                     const meta = getResourceMeta(resName);
-                    const isNegative = stats.change < 0;
 
                     return (
-                        <Card key={res._id || res.name} className="relative overflow-hidden group">
+                        <Card key={res._id || resName} className="relative overflow-hidden group">
                             <div className={`absolute top-0 right-0 p-3 items-center justify-center rounded-bl-3xl opacity-50 group-hover:scale-110 transition-transform`} style={{ backgroundColor: meta.bg }}>
                                 <span className="text-lg leading-none">{meta.icon}</span>
                             </div>
                             <div className="space-y-1">
-                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{res?.name || "Unknown"}</span>
+                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{resName}</span>
                                 <div className="flex items-baseline gap-1">
                                     <span className="text-xl font-bold truncate">
-                                        {stats.current > 0 ? stats.current.toLocaleString() : 'No data available'}
+                                        {(stats.value || stats.total || 0) > 0 ? (stats.value || stats.total).toLocaleString() : '0'}
                                     </span>
-                                    {stats.current > 0 && <span className="text-xs text-slate-500">{stats.unit}</span>}
+                                    <span className="text-xs text-slate-500">{stats.unit || res.unit}</span>
                                 </div>
                             </div>
                         </Card>
@@ -291,81 +270,73 @@ export default function AnalyticsPage() {
             </div>
 
             {/* Main Trends Chart */}
-            < Card >
+            <Card>
                 <div className="flex items-center justify-between mb-6">
                     <h2 className="text-lg font-bold flex items-center gap-2">
-                        <BarChart3 size={20} className="text-blue-500" /> Usage Trends Over Time
+                        <BarChart3 size={20} className="text-blue-500" /> Multi-Resource Trends
                     </h2>
-                    <div className="flex items-center gap-4 text-xs">
-                        {resourcesForCharts.map((res, i) => {
-                            const resName = res.resource || res.name;
-                            return (
-                                <div key={resName} className="flex items-center gap-1.5">
-                                    <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: getResourceMeta(resName).color }}></div>
-                                    <span className="text-slate-500 font-medium">{resName}</span>
-                                </div>
-                            );
-                        })}
-                    </div>
                 </div>
-                <div className="h-[300px] w-full">
+                <div className="h-[350px] w-full">
                     {loading ? (
                         <div className="h-full flex items-center justify-center text-slate-400">Loading chart data...</div>
-                    ) : hasData ? (
+                    ) : (trendData || []).length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={filteredData}>
+                            <AreaChart data={trendData}>
                                 <defs>
-                                    {trendSeries.map((resName) => {
-                                        return (
-                                            <linearGradient key={resName} id={`color${resName}`} x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor={getResourceMeta(resName).color} stopOpacity={0.1} />
-                                                <stop offset="95%" stopColor={getResourceMeta(resName).color} stopOpacity={0} />
-                                            </linearGradient>
-                                        );
-                                    })}
+                                    {resourcesForCharts.map((res, i) => (
+                                        <linearGradient key={`grad-${i}`} id={`color-${res.name || res.resource_type}`} x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor={COLORS[res.name || res.resource_type] || res.color || '#3B82F6'} stopOpacity={0.1} />
+                                            <stop offset="95%" stopColor={COLORS[res.name || res.resource_type] || res.color || '#3B82F6'} stopOpacity={0} />
+                                        </linearGradient>
+                                    ))}
                                 </defs>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" opacity={0.5} />
                                 <XAxis
                                     dataKey="date"
-                                    stroke="var(--text-secondary)"
-                                    fontSize={12}
+                                    stroke="#94a3b8"
+                                    fontSize={11}
                                     tickLine={false}
                                     axisLine={false}
                                     tickFormatter={(val) => new Date(val).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                    dy={10}
                                 />
                                 <YAxis
-                                    stroke="var(--text-secondary)"
-                                    fontSize={12}
+                                    stroke="#94a3b8"
+                                    fontSize={11}
                                     tickLine={false}
                                     axisLine={false}
                                     tickFormatter={(val) => val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val}
                                 />
                                 <Tooltip content={<CustomTooltip />} />
-                                {trendSeries.map((resName) => {
-                                    const meta = getResourceMeta(resName);
+                                <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ paddingBottom: '20px', fontSize: '11px', fontWeight: 'bold' }} />
+
+                                {resourcesForCharts.map((res) => {
+                                    const rName = res.name || res.resource_type;
                                     return (
                                         <Area
-                                            key={resName}
+                                            key={rName}
                                             type="monotone"
-                                            dataKey={resName}
-                                            stroke={meta.color}
-                                            fillOpacity={1}
-                                            fill={`url(#color${resName})`}
+                                            dataKey={rName}
+                                            name={rName}
+                                            stroke={COLORS[rName] || res.color || '#3B82F6'}
                                             strokeWidth={3}
-                                            dot={false}
-                                            activeDot={{ r: 6, strokeWidth: 0 }}
+                                            fillOpacity={1}
+                                            fill={`url(#color-${rName})`}
+                                            stackId="1"
+                                            connectNulls
                                         />
                                     );
                                 })}
                             </AreaChart>
                         </ResponsiveContainer>
                     ) : (
-                        <p className="text-gray-400 text-sm flex items-center justify-center h-full">
-                            No data available
-                        </p>
+                        <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-2">
+                            <Activity size={40} className="opacity-20" />
+                            <p className="text-sm font-medium">No trend data available for this period</p>
+                        </div>
                     )}
                 </div>
-            </Card >
+            </Card>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Distribution Chart */}
@@ -377,7 +348,7 @@ export default function AnalyticsPage() {
                         {loading ? (
                             <div className="h-full flex items-center justify-center text-slate-400">Loading distribution...</div>
                         ) : activeSummary.length === 0 ? (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-400">No data found.</div>
+                            <div className="h-full flex flex-col items-center justify-center text-slate-400">No data available</div>
                         ) : (
                             <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
@@ -385,14 +356,18 @@ export default function AnalyticsPage() {
                                         data={activeSummary}
                                         cx="50%"
                                         cy="50%"
-                                        innerRadius={60}
                                         outerRadius={100}
-                                        paddingAngle={5}
-                                        dataKey="current"
-                                        nameKey="resource"
+                                        dataKey="value"
+                                        nameKey="name"
+                                        label={({ name, percent }) =>
+                                            `${name} ${(percent * 100).toFixed(0)}%`
+                                        }
                                     >
                                         {activeSummary.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={getResourceMeta(entry.resource).color} />
+                                            <Cell
+                                                key={`cell-${index}`}
+                                                fill={COLORS[entry.name] || "#8884d8"}
+                                            />
                                         ))}
                                     </Pie>
                                     <Tooltip

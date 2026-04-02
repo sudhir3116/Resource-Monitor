@@ -3,53 +3,57 @@ const Usage = require('../models/Usage');
 const Alert = require('../models/Alert');
 const Resource = require('../models/Resource');
 
+// ── Helper: Safe ObjectId Conversion ──────────────────────────────────────────
+const toObjectId = (raw) => {
+    if (!raw) return null;
+    if (typeof raw === 'string' && raw.includes('[object')) return null;
+    const s = raw?._id?.toString() || raw?.toString() || null;
+    if (!s || s.length !== 24) return null;
+    try {
+        return new mongoose.Types.ObjectId(s);
+    } catch (e) {
+        return null;
+    }
+};
+
 /**
  * getUsageSummary
  * ─────────────────────────────────────────────────────────────────────────────
  * Unified service for all role-based dashboards.
- * Dynamically fetches resource list from ResourceConfig collection.
- * Uses correct field names: usage_value, blockId, resource_type
+ * Admin/GM see everything. Warden/Student filtered by block.
  */
 exports.getUsageSummary = async (options = {}) => {
-    const { role, blockId, startDate, endDate } = options;
+    const { role, blockId, userId, startDate, endDate } = options;
     const normalizedRole = (role || '').toLowerCase();
 
-    // ── Build match stage ──────────────────────────────────────────────────────
+    // ── 1. Build match stage (Standardized Role Handling) ─────────────────────
     const matchStage = { deleted: { $ne: true } };
+    const bId = toObjectId(blockId);
+    const uId = toObjectId(userId);
 
-    const extractObjId = (raw) => {
-        if (!raw) return null;
-        const s = raw?._id?.toString() || raw?.toString() || null;
-        if (!s || s.length !== 24) return null;
-        try { return new mongoose.Types.ObjectId(s); } catch (e) { return null; }
-    };
+    console.log("Dashboard fetch request - Role:", normalizedRole, "BlockId:", blockId);
 
-    if (['warden', 'student'].includes(normalizedRole)) {
-        if (!blockId) {
-            const noConfigs = await Resource.find({ isActive: { $ne: false } }).lean();
-            const emptySummary = {};
-            noConfigs.forEach(cfg => {
-                const resName = cfg.resource || cfg.name;
-                emptySummary[resName] = {
-                    total: 0, current: 0, cost: 0, count: 0, avgValue: 0, maxValue: 0,
-                    unit: cfg.unit || 'units', dailyLimit: cfg.dailyThreshold || cfg.dailyLimit || 0,
-                    monthlyLimit: cfg.monthlyThreshold || cfg.monthlyLimit || 0, icon: cfg.icon || '📊',
-                    color: cfg.color || '#64748b', lastDate: null
-                };
-            });
-            return {
-                summary: emptySummary, totals: {},
-                grandTotal: 0, alertsCount: 0,
-                resourceCount: noConfigs.length, role: normalizedRole,
-                filteredByBlock: true
-            };
+    if (normalizedRole === 'warden') {
+        if (bId) {
+            matchStage.blockId = bId;
+        } else {
+            // Warden MUST have a block, but we return empty instead of crashing
+            return { summary: {}, summaryArray: [], grandTotal: 0, alertsCount: 0, resourceCount: 0, role: normalizedRole };
         }
-        const bObjId = extractObjId(blockId);
-        if (bObjId) matchStage.blockId = bObjId;
-    } else if (blockId) {
-        const bObjId = extractObjId(blockId);
-        if (bObjId) matchStage.blockId = bObjId;
+    } else if (normalizedRole === 'student') {
+        if (bId) {
+            matchStage.blockId = bId;
+        } else if (uId) {
+            matchStage.userId = uId;
+        } else {
+            return { summary: {}, summaryArray: [], grandTotal: 0, alertsCount: 0, resourceCount: 0, role: normalizedRole };
+        }
+    } else if (['admin', 'gm', 'dean', 'principal'].includes(normalizedRole)) {
+        // GLOBAL ACCESS: No filters added to matchStage
+        // This ensures Dean/Principal/GM dashboards reflect overall campus status
     }
+
+    console.log("Match filter applied:", matchStage);
 
     if (startDate || endDate) {
         matchStage.usage_date = {};
@@ -57,140 +61,112 @@ exports.getUsageSummary = async (options = {}) => {
         if (endDate) matchStage.usage_date.$lte = new Date(endDate);
     }
 
-    // ── Aggregation: Match exact resource_type (must match Resource.resource) ──
-    // After normalization, resource_type in Usage = Resource.resource (exact match)
+    // ── 2. Aggregate Usage Data (Requirement: Standard Query) ───────────────────
     const pipeline = [
         { $match: matchStage },
         {
             $group: {
-                _id: '$resource_type',  // exact name, already normalized
+                _id: '$resource_type',
                 total: { $sum: '$usage_value' },
                 count: { $sum: 1 },
                 avgValue: { $avg: '$usage_value' },
                 maxValue: { $max: '$usage_value' },
                 lastDate: { $max: '$usage_date' },
-                cost: { $sum: { $ifNull: ['$cost', 0] } }
+                totalCost: { $sum: { $ifNull: ['$cost', 0] } }
             }
-        },
-        { $sort: { _id: 1 } }
+        }
     ];
 
-    const [results, configs] = await Promise.all([
-        Usage.aggregate(pipeline),
-        Resource.find({ isActive: true }).lean()
-    ]);
+    const results = await Usage.aggregate(pipeline);
+    console.log("Aggregated usage (Raw):", results); // Mandatory Debug Logging
 
-    // Build config map
-    const configMap = {};
-    configs.forEach(c => { configMap[c.resource || c.name] = c; });
+    const configs = await Resource.find({
+        $or: [
+            { isActive: { $ne: false } },
+            { status: 'active' }
+        ]
+    }).lean();
 
-    // Initialize all active resources in summary with 0
+    // ── 3. Map Configs to Summary (Requirement: item.total / item._id) ─────────
     const summary = {};
+    const summaryArray = []; // For frontend components that iterate directly
+
     configs.forEach(cfg => {
-        const resName = cfg.resource || cfg.name;
-        summary[resName] = {
-            total: 0,
-            current: 0,
-            cost: 0,
-            count: 0,
-            avgValue: 0,
-            maxValue: 0,
+        const result = results.find(r =>
+            (r._id || '').toString().toLowerCase() === (cfg.name || '').toString().toLowerCase()
+        ) || { total: 0, count: 0 };
+
+        const total = Math.round((result.total || 0) * 100) / 100;
+        const rate = cfg.rate || cfg.costPerUnit || 0;
+
+        const metrics = {
+            _id: cfg.name,
+            resource_type: cfg.name,
+            total,
+            current: total,
+            count: result.count || 0,
+            avgValue: Math.round((result.avgValue || 0) * 100) / 100,
+            maxValue: result.maxValue || 0,
+            lastDate: result.lastDate || null,
             unit: cfg.unit || 'units',
-            dailyLimit: cfg.dailyThreshold || cfg.dailyLimit || 0,
-            monthlyLimit: cfg.monthlyThreshold || cfg.monthlyLimit || 0,
+            monthlyLimit: cfg.monthlyLimit || 1000,
             icon: cfg.icon || '📊',
             color: cfg.color || '#64748b',
-            lastDate: null
+            totalCost: Math.round((result.totalCost || (total * rate)) * 100) / 100
         };
+
+        summary[cfg.name] = metrics;
+        summaryArray.push(metrics);
     });
 
-    // Fill with aggregation results
-    results.forEach(r => {
-        const resourceName = r._id;
-        if (!resourceName || !summary[resourceName]) return;
+    console.log("Aggregated usage (Mapped Summary):", summary); // Mandatory Debug Logging
 
-        const cfg = configMap[resourceName] || {};
-        summary[resourceName] = {
-            ...summary[resourceName],
-            total: Math.round(r.total * 100) / 100,
-            current: Math.round(r.total * 100) / 100,
-            cost: Math.round((r.cost || 0) * 100) / 100,
-            count: r.count,
-            avgValue: Math.round((r.avgValue || 0) * 100) / 100,
-            maxValue: Math.round((r.maxValue || 0) * 100) / 100,
-            lastDate: r.lastDate,
-            estimatedCost: Math.round(r.total * (cfg.costPerUnit || cfg.rate || 0) * 100) / 100
-        };
-    });
+    const grandTotal = Object.values(summary).reduce((sum, r) => sum + r.total, 0);
 
-    // Build simple lowercase totals for backwards compatibility
-    const totals = {};
-    Object.entries(summary).forEach(([name, data]) => {
-        totals[name.toLowerCase()] = data.total || 0;
-    });
-
-    const grandTotal = Object.values(summary)
-        .reduce((sum, r) => sum + (r.total || 0), 0);
-
-    // Alert count
-    const alertFilter = { status: { $in: ['Active', 'Investigating', 'OPEN'] } };
-    if (['warden', 'student'].includes(normalizedRole) && blockId) {
-        alertFilter.block = new mongoose.Types.ObjectId(blockId.toString());
-    } else if (blockId) {
-        alertFilter.block = new mongoose.Types.ObjectId(blockId.toString());
+    // ── 4. Alert Count ────────────────────────────────────────────────────────
+    const alertFilter = { status: { $nin: ['Resolved', 'Dismissed'] } };
+    if (normalizedRole === 'warden' && bId) {
+        alertFilter.block = bId;
+    } else if (normalizedRole === 'student' && (bId || uId)) {
+        if (bId) alertFilter.block = bId;
+        else alertFilter.user = uId;
     }
     const alertsCount = await Alert.countDocuments(alertFilter);
 
     return {
         summary,
-        totals,
+        summaryArray,
         grandTotal: Math.round(grandTotal * 100) / 100,
         alertsCount,
-        resourceCount: Object.keys(summary).length,
-        role: normalizedRole,
-        filteredByBlock: ['warden', 'student'].includes(normalizedRole)
+        resourceCount: configs.length,
+        role: normalizedRole
     };
 };
 
 /**
  * getUsageTrends
  * ─────────────────────────────────────────────────────────────────────────────
- * Unified trend data. Groups by date × resource_type.
+ * Groups by date and resource_type for line charts.
  */
 exports.getUsageTrends = async (options = {}) => {
-    const { role, blockId, range = '7d' } = options;
+    const { role, blockId, userId, range = '7d' } = options;
     const normalizedRole = (role || '').toLowerCase();
 
-    const now = new Date();
+    const endDate = new Date();
     let startDate = new Date();
-
-    switch (range) {
-        case '7d': startDate.setDate(now.getDate() - 7); break;
-        case '30d': startDate.setDate(now.getDate() - 30); break;
-        case '90d': startDate.setDate(now.getDate() - 90); break;
-        case '1y': startDate.setFullYear(now.getFullYear() - 1); break;
-        case 'month':
-            startDate = new Date(now.getFullYear(), now.getMonth(), 1); break;
-        case 'all':
-            startDate = new Date('2020-01-01'); break;
-        default:
-            startDate.setDate(now.getDate() - 7);
-    }
+    if (range === '7d') startDate.setDate(endDate.getDate() - 7);
+    else if (range === '30d') startDate.setDate(endDate.getDate() - 30);
+    else startDate.setDate(endDate.getDate() - 7);
 
     const matchStage = {
         deleted: { $ne: true },
-        usage_date: { $gte: startDate, $lte: now }
+        usage_date: { $gte: startDate, $lte: endDate }
     };
 
-    if (['warden', 'student'].includes(normalizedRole) && blockId) {
-        matchStage.blockId = new mongoose.Types.ObjectId(blockId.toString());
-    } else if (blockId) {
-        matchStage.blockId = new mongoose.Types.ObjectId(blockId.toString());
+    const bId = toObjectId(blockId);
+    if (['warden', 'student'].includes(normalizedRole) && bId) {
+        matchStage.blockId = bId;
     }
-
-    // ── Filter by active resources ──────────────────────────────
-    const activeConfigs = await Resource.find({ isActive: true }).select('resource').lean();
-    const activeNames = new Set(activeConfigs.map(c => c.resource?.toLowerCase()));
 
     const trends = await Usage.aggregate([
         { $match: matchStage },
@@ -206,20 +182,14 @@ exports.getUsageTrends = async (options = {}) => {
         { $sort: { '_id.date': 1 } }
     ]);
 
-    // Format for recharts: [{date, Electricity: X, Water: Y, ...}]
     const trendMap = {};
     trends.forEach(t => {
-        const date = t._id.date;
-        const resource = t._id.resource;
-
-        // Skip if resource is no longer active
-        if (!activeNames.has(resource?.toLowerCase())) return;
-
-        if (!trendMap[date]) trendMap[date] = { date };
-        trendMap[date][resource] = Math.round(t.total * 100) / 100;
+        const d = t._id.date;
+        const r = t._id.resource;
+        if (!trendMap[d]) trendMap[d] = { date: d };
+        trendMap[d][r] = Math.round(t.total * 100) / 100;
     });
 
-    return Object.values(trendMap).sort(
-        (a, b) => new Date(a.date) - new Date(b.date)
-    );
+    return Object.values(trendMap).sort((a, b) => a.date.localeCompare(b.date));
 };
+

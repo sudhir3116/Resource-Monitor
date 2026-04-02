@@ -128,12 +128,24 @@ exports.createUser = async (req, res) => {
 
     // If wardens are being assigned blocks
     let finalBlockId = null;
-    if (blockId && mongoose.Types.ObjectId.isValid(blockId)) {
+    if (role === ROLES.WARDEN) {
+      if (!blockId) {
+        return res.status(400).json({ success: false, message: 'Block assignment is required for Warden role.' });
+      }
       const block = await Block.findById(blockId);
       if (!block) {
-        return res.status(400).json({ success: false, message: 'Block not found' });
+        return res.status(400).json({ success: false, message: 'Assigned block not found' });
       }
       finalBlockId = blockId;
+
+      // Enforce one warden per block
+      const existingWarden = await User.findOne({ role: ROLES.WARDEN, block: blockId });
+      if (existingWarden) {
+        return res.status(409).json({ success: false, message: `Block "${block.name}" already has an assigned warden (${existingWarden.name}).` });
+      }
+    } else if (blockId && mongoose.Types.ObjectId.isValid(blockId)) {
+      const block = await Block.findById(blockId);
+      if (block) finalBlockId = blockId;
     }
 
     // Hash password
@@ -158,8 +170,17 @@ exports.createUser = async (req, res) => {
       resourceType: 'User',
       resourceId: user._id,
       userId: req.user.id,
-      description: `Created user: ${name} (${role})`
+      description: `Created user: ${name} (${role})${user.block ? ` for ${user.block}` : ''}`
     });
+
+    try {
+      const socketUtil = require('../utils/socket');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) {
+        io.emit('users:refresh');
+        io.emit('dashboard:refresh');
+      }
+    } catch (e) { /* non-fatal */ }
 
     res.status(201).json({
       success: true,
@@ -221,12 +242,24 @@ exports.updateUser = async (req, res) => {
       if (role && Object.values(ROLES).includes(role)) updates.role = role;
       if (status && ['active', 'pending', 'suspended', 'graduated'].includes(status)) updates.status = status;
 
-      if (blockId && mongoose.Types.ObjectId.isValid(blockId)) {
+      if (role === ROLES.WARDEN) {
+        if (!blockId) {
+          return res.status(400).json({ success: false, message: 'Block assignment is required for Warden role.' });
+        }
         const block = await Block.findById(blockId);
         if (!block) {
-          return res.status(400).json({ success: false, message: 'Block not found' });
+          return res.status(400).json({ success: false, message: 'Assigned block not found' });
         }
         updates.block = blockId;
+
+        // Enforce one warden per block (exclude self)
+        const existingWarden = await User.findOne({ role: ROLES.WARDEN, block: blockId, _id: { $ne: req.params.id } });
+        if (existingWarden) {
+          return res.status(409).json({ success: false, message: `Block "${block.name}" already has an assigned warden (${existingWarden.name}).` });
+        }
+      } else if (blockId && mongoose.Types.ObjectId.isValid(blockId)) {
+        const block = await Block.findById(blockId);
+        if (block) updates.block = blockId;
       }
     } else {
       // Self: only allow limited field updates
@@ -252,6 +285,15 @@ exports.updateUser = async (req, res) => {
       userId: req.user.id,
       description: `Updated user: ${user.name}`
     });
+
+    try {
+      const socketUtil = require('../utils/socket');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) {
+        io.emit('users:refresh');
+        io.emit('dashboard:refresh');
+      }
+    } catch (e) { /* non-fatal */ }
 
     res.json({
       success: true,
@@ -300,6 +342,16 @@ exports.deleteUser = async (req, res) => {
       userId: req.user.id,
       description: `Suspended/deleted user: ${user.name}`
     });
+
+    try {
+      const socketUtil = require('../utils/socket');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) {
+        io.emit('users:refresh');
+        io.emit('dashboard:refresh');
+        io.emit('blocks:refresh');
+      }
+    } catch (e) { /* non-fatal */ }
 
     res.json({
       success: true,

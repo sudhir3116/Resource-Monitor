@@ -53,68 +53,20 @@ export default function AdminDashboard() {
     });
     const [loading, setLoading] = useState(true);
 
-    const fetchData = useCallback(async () => {
+    const fetchDashboard = useCallback(async () => {
         try {
-            const [
-                usersRes,
-                blocksRes,
-                alertsRes,
-                complaintsRes,
-                alertCountRes,
-                complaintStatsRes
-            ] = await Promise.allSettled([
-                api.get('/api/admin/users'),
-                api.get('/api/admin/blocks'),
-                api.get('/api/alerts?limit=5'),
-                api.get('/api/complaints?limit=5'),
-                api.get('/api/alerts/count'),
-                api.get('/api/complaints/stats')
-            ]);
-
-            const users = usersRes.status === 'fulfilled'
-                ? (usersRes.value.data.data || usersRes.value.data.users || [])
-                : [];
-            const blocks = blocksRes.status === 'fulfilled'
-                ? (blocksRes.value.data.data || blocksRes.value.data.blocks || [])
-                : [];
-
-            const recentAlerts = alertsRes.status === 'fulfilled'
-                ? (alertsRes.value.data.alerts || [])
-                : [];
-            const recentComplaints = complaintsRes.status === 'fulfilled'
-                ? (complaintsRes.value.data.data || [])
-                : [];
-
-            const alertCounts = alertCountRes.status === 'fulfilled'
-                ? (alertCountRes.value.data.counts || {})
-                : {};
-
-            const activeAlerts =
-                Number(alertCounts.pending || 0) +
-                Number(alertCounts.investigating || 0) +
-                Number(alertCounts.escalated || 0);
-
-            const byStatus = complaintStatsRes.status === 'fulfilled'
-                ? (complaintStatsRes.value.data.byStatus || [])
-                : [];
-            const statusMap = byStatus.reduce((acc, s) => {
-                const key = s?._id || s?.status;
-                if (!key) return acc;
-                acc[key] = Number(s.count || 0);
-                return acc;
-            }, {});
-            const totalComplaints = Number(complaintStatsRes.status === 'fulfilled' ? complaintStatsRes.value.data.total : 0);
-            const resolvedComplaints = Number(statusMap.resolved || statusMap.RESOLVED || 0);
-            const unresolvedComplaints = Math.max(0, totalComplaints - resolvedComplaints);
+            const res = await api.get('/api/dashboard');
+            const data = res.data.data || res.data;
 
             setStats({
-                totalUsers: Array.isArray(users) ? users.length : 0,
-                totalBlocks: Array.isArray(blocks) ? blocks.length : 0,
-                totalResources: Array.isArray(resources) ? resources.length : 0,
-                activeAlerts,
-                unresolvedComplaints,
-                recentAlerts: Array.isArray(recentAlerts) ? recentAlerts : [],
-                recentComplaints: Array.isArray(recentComplaints) ? recentComplaints : []
+                totalUsers: data.totalUsers || 0,
+                totalBlocks: data.totalBlocks || 0,
+                totalResources: data.totalResources || 0,
+                activeAlerts: data.alertsCount || data.activeCampusAlerts || 0,
+                unresolvedComplaints: data.unresolvedComplaintsCount || 0,
+                recentAlerts: data.criticalAlerts || [],
+                recentComplaints: data.recentComplaints || [],
+                usageSummary: data.usageSummary || {}
             });
         } catch (err) {
             logger.error('Failed to load Admin Dashboard stats', err);
@@ -124,39 +76,23 @@ export default function AdminDashboard() {
     }, []);
 
     useEffect(() => {
-        fetchData();
+        fetchDashboard();
         const socket = getSocket();
-        const refresh = () => fetchData();
 
         if (socket) {
-            socket.on('dashboard:refresh', refresh);
-            socket.on('users:refresh', refresh);
-            socket.on('alerts:refresh', refresh);
-            socket.on('resources:refresh', refresh);
-            socket.on('usage:added', refresh);
-            socket.on('dashboard:alert_created', refresh);
-            socket.on('dashboard:alert_resolved', refresh);
-            socket.on('dashboard:complaint_added', refresh);
-            socket.on('complaints:refresh', refresh);
+            socket.on('dashboard:refresh', fetchDashboard);
+            socket.on('usage:refresh', fetchDashboard);
+            socket.on('complaints:refresh', fetchDashboard);
         }
-
-        window.addEventListener('usage:added', refresh);
 
         return () => {
             if (socket) {
-                socket.off('dashboard:refresh', refresh);
-                socket.off('users:refresh', refresh);
-                socket.off('alerts:refresh', refresh);
-                socket.off('resources:refresh', refresh);
-                socket.off('usage:added', refresh);
-                socket.off('dashboard:alert_created', refresh);
-                socket.off('dashboard:alert_resolved', refresh);
-                socket.off('dashboard:complaint_added', refresh);
-                socket.off('complaints:refresh', refresh);
+                socket.off('dashboard:refresh', fetchDashboard);
+                socket.off('usage:refresh', fetchDashboard);
+                socket.off('complaints:refresh', fetchDashboard);
             }
-            window.removeEventListener('usage:added', refresh);
         };
-    }, [fetchData]);
+    }, [fetchDashboard]);
 
     const getResourceIcon = (type) => {
         const r = (resources || []).find(res => res.name === type);
@@ -185,7 +121,7 @@ export default function AdminDashboard() {
                 <div />
                 <div className="flex items-center gap-3">
                     <button
-                        onClick={fetchData}
+                        onClick={fetchDashboard}
                         className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
                         title="Refresh Data"
                     >
@@ -261,7 +197,7 @@ export default function AdminDashboard() {
                                                         <span className="font-bold text-primary">{alert.resource || alert.resourceType}</span>
                                                     </div>
                                                 </td>
-                                                <td className="font-medium text-secondary">{alert.block?.name || alert.block || '-'}</td>
+                                                <td className="font-medium text-secondary">{alert.block?.name || (typeof alert.block === 'string' ? alert.block : '-')}</td>
                                                 <td>
                                                     {(() => {
                                                         const sev = String(alert.severity || '').toUpperCase();

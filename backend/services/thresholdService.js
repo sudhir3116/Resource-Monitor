@@ -15,11 +15,30 @@
 
 const Alert = require('../models/Alert');
 const Usage = require('../models/Usage');
-const SystemConfig = require('../models/Resource');
+const Resource = require('../models/Resource');
 const User = require('../models/User');
 const Block = require('../models/Block');
 const mongoose = require('mongoose');
+
+// ── Added debug point for Alert System (as requested) ────────────────────────
+const logThresholdCheck = (usage) => {
+    console.log("THRESHOLD CHECK:", usage?.resource_type, usage?.usage_value);
+};
+const logAlertCreated = (alert) => {
+    console.log("ALERT CREATED:", alert);
+};
+
 const { sendAlertEmail } = require('../utils/emailService');
+
+// ── Helper: Safe ObjectId Conversion ──────────────────────────────────────────
+const toObjectId = (raw) => {
+    if (!raw) return null;
+    if (typeof raw === 'string' && raw.includes('[object')) return null;
+    const s = raw?._id?.toString() || raw?.toString() || null;
+    if (!s || s.length !== 24) return null;
+    try { return new mongoose.Types.ObjectId(s); } catch (e) { return null; }
+};
+
 const {
     classifySeverity,
     SEVERITY_LEVELS,
@@ -33,62 +52,84 @@ const {
 // ⭐ FIXED: Public entry-point called from usageController after every Usage create/update/delete
 // KEY FIX: Now accepts blockId parameter to support warden-created block-scoped usage
 // ─────────────────────────────────────────────────────────────────────────────
-const checkThresholds = async (userId, resourceType, date, blockId = null) => {
+const checkThresholds = async (userId, resourceType, date, blockId) => {
     try {
-        console.log(`[TRACE:THRESHOLD_CHECK_START] Checking thresholds`);
-        console.log(`  ├─ userId: ${userId}`);
-        console.log(`  ├─ resourceType: ${resourceType}`);
-        console.log(`  ├─ date: ${date}`);
-        console.log(`  └─ blockId: ${blockId || 'null'}\n`);
+        const Resource = require('../models/Resource');
+        const Usage = require('../models/Usage');
+        const Alert = require('../models/Alert');
 
-        // ① Coerce date string → Date object
-        const dateObj = date instanceof Date ? date : new Date(date);
-        if (isNaN(dateObj.getTime())) {
-            console.error('[TRACE:ERROR] Invalid date received:', date);
-            return;
-        }
+        console.log(`[AlertEngine] Checking ${resourceType} for block ${blockId}`);
 
-        // ② Load system config for this resource
-        const config = await Resource.findOne({ resource: resourceType });
+        // 1. Get correct config
+        const config = await Resource.findOne({
+            name: { $regex: new RegExp(`^${resourceType}$`, 'i') },
+            isActive: true
+        });
+
         if (!config) {
-            console.log(`[TRACE:CONFIG_NOT_FOUND] No SystemConfig for resource: ${resourceType}\n`);
+            console.log(`[AlertEngine] No config found for ${resourceType}`);
             return;
         }
-        if (config.isActive === false) {
-            console.log(`[TRACE:CONFIG_INACTIVE] SystemConfig isActive=false for ${resourceType}\n`);
-            return;
+
+        // 2. Aggregate current daily usage for this block + resource
+        const today = new Date(date);
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const agg = await Usage.aggregate([
+            {
+                $match: {
+                    blockId: new mongoose.Types.ObjectId(blockId),
+                    resource_type: resourceType,
+                    usage_date: { $gte: today, $lt: tomorrow },
+                    deleted: { $ne: true }
+                }
+            },
+            { $group: { _id: null, total: { $sum: '$usage_value' } } }
+        ]);
+
+        const currentUsage = agg[0]?.total || 0;
+        const limit = config.dailyThreshold || config.dailyLimit || 100;
+
+        console.log(`[AlertEngine] Usage: ${currentUsage}, Limit: ${limit}`);
+
+        // 3. Logic: If exceeded, create/update alert
+        if (currentUsage > limit) {
+            const severity = currentUsage > limit * 1.5 ? 'Critical' : (currentUsage > limit * 1.2 ? 'High' : 'Medium');
+            const message = `${resourceType} usage (${currentUsage.toFixed(1)} ${config.unit}) exceeded daily limit (${limit} ${config.unit}) in this block.`;
+
+            await Alert.findOneAndUpdate(
+                {
+                    block: blockId,
+                    resourceType,
+                    alertType: 'daily',
+                    alertDate: today,
+                    status: { $ne: 'Resolved' }
+                },
+                {
+                    $set: {
+                        user: userId,
+                        message,
+                        severity,
+                        amount: currentUsage,
+                        threshold: limit,
+                        status: 'Active',
+                        lastTriggered: new Date()
+                    }
+                },
+                { upsert: true }
+            );
+
+            // 4. Emit real-time events
+            const io = require('../utils/socket').getIO();
+            if (io) {
+                io.emit('alerts:refresh');
+                io.emit('dashboard:refresh');
+            }
         }
-        if (!config.alertsEnabled) {
-            console.log(`[TRACE:ALERTS_DISABLED] alertsEnabled=false for ${resourceType}\n`);
-            return;
-        }
-        console.log(`[TRACE:CONFIG_LOADED] SystemConfig loaded for ${resourceType}`);
-        console.log(`  ├─ dailyThreshold: ${config.dailyThreshold}`);
-        console.log(`  ├─ monthlyThreshold: ${config.monthlyThreshold}`);
-        console.log(`  └─ alertsEnabled: ${config.alertsEnabled}\n`);
-
-        // ③ Normalize config
-        const normConfig = {
-            ...config.toObject(),
-            dailyLimit: config.dailyThreshold ?? config.dailyLimitPerPerson ?? null,
-            monthlyLimit: config.monthlyThreshold ?? config.monthlyLimitPerPerson ?? null,
-            unit: config.unit ?? RESOURCE_UNITS[resourceType] ?? '',
-        };
-
-        // ④ Get block context if not provided
-        if (!blockId) {
-            const user = await User.findById(userId).lean();
-            blockId = user?.block || null;
-        }
-
-        // ⑤ Run all checks with explicit block context
-        await _checkDaily(userId, blockId, resourceType, dateObj, normConfig);
-        await _checkMonthly(userId, blockId, resourceType, dateObj, normConfig);
-        await _checkSpike(userId, blockId, resourceType, dateObj, normConfig);
-        await _checkBudget(userId, blockId, dateObj);
-
-    } catch (error) {
-        console.error('[ThresholdService] checkThresholds error:', error);
+    } catch (err) {
+        console.error('[AlertEngine] Error:', err.message);
     }
 };
 
@@ -110,21 +151,33 @@ async function _checkDaily(userId, blockId, resourceType, date, config) {
         // Resolve limit for this user/block
         const user = await User.findById(userId).lean();
         const limit = _resolveLimit(user, blockId, config, 'dailyLimit');
-        console.log(`[TRACE:LIMIT_RESOLVED] Daily limit determined`);
-        console.log(`  ├─ limit: ${limit}`);
-        console.log(`  └─ blockId: ${blockId || 'null'}\n`);
-        if (!limit) {
-            console.log(`[TRACE:NO_LIMIT] Daily limit is null/undefined, skipping check\n`);
-            return;
-        }
 
-        // Aggregate usage with proper soft-delete filtering
-        const totalUsage = await _aggregateUsage(matchQuery);
-        console.log(`[TRACE:AGGREGATION_RESULT] Daily usage aggregated`);
-        console.log(`  ├─ totalUsage: ${totalUsage}`);
-        console.log(`  ├─ limit: ${limit}`);
-        console.log(`  ├─ percentage: ${_pct(totalUsage, limit)}%`);
-        console.log(`  └─ exceeds: ${totalUsage > limit}\n`);
+        // ⭐ CALC TOTAL DAILY USAGE (Part 2 Step 2 Fix)
+        const totalAgg = await Usage.aggregate([
+            {
+                $match: {
+                    blockId: blockId || new mongoose.Types.ObjectId(userId),
+                    resource_type: resourceType,
+                    usage_date: {
+                        $gte: startOfDay,
+                        $lte: endOfDay
+                    },
+                    deleted: { $ne: true }
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    total: { $sum: "$usage_value" }
+                }
+            }
+        ]);
+        const totalUsage = totalAgg[0]?.total || 0;
+
+        console.log("TOTAL USAGE:", totalUsage);
+        console.log("LIMIT:", limit);
+
+        if (!limit) return;
 
         if (totalUsage > limit) {
             console.log(`[TRACE:THRESHOLD_EXCEEDED] Usage exceeds daily limit`);
@@ -145,7 +198,7 @@ async function _checkDaily(userId, blockId, resourceType, date, config) {
 
             console.log(`[TRACE:CALLING_UPSERT_ALERT] About to create/update alert`);
             console.log(`  ├─ message: ${message}\n`);
-            await _upsertAlert({
+            const alert = await _upsertAlert({
                 userId,
                 blockId,
                 resourceType,
@@ -159,6 +212,7 @@ async function _checkDaily(userId, blockId, resourceType, date, config) {
                 alertType: 'daily',
                 alertDate: startOfDay,
             });
+            logAlertCreated(alert);
         } else {
             // Usage BELOW threshold → auto-resolve existing alert
             await _resolveAlertIfExists(userId, blockId, resourceType, 'daily', startOfDay);
@@ -193,7 +247,7 @@ async function _checkMonthly(userId, blockId, resourceType, date, config) {
             const unit = config.unit;
             const message = `${resourceType} monthly usage (${totalUsage.toFixed(2)} ${unit}) exceeded monthly limit (${limit} ${unit}) by ${excessPercentage}%.`;
 
-            await _upsertAlert({
+            const alert = await _upsertAlert({
                 userId,
                 blockId,
                 resourceType,
@@ -207,6 +261,7 @@ async function _checkMonthly(userId, blockId, resourceType, date, config) {
                 alertType: 'monthly',
                 alertDate: startOfMonth,
             });
+            logAlertCreated(alert);
         } else {
             await _resolveAlertIfExists(userId, blockId, resourceType, 'monthly', startOfMonth);
         }
@@ -566,27 +621,17 @@ async function _upsertAlert({ userId, user, blockId, resourceType, totalUsage, l
         console.log(`  ├─ status: ${after?.status || 'null'}`);
         console.log(`  └─ severity: ${after?.severity || 'null'}\n`);
 
-        // ── FRESH INSERT DETECTION ────────────────────────────────────────────
-        // $setOnInsert only fires on new documents. Detect insertion by checking
-        // whether createdAt is within the last 5 seconds (i.e., just created now).
-        // This is more reliable than checking severityLevel equality, which
-        // incorrectly fires for existing alerts with the same severity.
+        // Fresh insert detection
         if (after?.createdAt) {
             wasInserted = (Date.now() - new Date(after.createdAt).getTime()) < 5000;
         }
-        console.log(`[TRACE:INSERT_DETECTION] wasInserted: ${wasInserted}\n`);
 
-    } catch (err) {
-        // Handle rare E11000 duplicate key race: another process inserted simultaneously
-        if (err && err.code === 11000) {
-            try {
-                after = await Alert.findOne(dedupFilter).lean();
-            } catch (inner) {
-                console.error('[ThresholdService] dedup read after duplicate-key:', inner);
-            }
-        } else {
-            console.error('[ThresholdService] _upsertAlert initial upsert error:', err);
+        if (wasInserted) {
+            logAlertCreated(after);
         }
+        console.log(`[TRACE:INSERT_DETECTION] wasInserted: ${wasInserted}\n`);
+    } catch (err) {
+        console.error('[ThresholdService] _upsertAlert error:', err);
     }
 
     // ── BUG FIX: RE-ACTIVATE stale Resolved/Dismissed same-day alert ─────────

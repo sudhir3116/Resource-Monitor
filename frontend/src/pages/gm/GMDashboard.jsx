@@ -38,13 +38,22 @@ const GMDashboard = () => {
         try {
             console.log("Fetching dashboard data for:", user?.role);
             const res = await api.get('/api/dashboard');
+            const data = res.data.data || res.data || {};
 
-            if (res.data?.success) {
-                const data = res.data.data;
-                setSummaryData(data); // Mapping entire data object to summaryData for easier extraction
-                setTrendData(data.trendsOverTime || []);
-                setActiveAlerts(data.activeCampusAlerts || 0);
-                setRecentAlerts(data.criticalAlerts || []);
+            if (res.data?.success || data) {
+                // FIX DATA MAPPING (Executive API consistency)
+                setSummaryData(data);
+
+                // Safe trend mapping
+                const rawTrends = data.trendsOverTime || data.trends || [];
+                setTrendData(Array.isArray(rawTrends) ? rawTrends : []);
+
+                // Safe alert count
+                setActiveAlerts(data.activeCampusAlerts || data.alertsCount || 0);
+
+                // Safe alerts list
+                setRecentAlerts(Array.isArray(data.criticalAlerts) ? data.criticalAlerts : []);
+
                 setTotalBlocks(data.totalBlocks || 0);
             }
         } catch (err) {
@@ -108,14 +117,22 @@ const GMDashboard = () => {
 
     const summary = summaryData?.summary || {};
     const grandTotal = summaryData?.grandTotal || 0;
-    const totalCost = Object.values(summary).reduce((acc, data) => acc + (data?.totalCost || 0), 0);
+    const totalCost = summaryData?.estimatedCost || Object.values(summary).reduce((acc, data) => {
+        const val = typeof data === 'number' ? 0 : (data?.totalCost || 0);
+        return acc + val;
+    }, 0);
+
     const mostUsed = Object.entries(summary).reduce((max, [name, data]) => {
-        if (!max || (data?.total || 0) > (max.data?.total || 0)) return { name, data };
+        const val = typeof data === 'number' ? data : (data?.total || 0);
+        if (!max || val > max.value) return { name, value: val, data };
         return max;
     }, null);
 
     const distributionData = Object.entries(summary)
-        .map(([name, data]) => ({ name, value: data?.total || 0 }))
+        .map(([name, data]) => ({
+            name,
+            value: typeof data === 'number' ? data : (data?.total || data?.current || 0)
+        }))
         .filter(d => typeof d.value === 'number' && d.value > 0);
 
     return (
@@ -168,83 +185,37 @@ const GMDashboard = () => {
                 />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-                {Object.entries(summary || {}).map(([name, data]) => {
-                    const resource = (resources || []).find(r => r.name === name) || {};
-                    const totalValue = typeof data === 'number' ? data : data?.total || 0;
-                    return (
-                        <MetricCard
-                            key={name}
-                            icon={<span className="text-xl" style={{ color: resource.color }}>{resource.icon || '📊'}</span>}
-                            label={name}
-                            value={totalValue > 0 ? `${totalValue.toLocaleString()} ${resource.unit || ''}` : 'No data'}
-                        />
-                    );
-                })}
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <Card className="lg:col-span-2" title="Resource Consumption Trends" icon={<TrendingUp size={20} />}>
-                    <div className="h-[350px] mt-6">
-                        {(Array.isArray(trendData) ? trendData : []).length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={trendData}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                                    <XAxis
-                                        dataKey="date"
-                                        tickFormatter={(val) => new Date(val).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                        fontSize={12}
-                                        tickLine={false}
-                                        axisLine={false}
-                                    />
-                                    <YAxis fontSize={12} tickLine={false} axisLine={false} />
-                                    <Tooltip
-                                        contentStyle={{ backgroundColor: 'var(--bg-card)', border: 'none', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
-                                        itemStyle={{ fontSize: '12px', fontWeight: '900' }}
-                                    />
-                                    {Object.entries(summary || {}).map(([name, data]) => {
-                                        const res = resources.find(r => r.name === name) || {};
-                                        return (
-                                            <Area
-                                                key={name}
-                                                type="monotone"
-                                                dataKey={name}
-                                                stroke={res.color || '#64748b'}
-                                                fill={res.color || '#64748b'}
-                                                fillOpacity={0.05}
-                                                strokeWidth={3}
-                                                dot={false}
-                                                activeDot={{ r: 6, strokeWidth: 0 }}
-                                            />
-                                        );
-                                    })}
-                                </AreaChart>
-                            </ResponsiveContainer>
+            <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
+                {/* Critical Alerts / Recent Activity Section */}
+                <Card title="Critical Incidents Watchlist" icon={<AlertTriangle size={20} className="text-rose-500" />}>
+                    <div className="space-y-4 mt-4">
+                        {(recentAlerts || []).length > 0 ? (
+                            recentAlerts.map(alert => (
+                                <div key={alert._id} className="flex items-center justify-between p-4 bg-rose-50/50 dark:bg-rose-900/10 rounded-2xl border border-rose-100 dark:border-rose-900/20 group hover:shadow-sm transition-all">
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-10 w-10 rounded-xl bg-white dark:bg-slate-800 flex items-center justify-center text-rose-500 shadow-sm group-hover:scale-110 transition-transform">
+                                            <AlertTriangle size={20} />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-800 dark:text-rose-100 truncate max-w-[200px]">{alert.title || alert.message}</p>
+                                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{alert.block?.name || 'Campus'}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Badge variant="danger">{alert.severity}</Badge>
+                                        <span className="text-[10px] text-slate-400 font-bold tabular-nums">{new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                    </div>
+                                </div>
+                            ))
                         ) : (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                                <Activity size={48} className="mb-2 opacity-20" />
-                                <p>No trend data available for this week</p>
+                            <div className="py-12 flex flex-col items-center justify-center opacity-30 italic text-sm">
+                                <Activity size={32} className="mb-2" />
+                                All systems currently nominal. No active critical incidents.
                             </div>
                         )}
-                    </div>
-                </Card>
-
-                <Card title="Usage Distribution" icon={<PieChartIcon size={20} />}>
-                    <div className="h-[350px] mt-6">
-                        {(Array.isArray(distributionData) ? distributionData : []).length > 0 ? (
-                            <>
-                                {/* DonutChart expects data: [{resource, value}], resources: full resource list */}
-                                <DonutChart
-                                    data={distributionData.map(d => ({ resource: d.name, value: d.value }))}
-                                    resources={resources}
-                                    height={320}
-                                />
-                            </>
-                        ) : (
-                            <div className="h-full flex items-center justify-center text-slate-400">
-                                <p>No data to display in breakdown</p>
-                            </div>
-                        )}
+                        <Button variant="secondary" size="sm" fullWidth className="!rounded-xl text-[10px] font-black uppercase tracking-tighter" onClick={() => navigate('/gm/alerts')}>
+                            Manage Operational Alerts &rarr;
+                        </Button>
                     </div>
                 </Card>
             </div>

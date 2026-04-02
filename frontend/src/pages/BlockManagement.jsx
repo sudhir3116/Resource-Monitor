@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useContext } from 'react';
+import { AuthContext } from '../context/AuthContext';
 import api from '../services/api';
 import {
     Building2, Plus, Trash2, UserCheck, UserX,
@@ -274,6 +275,8 @@ function AssignWardenModal({ isOpen, onClose, block, wardens, onAssigned }) {
 
 // ─── Main Block Management Page ───────────────────────────────────────────────
 export default function BlockManagement() {
+    const { user } = useContext(AuthContext);
+    const isAdmin = user?.role === 'admin';
     const { addToast } = useToast();
     const [blocks, setBlocks] = useState([]);
     const [wardens, setWardens] = useState([]);
@@ -412,10 +415,12 @@ export default function BlockManagement() {
                     >
                         <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
                     </button>
-                    <Button variant="primary" onClick={() => setShowCreate(true)}>
-                        <Plus size={15} className="mr-2" />
-                        New Block
-                    </Button>
+                    {isAdmin && (
+                        <Button variant="primary" onClick={() => setShowCreate(true)}>
+                            <Plus size={15} className="mr-2" />
+                            New Block
+                        </Button>
+                    )}
                 </div>
             </div>
 
@@ -524,7 +529,7 @@ export default function BlockManagement() {
                                         <th onClick={() => handleSort('warden.name')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'warden.name' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
                                             Assigned Warden <SortIcon field="warden.name" sortField={sortField} sortDirection={sortDirection} />
                                         </th>
-                                        <th className="text-right">Actions</th>
+                                        {isAdmin && <th className="text-right">Actions</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -586,35 +591,37 @@ export default function BlockManagement() {
                                                         </span>
                                                     )}
                                                 </td>
-                                                <td className="text-right">
-                                                    <div className="flex justify-end gap-2">
-                                                        <Button
-                                                            size="sm"
-                                                            variant="secondary"
-                                                            title="Edit block"
-                                                            onClick={() => setEditTarget(block)}
-                                                        >
-                                                            <Edit2 size={14} />
-                                                        </Button>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="secondary"
-                                                            title="Assign / change warden"
-                                                            onClick={() => setAssignTarget(block)}
-                                                        >
-                                                            <UserCheck size={14} className="mr-1" />
-                                                            {warden ? 'Reassign' : 'Assign Warden'}
-                                                        </Button>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="danger"
-                                                            title="Delete block"
-                                                            onClick={() => handleSingleDelete(block._id, block.name)}
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </Button>
-                                                    </div>
-                                                </td>
+                                                {isAdmin ? (
+                                                    <td className="text-right">
+                                                        <div className="flex justify-end gap-2">
+                                                            <Button
+                                                                size="sm"
+                                                                variant="secondary"
+                                                                title="Edit block"
+                                                                onClick={() => setEditTarget(block)}
+                                                            >
+                                                                <Edit2 size={14} />
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="secondary"
+                                                                title="Assign / change warden"
+                                                                onClick={() => setAssignTarget(block)}
+                                                            >
+                                                                <UserCheck size={14} className="mr-1" />
+                                                                {warden ? 'Reassign' : 'Assign Warden'}
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="danger"
+                                                                title="Delete block"
+                                                                onClick={() => handleSingleDelete(block._id, block.name)}
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </Button>
+                                                        </div>
+                                                    </td>
+                                                ) : <td />}
                                             </tr>
                                         );
                                     })}
