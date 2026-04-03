@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Eye, EyeOff, Save, AlertCircle, CheckCircle } from 'lucide-react';
-import api from '../services/api';
+import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 
 

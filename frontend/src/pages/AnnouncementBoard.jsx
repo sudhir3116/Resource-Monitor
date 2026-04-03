@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { Plus, Trash2, Edit2, MapPin, Clock, AlertCircle, Megaphone, Info, RefreshCw, User, Calendar, Tag, ShieldCheck } from 'lucide-react';
-import api from '../services/api';
+import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';

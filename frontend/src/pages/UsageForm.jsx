@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import api from '../services/api';
+import api from '../api/axios';
 import { useResources, refetchResources } from '../hooks/useResources';
 import { useToast } from '../context/ToastContext';
 import { ArrowLeft, Save, Activity, LayoutGrid, Calendar, FileText, MapPin, Gauge } from 'lucide-react';

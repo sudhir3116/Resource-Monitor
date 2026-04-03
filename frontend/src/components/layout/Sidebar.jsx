@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import { ROLES } from '../../utils/roles';
-import api from '../../services/api';
+import api from '../../api/axios';
 import { Activity, User, Bell, ChevronRight } from 'lucide-react';
 
 const NAV_CONFIG = {

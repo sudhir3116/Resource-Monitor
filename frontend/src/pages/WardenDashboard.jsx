@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import api from '../services/api';
+import api from '../api/axios';
 import { getSocket } from '../utils/socket';
 import { AlertTriangle, Plus, Activity, TrendingUp, ArrowRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';

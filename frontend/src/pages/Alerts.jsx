@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react';
-import api from '../services/api';
+import api from '../api/axios';
 import { AuthContext } from '../context/AuthContext';
 import { AlertCountContext } from '../context/AlertCountContext';
 import { ROLES } from '../utils/roles';

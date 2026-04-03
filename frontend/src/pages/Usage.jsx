@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../services/api';
+import api from '../api/axios';
 import { AuthContext } from '../context/AuthContext';
 import { useResources } from '../hooks/useResources';
 import {

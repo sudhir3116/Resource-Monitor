@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../../services/api';
+import api from '../../api/axios';
 import { AuthContext } from '../../context/AuthContext';
 import {
     Zap, Droplets, Flame, Wind, Sun, Trash2,

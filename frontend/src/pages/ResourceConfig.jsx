@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import api from '../services/api';
+import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { ROLES } from '../utils/roles';
 import { logger } from '../utils/logger';

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react'
 import { AuthContext } from './AuthContextCore';
 import { useNavigate, useLocation } from 'react-router-dom'
-import api from '../services/api'
+import api from '../api/axios'
 import Loading from '../components/Loading'
 import { logger } from '../utils/logger'
 import { connectSocket, disconnectSocket, getSocket } from '../utils/socket'
@@ -195,6 +195,9 @@ const AuthProvider = ({ children }) => {
       return { success: true }
     } catch (error) {
       console.error('Login error:', error)
+      if (error.code === "ECONNABORTED") {
+        alert("Server is waking up, please wait 20 seconds and try again");
+      }
       let errorMessage = 'Login failed. Please try again.'
 
       if (error.message) errorMessage = error.message

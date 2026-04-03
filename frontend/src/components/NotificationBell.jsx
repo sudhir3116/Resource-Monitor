@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useContext } from 'react'
 import { Bell } from 'lucide-react'
-import api from '../services/api'
+import api from '../api/axios'
 import { AuthContext } from '../context/AuthContext'
 import { getSocket } from '../utils/socket'
 

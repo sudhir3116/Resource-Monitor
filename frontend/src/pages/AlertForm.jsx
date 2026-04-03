@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import api from '../services/api'
+import api from '../api/axios'
 import Loading from '../components/Loading'
 import { useToast } from '../context/ToastContext'
 import {

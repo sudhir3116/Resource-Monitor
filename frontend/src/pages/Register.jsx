@@ -3,7 +3,7 @@ import { Navigate, Link } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { Activity, CheckCircle, User, Mail, Lock, Building, Layers, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import Button from '../components/common/Button';
-import api from '../services/api';
+import api from '../api/axios';
 
 export default function Register() {
   const { user } = useContext(AuthContext);

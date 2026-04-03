@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react';
-import api from '../services/api';
+import api from '../api/axios';
 import { getSocket } from '../utils/socket';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, useCallback } from 'react';
-import api from '../../services/api';
+import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { ThemeContext } from '../../context/ThemeContext';
 import { Activity, Leaf, RefreshCw } from 'lucide-react';

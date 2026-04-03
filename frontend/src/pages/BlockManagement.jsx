@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import api from '../services/api';
+import api from '../api/axios';
 import {
     Building2, Plus, Trash2, UserCheck, UserX,
     X, RefreshCw, Shield, Users, Edit2

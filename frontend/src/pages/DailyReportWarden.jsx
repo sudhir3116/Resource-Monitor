@@ -22,7 +22,7 @@ import {
   Sun,
   Trash2 as TrashIcon
 } from 'lucide-react';
-import api from '../services/api';
+import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
