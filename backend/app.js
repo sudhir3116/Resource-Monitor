@@ -41,9 +41,7 @@ app.use('/api', apiLimiter);
 // CORS Configuration
 const allowedOrigins = [
   'http://localhost:5173',
-  'http://localhost:5174',
-  process.env.FRONTEND_URL,
-  process.env.CLIENT_URL,
+  process.env.FRONTEND_URL
 ].filter(Boolean);
 
 app.use(cors({
@@ -51,12 +49,15 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
+      console.warn(`[CORS] Blocked request from: ${origin}`);
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
       return callback(new Error(msg), false);
     }
     return callback(null, true);
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 app.use(express.json());
@@ -145,19 +146,28 @@ mongoose.connect(process.env.MONGO_URI, {
   }
   normalizeUsageResourceTypes()
 
-  const PORT = process.env.PORT || 5000;
-  // Create HTTP server and attach socket.io so controllers can emit events
-  const http = require('http');
-  const server = http.createServer(app);
+  const PORT = process.env.PORT || 5001;
+  
+  // Start server using app.listen (Express creates the http.Server instance)
+  const server = app.listen(PORT, () => {
+    console.log(`\n🚀 Server Initialized Successfully`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`📡 Port: ${PORT}`);
+    console.log(`🔗 Frontend Allowed: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+    console.log(`----------------------------------------------\n`);
+  });
+
+  // Attach socket.io to the running server for real-time features
   const { Server } = require('socket.io');
   const io = new Server(server, {
     cors: {
       origin: allowedOrigins,
-      methods: ['GET', 'POST']
+      methods: ['GET', 'POST'],
+      credentials: true
     }
   });
 
-  // Expose io on app for controllers to emit
+  // Expose io on app and globally for controllers/utils to emit events
   const socketUtil = require('./utils/socket');
   const socketManager = require('./socket/socketManager');
 
@@ -182,16 +192,12 @@ mongoose.connect(process.env.MONGO_URI, {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-  server.listen(PORT, () => {
-    if (process.env.NODE_ENV !== 'production') console.log(`Server running on port ${PORT}`);
-  });
-
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
       console.error(`❌ Port ${PORT} is already in use. Please stop the other process or change PORT.`);
       process.exit(1);
     } else {
-      throw err;
+      console.error('❌ Server startup error:', err);
     }
   });
 

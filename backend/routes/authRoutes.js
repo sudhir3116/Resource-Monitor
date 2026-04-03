@@ -38,11 +38,18 @@ router.get('/google', passport.authenticate('google', { scope: ['profile', 'emai
 // Route: GET /api/auth/google/callback
 router.get(
     '/google/callback',
-    passport.authenticate('google', { session: false, failureRedirect: 'http://localhost:5173/login?error=failed' }),
+    (req, res, next) => {
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        passport.authenticate('google', {
+            session: false,
+            failureRedirect: `${frontendUrl}/login?error=failed`
+        })(req, res, next);
+    },
     (req, res) => {
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
         // Enforce suspension even in legacy flow
         if (req.user && req.user.status === 'suspended') {
-            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
             return res.redirect(`${frontendUrl}/login?error=suspended`);
         }
 
@@ -51,7 +58,6 @@ router.get(
         SET_COOKIES(res, accessToken, refreshToken);
 
         // Redirect to frontend dashboard
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
         res.redirect(`${frontendUrl}/dashboard`);
     }
 );
