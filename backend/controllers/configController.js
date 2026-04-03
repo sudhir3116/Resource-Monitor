@@ -1,4 +1,4 @@
-const Resource = require('../models/Resource');
+const Resource = require('../models/ResourceConfig');
 const Block = require('../models/Block');
 const AuditLog = require('../models/AuditLog');
 const { ROLES } = require('../config/roles');

@@ -1,4 +1,5 @@
-import React, { createContext, useState, useEffect, useCallback, useContext } from 'react'
+import React, { useState, useEffect, useCallback, useContext } from 'react'
+import { AuthContext } from './AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom'
 import api from '../services/api'
 import Loading from '../components/Loading'
@@ -6,7 +7,6 @@ import { logger } from '../utils/logger'
 import { connectSocket, disconnectSocket, getSocket } from '../utils/socket'
 import { getDashboardRoute } from '../utils/roleRoutes'
 
-export const AuthContext = createContext()
 
 const AuthProvider = ({ children }) => {
   const navigate = useNavigate()

@@ -15,7 +15,7 @@
 
 const Alert = require('../models/Alert');
 const Usage = require('../models/Usage');
-const Resource = require('../models/Resource');
+const Resource = require('../models/ResourceConfig');
 const User = require('../models/User');
 const Block = require('../models/Block');
 const mongoose = require('mongoose');
@@ -54,7 +54,7 @@ const {
 // ─────────────────────────────────────────────────────────────────────────────
 const checkThresholds = async (userId, resourceType, date, blockId) => {
     try {
-        const Resource = require('../models/Resource');
+        const Resource = require('../models/ResourceConfig');
         const Usage = require('../models/Usage');
         const Alert = require('../models/Alert');
 

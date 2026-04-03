@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Usage = require('../models/Usage');
 const Alert = require('../models/Alert');
-const Resource = require('../models/Resource');
+const ResourceConfig = require('../models/ResourceConfig');
 
 // ── Helper: Safe ObjectId Conversion ──────────────────────────────────────────
 const toObjectId = (raw) => {
@@ -80,10 +80,10 @@ exports.getUsageSummary = async (options = {}) => {
     const results = await Usage.aggregate(pipeline);
     console.log("Aggregated usage (Raw):", results); // Mandatory Debug Logging
 
-    const configs = await Resource.find({
+    const configs = await ResourceConfig.find({
         $or: [
             { isActive: { $ne: false } },
-            { status: 'active' }
+            { isDeleted: { $ne: true } }
         ]
     }).lean();
 

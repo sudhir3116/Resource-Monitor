@@ -141,7 +141,7 @@ exports.updateUserRole = async (req, res) => {
 exports.getSystemUsageSummary = async (req, res) => {
     try {
         const { getUsageSummary } = require('../services/usageService');
-        const Resource = require('../models/Resource');
+        const Resource = require('../models/ResourceConfig');
         const Complaint = require('../models/Complaint');
 
         const role = (req.user?.role || '').toLowerCase();

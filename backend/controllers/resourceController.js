@@ -1,4 +1,4 @@
-const Resource = require('../models/Resource');
+const Resource = require('../models/ResourceConfig');
 
 /**
  * GET /api/resource-config (alias for /api/resources)

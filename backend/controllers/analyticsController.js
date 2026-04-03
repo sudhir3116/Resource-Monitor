@@ -1,4 +1,4 @@
-const Resource = require('../models/Resource');
+const Resource = require('../models/ResourceConfig');
 const Usage = require('../models/Usage');
 const Block = require('../models/Block');
 const User = require('../models/User');
@@ -118,7 +118,7 @@ const getAnalyticsSummary = async (req, res) => {
         ]);
 
         // 4. Fetch Configs to inject Units & Meta
-        const Resource = require('../models/Resource');
+        const Resource = require('../models/ResourceConfig');
         const configs = await Resource.find({ isActive: true }).lean();
 
         // 5. Map results to requested format
@@ -711,7 +711,7 @@ const getBlockAnalytics = async (req, res) => {
 
         // Group data by resource type (no hardcoded resource list)
         const resourceStats = {};
-        const SystemConfig = require('../models/Resource');
+        const SystemConfig = require('../models/ResourceConfig');
         const activeConfigs = await Resource.find({ isActive: { $ne: false } }).select('resource').lean();
         const configuredResources = Array.isArray(activeConfigs) ? activeConfigs.map(c => c.resource).filter(Boolean) : [];
         const resources = configuredResources.length > 0

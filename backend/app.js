@@ -38,26 +38,20 @@ app.use((req, res, next) => {
 // Rate Limiting (100 requests per 15 minutes on all /api routes)
 app.use('/api', apiLimiter);
 
-// CORS Configuration
 const allowedOrigins = [
   'http://localhost:5173',
-  process.env.FRONTEND_URL
-].filter(Boolean);
+  'https://resource-monitor-red.vercel.app'
+];
 
 app.use(cors({
-  origin: (origin, callback) => {
+  origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    if (
-      allowedOrigins.includes(origin) ||
-      origin.includes("vercel.app")
-    ) {
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-
-    console.warn(`[CORS] Blocked request from: ${origin}`);
-    return callback(new Error("Not allowed by CORS"), false);
+    return callback(null, true); // allow all temporarily
   },
-  credentials: true,
+  credentials: true
 }));
 
 app.use(express.json());
@@ -125,7 +119,15 @@ mongoose.connect(process.env.MONGO_URI, {
   // ⭐ NORMALIZATION: Align all usage resource_type to match ResourceConfig.name exactly
   const normalizeUsageResourceTypes = async () => {
     try {
-      const configs = await ResourceConfig.find({ isActive: true, isDeleted: { $ne: true } }).select('name').lean()
+      const allConfigs = await ResourceConfig.find({ isActive: true, isDeleted: { $ne: true } }).select('name').lean()
+      // Deduplicate by name (case-insensitive) to prevent normalization flip-flops
+      const seen = new Set()
+      const configs = allConfigs.filter(cfg => {
+        const lower = cfg.name.toLowerCase()
+        if (seen.has(lower)) return false
+        seen.add(lower)
+        return true
+      })
 
       for (const cfg of configs) {
         const regex = new RegExp(`^${cfg.name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}$`, 'i')

@@ -9,7 +9,8 @@
 const Usage = require('../models/Usage');
 const Block = require('../models/Block');
 const User = require('../models/User');
-const SystemConfig = require('../models/Resource');
+const ResourceConfig = require('../models/ResourceConfig');
+const SystemConfig = require('../models/SystemConfig');
 const Alert = require('../models/Alert');
 const Complaint = require('../models/Complaint');
 const mongoose = require('mongoose');
@@ -311,8 +312,7 @@ exports.getExecutiveStats = async (req, res) => {
         ]);
 
         // 5. Financials (Cost Estimation)
-        const Resource = require('../models/Resource');
-        const configs = await Resource.find({}).lean();
+        const configs = await ResourceConfig.find({ isActive: true, isDeleted: false }).lean();
 
         const rateMap = configs.reduce((acc, c) => {
             acc[c.resource || c.name] = c.costPerUnit ?? c.rate ?? 0;

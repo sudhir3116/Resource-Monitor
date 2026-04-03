@@ -1,9 +1,9 @@
-import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
+import { AlertCountContext } from './AlertCountContext';
 import api from '../services/api';
 import { AuthContext } from './AuthContext';
 import { getSocket } from '../utils/socket';
 
-export const AlertCountContext = createContext();
 
 export function AlertCountProvider({ children }) {
   const { user } = useContext(AuthContext);

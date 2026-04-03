@@ -1,5 +1,5 @@
 const Usage = require('../models/Usage');
-const SystemConfig = require('../models/Resource');
+const SystemConfig = require('../models/ResourceConfig');
 const mongoose = require('mongoose');
 
 /**

@@ -1,4 +1,4 @@
-const SystemConfig = require('../models/Resource');
+const SystemConfig = require('../models/ResourceConfig');
 
 const seedSystemConfig = async () => {
     try {
