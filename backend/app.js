@@ -247,7 +247,11 @@ app.use("/api/resource-config", require("./routes/resourceConfigRoutes"));
 app.use("/api/resources", require("./routes/resourcesRoutes"));
 
 // Health Check endpoints — must be before the 404 catch-all
-app.get('/', (req, res) => res.json({ status: 'OK', message: 'API Running', port: process.env.PORT }));
+app.get('/', (req, res) => res.json({
+  status: 'OK',
+  message: 'API Running',
+  port: process.env.PORT || 'dynamic'
+}));
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString(), env: process.env.NODE_ENV }));
 
 // 404 handler for unknown API routes
