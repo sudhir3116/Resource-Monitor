@@ -178,13 +178,13 @@ async function calculateSustainabilityScore(userId, userRole, blockId) {
         const multiplier = (blockId) ? 50 : 1;
 
         usageStats.forEach(stat => {
-            const type = stat._id;
+            const type = (stat._id || '').toString().toLowerCase();
             const total = stat.total || 0;
-            if (type === 'Solar' && total > (100 * multiplier)) totalPenalty -= 10;
-            if (type === 'Waste' && total > (100 * multiplier)) totalPenalty += 20;
-            if (type === 'Diesel' && total > (50 * multiplier)) totalPenalty += 20;
-            if (type === 'Electricity' && total > (1000 * multiplier)) totalPenalty += 15;
-            if (type === 'Water' && total > (5000 * multiplier)) totalPenalty += 10;
+            if (type === 'solar' && total > (100 * multiplier)) totalPenalty -= 10;
+            if (type === 'waste' && total > (100 * multiplier)) totalPenalty += 20;
+            if (type === 'diesel' && total > (50 * multiplier)) totalPenalty += 20;
+            if (type === 'electricity' && total > (1000 * multiplier)) totalPenalty += 15;
+            if (type === 'water' && total > (5000 * multiplier)) totalPenalty += 10;
         });
 
         score -= totalPenalty;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react'
-import { AuthContext } from './AuthContext';
+import { AuthContext } from './AuthContextCore';
 import { useNavigate, useLocation } from 'react-router-dom'
 import api from '../services/api'
 import Loading from '../components/Loading'
@@ -303,6 +303,5 @@ const AuthProvider = ({ children }) => {
   )
 }
 
-export const useAuth = () => useContext(AuthContext)
 
 export default AuthProvider

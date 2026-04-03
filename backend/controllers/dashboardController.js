@@ -54,7 +54,11 @@ async function getMonthlyTrend(matchBase, resourceType) {
     const prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
     const prevEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
 
-    const filter = { ...matchBase, resource_type: resourceType, deleted: { $ne: true } };
+    const filter = {
+        ...matchBase,
+        resource_type: { $regex: new RegExp(`^${resourceType}$`, 'i') },
+        deleted: { $ne: true }
+    };
 
     const [curAgg, prevAgg] = await Promise.all([
         Usage.aggregate([
@@ -93,7 +97,12 @@ async function getDailyTrend(matchBase, resourceType, days = 7) {
     const startDate = daysAgo(days - 1);
     const endDate = new Date(); endDate.setHours(23, 59, 59, 999);
 
-    const filter = { ...matchBase, resource_type: resourceType, usage_date: { $gte: startDate, $lte: endDate }, deleted: { $ne: true } };
+    const filter = {
+        ...matchBase,
+        resource_type: { $regex: new RegExp(`^${resourceType}$`, 'i') },
+        usage_date: { $gte: startDate, $lte: endDate },
+        deleted: { $ne: true }
+    };
 
     const agg = await Usage.aggregate([
         { $match: filter },
@@ -204,9 +213,15 @@ exports.getWardenStats = async (req, res) => {
         const user = await User.findById(userId).lean();
         if (!user) return apiError(res, 'User not found', 404);
         if (!user.block) return apiSuccess(res, {
-            summary: {}, totals: {}, trend: [], alerts: [],
-            blockName: 'Unassigned',
-            message: 'Please contact the administrator to assign you a block.'
+            data: {
+                electricity: { current: 0, previous: 0, percentageChange: 0, direction: 'stable' },
+                water: { current: 0, previous: 0, percentageChange: 0, direction: 'stable' },
+                activeAlerts: 0,
+                todayUsage: [],
+                recentAlerts: [],
+                blockName: 'Unassigned',
+                message: 'Please contact the administrator to assign you a block.'
+            }
         });
 
         // Step 2 Fix: Safe blockId extraction (handles populated object or raw ID)
@@ -326,7 +341,7 @@ exports.getExecutiveStats = async (req, res) => {
 
         // 6. Block Rankings (Top 5 Consumers)
         const blockUsageAgg = await Usage.aggregate([
-            { $match: { resource_type: 'Electricity', usage_date: { $gte: monthStart }, deleted: { $ne: true } } },
+            { $match: { resource_type: { $regex: /^electricity$/i }, usage_date: { $gte: monthStart }, deleted: { $ne: true } } },
             { $group: { _id: '$blockId', total: { $sum: '$usage_value' } } }
         ]);
         const blocksArr = await Block.find({}).select('name capacity').lean();

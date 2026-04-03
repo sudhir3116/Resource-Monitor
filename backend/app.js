@@ -40,7 +40,9 @@ app.use('/api', apiLimiter);
 
 const allowedOrigins = [
   'http://localhost:5173',
-  'https://resource-monitor-red.vercel.app'
+  'http://127.0.0.1:5173',
+  'https://resource-monitor-red.vercel.app',
+  'https://resource-monitor.onrender.com'
 ];
 
 app.use(cors({
