@@ -46,18 +46,18 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      console.warn(`[CORS] Blocked request from: ${origin}`);
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.includes("vercel.app")
+    ) {
+      return callback(null, true);
     }
-    return callback(null, true);
+
+    console.warn(`[CORS] Blocked request from: ${origin}`);
+    return callback(new Error("Not allowed by CORS"), false);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 app.use(express.json());
@@ -147,7 +147,7 @@ mongoose.connect(process.env.MONGO_URI, {
   normalizeUsageResourceTypes()
 
   const PORT = process.env.PORT || 5001;
-  
+
   // Start server using app.listen (Express creates the http.Server instance)
   const server = app.listen(PORT, () => {
     console.log(`\n🚀 Server Initialized Successfully`);
