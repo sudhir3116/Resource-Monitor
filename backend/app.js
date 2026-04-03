@@ -73,16 +73,16 @@ mongoose.connect(process.env.MONGO_URI, {
         { name: 'Waste', unit: 'kg', dailyLimit: 80, monthlyLimit: 2400, costPerUnit: 2, icon: '♻️', color: '#6B7280', isActive: true, isDeleted: false },
       ];
       for (const r of defaults) {
-        // Seed ResourceConfig
+        // Seed ResourceConfig (Case-insensitive check)
         await ResourceConfig.findOneAndUpdate(
-          { name: r.name },
+          { name: { $regex: new RegExp(`^${r.name}$`, 'i') } },
           { $setOnInsert: r },
           { upsert: true }
         ).catch(() => { });
 
-        // Seed SystemConfig for backward compatibility
+        // Seed SystemConfig for backward compatibility (Case-insensitive check)
         await SystemConfig.findOneAndUpdate(
-          { resource: r.name },
+          { resource: { $regex: new RegExp(`^${r.name}$`, 'i') } },
           {
             $setOnInsert: {
               resource: r.name,

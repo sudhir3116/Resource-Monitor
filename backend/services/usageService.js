@@ -66,7 +66,7 @@ exports.getUsageSummary = async (options = {}) => {
         { $match: matchStage },
         {
             $group: {
-                _id: '$resource_type',
+                _id: { $toLower: '$resource_type' },
                 total: { $sum: '$usage_value' },
                 count: { $sum: 1 },
                 avgValue: { $avg: '$usage_value' },
