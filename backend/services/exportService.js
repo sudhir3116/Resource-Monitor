@@ -155,10 +155,15 @@ function generateUsagePDF(options = {}) {
   }
   doc.moveDown();
 
-  // Summary
-  doc.fontSize(12).font('Helvetica-Bold').text('Summary', { underline: true });
-  doc.fontSize(10).font('Helvetica');
-  doc.text(`Total Records: ${data.length}`);
+  // Summary Dashboard
+  doc.fontSize(10).font('Helvetica-Bold').fillColor('#f8fafc').rect(40, doc.y, 515, 80).fill();
+  doc.fillColor('#1e293b');
+  
+  let currentY = doc.y + 10;
+  doc.text('REPORT SUMMARY', 50, currentY);
+  currentY += 15;
+  doc.font('Helvetica').fontSize(9);
+  doc.text(`Total Records: ${data.length}`, 50, currentY);
   
   if (Array.isArray(data) && data.length > 0) {
     const resourceTotals = {};
@@ -167,51 +172,74 @@ function generateUsagePDF(options = {}) {
       resourceTotals[res] = (resourceTotals[res] || 0) + (record.usage_value || 0);
     });
     
-    doc.moveDown();
-    doc.fontSize(10).font('Helvetica-Bold').text('Resource Breakdown:');
+    let summaryText = 'Breakdown: ';
     Object.entries(resourceTotals).forEach(([resource, total]) => {
-      doc.fontSize(10).text(`  ${resource}: ${Math.round(total * 100) / 100}`);
+      summaryText += `${resource}: ${Math.round(total * 100) / 100} | `;
     });
+    doc.text(summaryText.slice(0, -3), 50, currentY + 15, { width: 490 });
   }
+  doc.moveDown(5);
 
-  doc.moveDown(2);
-  doc.fontSize(12).font('Helvetica-Bold').text('Details', { underline: true });
+  doc.fontSize(12).font('Helvetica-Bold').fillColor('#000').text('Detailed Consumption Log', { underline: true });
   doc.moveDown();
 
   // Table header
   const colX = { date: 50, resource: 120, value: 200, unit: 260, block: 320, user: 420 };
-  doc.fontSize(9).font('Helvetica-Bold');
-  doc.text('Date', colX.date, doc.y);
-  doc.text('Resource', colX.resource, doc.y, { width: 80 });
-  doc.text('Value', colX.value, doc.y, { width: 60 });
-  doc.text('Unit', colX.unit, doc.y, { width: 60 });
-  doc.text('Block', colX.block, doc.y, { width: 100 });
-  doc.text('User', colX.user, doc.y);
-  doc.moveDown();
+  const drawTableHeader = (y) => {
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#334155');
+    doc.text('Date', colX.date, y);
+    doc.text('Resource', colX.resource, y, { width: 80 });
+    doc.text('Value', colX.value, y, { width: 60 });
+    doc.text('Unit', colX.unit, y, { width: 60 });
+    doc.text('Block', colX.block, y, { width: 100 });
+    doc.text('User', colX.user, y);
+    doc.moveTo(40, y + 12).lineTo(555, y + 12).stroke('#e2e8f0');
+    return y + 20;
+  };
 
-  // Table rows (limit to 50 for PDF readability)
-  doc.fontSize(8).font('Helvetica');
-  data.slice(0, 50).forEach(record => {
-    const y = doc.y;
-    doc.text(new Date(record.usage_date).toISOString().split('T')[0], colX.date);
+  let rowY = drawTableHeader(doc.y);
+
+  // Table rows
+  doc.fontSize(8).font('Helvetica').fillColor('#475569');
+  data.forEach((record, index) => {
+    // Page break check
+    if (rowY > 700) {
+      doc.addPage();
+      rowY = drawTableHeader(40);
+      doc.fontSize(8).font('Helvetica').fillColor('#475569');
+    }
+
+    const y = rowY;
+    const dateStr = record.usage_date ? new Date(record.usage_date).toISOString().split('T')[0] : 'N/A';
+    doc.text(dateStr, colX.date, y);
     doc.text(record.resource_type || '', colX.resource, y, { width: 80 });
     doc.text(String(record.usage_value || 0), colX.value, y, { width: 60 });
     doc.text(record.unit || '', colX.unit, y, { width: 60 });
-    doc.text(record.blockId?.name || '', colX.block, y, { width: 100 });
-    doc.text(record.userId?.name || '', colX.user, y);
-    doc.moveDown(1.2);
+    doc.text(record.blockId?.name || '-', colX.block, y, { width: 100 });
+    doc.text(record.userId?.name || 'System', colX.user, y);
+    
+    // Zebra striping
+    if (index % 2 === 0) {
+      doc.save().rect(40, y - 2, 515, 12).fillColor('#f8fafc').fillOpacity(0.5).fill().restore();
+      // Re-draw text on top of striping
+      doc.text(dateStr, colX.date, y);
+      doc.text(record.resource_type || '', colX.resource, y, { width: 80 });
+      doc.text(String(record.usage_value || 0), colX.value, y, { width: 60 });
+      doc.text(record.unit || '', colX.unit, y, { width: 60 });
+      doc.text(record.blockId?.name || '-', colX.block, y, { width: 100 });
+      doc.text(record.userId?.name || 'System', colX.user, y);
+    }
+    
+    rowY += 14;
   });
-
-  if (data.length > 50) {
-    doc.moveDown();
-    doc.fontSize(9).text(`... and ${data.length - 50} more records`);
-  }
-
   // Footer
-  doc.moveDown(2);
-  doc.fontSize(8).text('This is a system-generated report. For verification, contact the administrator.', { align: 'center', color: '#999' });
+  if (rowY > 750) doc.addPage();
+  else doc.y = rowY + 20;
+  
+  doc.moveTo(40, doc.y).lineTo(555, doc.y).stroke('#e2e8f0');
+  doc.moveDown(1);
+  doc.fontSize(8).fillColor('#94a3b8').text('This is a system-generated report. For verification, contact the administrator.', { align: 'center' });
 
-  doc.end();
   return doc;
 }
 

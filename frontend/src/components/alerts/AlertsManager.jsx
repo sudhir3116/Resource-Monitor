@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import api from '../../api/axios';
+import api from '../../api';
 import { AuthContext } from '../../context/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
 import Loading from '../Loading';

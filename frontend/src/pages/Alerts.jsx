@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react';
-import api from '../api/axios';
+import api from '../api';
 import { AuthContext } from '../context/AuthContext';
 import { AlertCountContext } from '../context/AlertCountContext';
 import { ROLES } from '../utils/roles';
@@ -86,17 +86,20 @@ export default function Alerts() {
             const params = new URLSearchParams();
             if (blockFilter) params.set('blockId', blockFilter);
             const response = await api.get(`/api/alerts?${params.toString()}`);
-            setAlerts(response.data.alerts || []);
+            // Backend returns both `alerts` and `data` fields for compatibility
+            const list = response.data.alerts || response.data.data || [];
+            setAlerts(Array.isArray(list) ? list : []);
         } catch (err) {
-            if (err.message?.includes('403')) {
+            const status = err.response?.status;
+            if (status === 403) {
                 addToast('You do not have permission to view alerts', 'error');
-            } else {
+            } else if (status !== undefined) {
                 addToast('Failed to load alerts', 'error');
             }
         } finally {
             setLoading(false);
         }
-    }, [blockFilter]);
+    }, [blockFilter, addToast]);
 
     useEffect(() => { fetchAlerts(); }, [fetchAlerts]);
 
@@ -121,7 +124,7 @@ export default function Alerts() {
                 socket.off('alerts:refresh', fetchAlerts);
             }
         };
-    }, [fetchAlerts]);
+    }, [fetchAlerts]);  // fetchAlerts is memoized — re-subscribe only when blockFilter changes
 
     const setActioning_ = (id, val) => {
         setActioning(prev => {
@@ -228,9 +231,8 @@ export default function Alerts() {
         }
     };
 
-    // Derived filter — include all non-terminal statuses
-    // 'Active' is the DB value (ALERT_STATUS.PENDING is aliased to 'Active')
-    const activeStatuses = ['Active', 'Investigating', 'Escalated'];
+    // 'Active' and 'Pending' are aliases — backend stores 'Active' as the initial status
+    const activeStatuses = ['Active', 'Pending', 'Investigating', 'Escalated'];
     const filteredAlerts = alerts.filter(a => {
         if (filter === 'active' && !activeStatuses.includes(a.status)) return false;
         if (filter === 'reviewed' && a.status !== 'Reviewed') return false;
@@ -242,8 +244,8 @@ export default function Alerts() {
         return true;
     });
 
-    // Counts — 'Active' is what the DB stores (not 'Pending')
-    const pendingCount = alerts.filter(a => a.status === 'Active').length;
+    // Counts
+    const pendingCount = alerts.filter(a => a.status === 'Active' || a.status === 'Pending').length;
     const investigatingCnt = alerts.filter(a => a.status === 'Investigating').length;
     const escalatedCnt = alerts.filter(a => a.status === 'Escalated').length;
     const criticalCount = alerts.filter(a => getSeverityKey(a.severity) === 'critical').length;

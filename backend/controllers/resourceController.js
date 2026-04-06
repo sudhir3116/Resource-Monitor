@@ -1,4 +1,13 @@
-const Resource = require('../models/ResourceConfig');
+const normalizeResourceName = (name) => {
+    if (!name) return "";
+    const trimmed = name.trim();
+    // Special cases for acronyms
+    const acronyms = ["LPG", "LED", "CNG", "HVAC"];
+    if (acronyms.includes(trimmed.toUpperCase())) return trimmed.toUpperCase();
+    
+    // Default: Title Case (e.g. electricity -> Electricity)
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+};
 
 /**
  * GET /api/resource-config (alias for /api/resources)
@@ -8,11 +17,11 @@ const Resource = require('../models/ResourceConfig');
 exports.getAll = async (req, res) => {
     try {
         const role = (req.user?.role || '').toLowerCase();
-        const filter = {};
+        const filter = { isDeleted: false }; // Added isDeleted check here too
 
         // Admin and GM can see inactive resources; others see only active.
-        if (role !== 'admin' && role !== 'gm') {
-            filter.status = "active";
+        if (role !== 'admin' && role !== 'gm' && role !== 'dean' && role !== 'principal') {
+            filter.isActive = true;
         }
 
         const resources = await Resource.find(filter).sort({ name: 1 });
@@ -39,23 +48,26 @@ exports.create = async (req, res) => {
             return res.status(400).json({ message: "Name and unit are required" });
         }
 
-        const normalizedName = name.trim();
-        // Case-insensitive duplicate check (Requirement Part 6)
+        const normalizedName = normalizeResourceName(name);
+        
+        // Case-insensitive duplicate check
         const existing = await Resource.findOne({
-            name: { $regex: new RegExp(`^${normalizedName}$`, "i") }
+            name: { $regex: new RegExp(`^${normalizedName}$`, "i") },
+            isDeleted: false
         });
 
         if (existing) {
-            return res.status(400).json({ message: "Resource already exists" });
+            return res.status(400).json({ message: `Resource "${normalizedName}" already exists` });
         }
 
         const resource = await Resource.create({
             name: normalizedName,
             unit: unit.trim(),
-            rate: Number(rate) || 0,
+            costPerUnit: Number(rate) || 0,
             dailyLimit: Number(dailyLimit) || 0,
             monthlyLimit: Number(monthlyLimit) || 0,
             status: "active",
+            isActive: true,
             icon: icon || '📊',
             color: color || '#64748b',
             createdBy: req.userId || req.user?.id
@@ -90,7 +102,7 @@ exports.update = async (req, res) => {
         const updateData = {};
         if (name) updateData.name = name;
         if (unit) updateData.unit = unit;
-        if (rate !== undefined) updateData.rate = Number(rate);
+        if (rate !== undefined) updateData.costPerUnit = Number(rate);
         if (dailyLimit !== undefined) updateData.dailyLimit = Number(dailyLimit);
         if (monthlyLimit !== undefined) updateData.monthlyLimit = Number(monthlyLimit);
         if (icon) updateData.icon = icon;
@@ -142,10 +154,10 @@ exports.toggleResource = async (req, res) => {
             return res.status(404).json({ message: "Resource not found" });
         }
 
-        // Toggle logic (Requirement Part 1)
-        resource.status = resource.status === "active" ? "inactive" : "active";
-        resource.isActive = (resource.status === "active");
-
+        // Toggle logic
+        resource.isActive = !resource.isActive;
+        resource.status = resource.isActive ? "active" : "inactive";
+        
         await resource.save();
 
         try {

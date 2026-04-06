@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../../api/axios';
+import api from '../../api';
 import { AuthContext } from '../../context/AuthContext';
 import {
     Activity, Bell, RefreshCw, TrendingUp, PieChart as PieChartIcon,

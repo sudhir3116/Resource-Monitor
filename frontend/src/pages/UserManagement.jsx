@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react';
-import api from '../api/axios';
+import api from '../api';
 import { getSocket } from '../utils/socket';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import {
-    Users, Search, Trash2, Edit2, Plus, Key, ToggleLeft, ToggleRight, UserCheck, RefreshCw
+    Users, Search, Trash2, Edit2, Plus, Key, ToggleLeft, ToggleRight, UserCheck, RefreshCw, XCircle
 } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -512,9 +512,11 @@ export default function UserManagement() {
     const [roleFilter, setRoleFilter] = useState('All');
     const { addToast } = useToast();
     const { user: currentUser } = useAuth();
-    const isAdmin = currentUser?.role === 'admin';
-    const isGM = currentUser?.role === 'gm';
-    const canManageResources = ['admin', 'gm'].includes(currentUser?.role);
+    const userRole = (currentUser?.role || '').toString().toLowerCase();
+    const isAdmin = userRole === 'admin' || userRole === 'administrator';
+    const isGM = userRole === 'gm' || userRole === 'general manager';
+    const canManageUsers = isAdmin || isGM;
+    const canManageResources = canManageUsers;
 
     // Selection
     const [selectedIds, setSelectedIds] = useState([]);
@@ -729,7 +731,7 @@ export default function UserManagement() {
 
     // ── Inline role change (quick dropdown) ───────────────────────────────────
     const handleRoleChange = async (userId, newRole) => {
-        if (!isAdmin) return;
+        if (!canManageUsers) return;
         try {
             const res = await api.patch(`/api/admin/users/${userId}/role`, { role: newRole });
             if (res.data.success) {
@@ -768,8 +770,9 @@ export default function UserManagement() {
     );
 
     const statusVariant = (s) => {
-        if (s === 'active') return 'success';
-        if (s === 'suspended') return 'danger';
+        if (s === 'active' || s === 'APPROVED' || s === 'approved') return 'success';
+        if (s === 'suspended' || s === 'REJECTED' || s === 'rejected') return 'danger';
+        if (s === 'PENDING' || s === 'pending') return 'warning';
         return 'warning';
     };
 
@@ -789,7 +792,7 @@ export default function UserManagement() {
                         <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
                     </button>
 
-                    {isAdmin && (
+                    {canManageUsers && (
                         <Button variant="primary" onClick={() => setShowAddModal(true)}>
                             <Plus size={16} className="mr-2" />
                             Add User
@@ -903,9 +906,11 @@ export default function UserManagement() {
                                     <option value="block">Change Block</option>
                                     <option value="password">Reset Passwords</option>
                                 </optgroup>
-                                <optgroup label="Destructive">
-                                    <option value="delete">Delete Permanently</option>
-                                </optgroup>
+                                {isAdmin && (
+                                    <optgroup label="Destructive">
+                                        <option value="delete">Delete Permanently</option>
+                                    </optgroup>
+                                )}
                             </select>
                             <ChevronRight size={16} className="absolute right-3 top-1/2 -translate-y-1/2 rotate-90 text-slate-400 pointer-events-none" />
                         </div>
@@ -920,13 +925,15 @@ export default function UserManagement() {
                         >
                             Activate All
                         </Button>
-                        <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => setShowBulkDelete(true)}
-                        >
-                            Delete All
-                        </Button>
+                        {isAdmin && (
+                            <Button
+                                variant="danger"
+                                size="sm"
+                                onClick={() => setShowBulkDelete(true)}
+                            >
+                                Delete All
+                            </Button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -942,8 +949,8 @@ export default function UserManagement() {
                         <table className="table">
                             <thead>
                                 <tr>
-                                    {isAdmin && (
-                                        <th className="w-10">
+                                    {canManageUsers && (
+                                        <th className="w-10 text-center">
                                             <input
                                                 type="checkbox"
                                                 checked={finalUsers.length > 0 && finalUsers.every(u => selectedIds.includes(u._id))}
@@ -967,7 +974,7 @@ export default function UserManagement() {
                                     <th onClick={() => handleSort('status')} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${sortField === 'status' ? 'text-blue-600 dark:text-blue-400' : ''}`}>
                                         Status <SortIcon field="status" sortField={sortField} sortDirection={sortDirection} />
                                     </th>
-                                    {isAdmin && <th className="text-right">Actions</th>}
+                                    {canManageUsers && <th className="text-right">Actions</th>}
                                 </tr>
                             </thead>
                             <tbody>
@@ -975,8 +982,8 @@ export default function UserManagement() {
                                     const isSelected = selectedIds.includes(user._id);
                                     return (
                                         <tr key={user._id} className={isSelected ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}>
-                                            {isAdmin && (
-                                                <td>
+                                            {canManageUsers && (
+                                                <td className="text-center">
                                                     <input
                                                         type="checkbox"
                                                         checked={isSelected}
@@ -1043,7 +1050,7 @@ export default function UserManagement() {
                                             </td>
 
                                             {/* Actions */}
-                                            {isAdmin && (
+                                            {canManageUsers && (
                                                 <td className="text-right">
                                                     <div className="flex items-center justify-end gap-1">
                                                         {/* Edit */}
@@ -1081,8 +1088,44 @@ export default function UserManagement() {
                                                             </Button>
                                                         )}
 
-                                                        {/* Delete (not for self) */}
-                                                        {user._id !== currentUser?._id && (
+                                                        {/* Onboarding Actions (Approve/Reject) */}
+                                                        {(user.status === 'PENDING' || user.status === 'pending') && (
+                                                            <>
+                                                                <Button
+                                                                    variant="secondary"
+                                                                    size="sm"
+                                                                    onClick={async () => {
+                                                                        try {
+                                                                            await api.put(`/api/admin/approve/${user._id}`);
+                                                                            addToast('User approved', 'success');
+                                                                            fetchUsers();
+                                                                        } catch(e) { addToast('Approval failed', 'error'); }
+                                                                    }}
+                                                                    title="Approve User"
+                                                                    className="bg-green-50 text-green-600 hover:bg-green-100"
+                                                                >
+                                                                    <UserCheck size={14} />
+                                                                </Button>
+                                                                <Button
+                                                                    variant="secondary"
+                                                                    size="sm"
+                                                                    onClick={async () => {
+                                                                        try {
+                                                                            await api.put(`/api/admin/reject/${user._id}`);
+                                                                            addToast('User rejected', 'info');
+                                                                            fetchUsers();
+                                                                        } catch(e) { addToast('Rejection failed', 'error'); }
+                                                                    }}
+                                                                    title="Reject User"
+                                                                    className="bg-red-50 text-red-600 hover:bg-red-100"
+                                                                >
+                                                                    <XCircle size={14} />
+                                                                </Button>
+                                                            </>
+                                                        )}
+
+                                                        {/* Delete (Admin only, not for self) */}
+                                                        {isAdmin && user._id !== currentUser?._id && (
                                                             <Button
                                                                 variant="danger"
                                                                 size="sm"

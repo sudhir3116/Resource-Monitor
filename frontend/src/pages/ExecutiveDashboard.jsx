@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback, useMemo, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../api/axios';
+import api from '../api';
+import { getSocket } from '../utils/socket';
+import { safe } from '../utils/safe';
 import {
     Zap,
     Droplets,
@@ -19,7 +21,11 @@ import {
     ChevronDown,
     Bell,
     History,
-    Sun
+    Sun,
+    Users,
+    MessageSquare,
+    CheckCircle,
+    ShieldCheck
 } from 'lucide-react';
 import Card from '../components/common/Card';
 import MetricCard from '../components/common/MetricCard';
@@ -69,7 +75,9 @@ export default function ExecutiveDashboard() {
                 api.get('/api/analytics/leaderboard')
             ];
 
-            if (isDean) {
+            const isExecutive = [ROLES.ADMIN, ROLES.DEAN, ROLES.PRINCIPAL].includes(user?.role);
+            
+            if (isExecutive) {
                 promises.push(api.get('/api/alerts?status=Pending&limit=5'));
                 promises.push(api.get('/api/audit-logs?limit=5'));
             }
@@ -78,6 +86,7 @@ export default function ExecutiveDashboard() {
 
             if (summaryRes.status === 'fulfilled') {
                 const data = summaryRes.value.data?.data;
+                console.log("Dashboard Data:", summaryRes.value.data);
                 setUsageSummary(data?.summary || {});
                 setStats({
                     ...data,
@@ -93,11 +102,11 @@ export default function ExecutiveDashboard() {
                 setLeaderboard(leaderboardRes.value.data.data || leaderboardRes.value.data?.leaderboard || []);
             }
 
-            if (isDean && alertsRes?.status === 'fulfilled') {
+            if (isExecutive && alertsRes?.status === 'fulfilled') {
                 setRecentAlerts(alertsRes.value.data.alerts || alertsRes.value.data.data || []);
             }
 
-            if (isDean && logsRes?.status === 'fulfilled') {
+            if (isExecutive && logsRes?.status === 'fulfilled') {
                 setRecentLogs(logsRes.value.data.data || logsRes.value.data.logs || []);
             }
         } catch (err) {
@@ -153,13 +162,20 @@ export default function ExecutiveDashboard() {
 
     const distributionData = useMemo(() => {
         if (!usageSummary || Object.keys(usageSummary).length === 0) return [];
+
+        // Keyed lookup to ensure robustness
+        const summaryMap = {};
+        Object.entries(usageSummary).forEach(([key, val]) => {
+            summaryMap[key.toLowerCase()] = val;
+        });
+
         return (Array.isArray(resources) ? resources : [])
             .map(res => {
                 const resName = res?.name;
-                const data = usageSummary[resName] || {};
+                const data = summaryMap[resName?.toLowerCase()] || {};
                 return {
                     name: resName,
-                    value: data?.total || 0
+                    value: safe(data?.total) || safe(data?.value) || 0
                 };
             })
             .filter(d => d?.value > 0) || [];
@@ -182,12 +198,18 @@ export default function ExecutiveDashboard() {
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-3" style={{ color: 'var(--text-primary)' }}>
-                        Executive Insights
-                        {isDean && <Badge variant="secondary">View Only</Badge>}
+                    <h1 className="text-3xl font-black tracking-tight flex items-center gap-3" style={{ color: 'var(--text-primary)' }}>
+                        {user?.role === ROLES.PRINCIPAL ? "Principal's Executive Desk" : 
+                         user?.role === ROLES.DEAN ? "Dean's Insights Hub" : "Executive Dashboard"}
+                        {isDean && <Badge variant="secondary" className="text-[10px] font-black uppercase">Operation View</Badge>}
                     </h1>
-                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                        Campus-wide resource analytics and financial performance. <a href="/dean/analytics" onClick={(e) => { e.preventDefault(); navigate('/dean/analytics'); }} className="text-blue-500 hover:underline">For detailed data, visit Analytics &rarr;</a>
+                    <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+                        {user?.role === ROLES.PRINCIPAL 
+                            ? "Campus-wide operational intelligence and resource distribution."
+                            : "Real-time monitoring and analytics for strategic resource management."}
+                        <span className="ml-2">
+                             <a href={`/${user?.role?.toLowerCase()}/analytics`} onClick={(e) => { e.preventDefault(); navigate(`/${user?.role?.toLowerCase()}/analytics`); }} className="text-blue-500 hover:underline font-bold underline-offset-4">Detailed Analytics &rarr;</a>
+                        </span>
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -207,9 +229,54 @@ export default function ExecutiveDashboard() {
                     </Button>
                 </div>
             </div>
+            
+            {/* Executive KPIs */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                <MetricCard
+                    label="Campus Usage"
+                    value={stats?.totalUsage || stats?.grandTotal ? safe(stats?.totalUsage || stats?.grandTotal).toLocaleString() : '0'}
+                    icon={<Activity size={20} />}
+                    colorClass="text-blue-500"
+                />
+                <MetricCard
+                    label="Est. Cost"
+                    value={stats?.grandTotal || stats?.totalUsage ? `₹${(safe(stats?.totalUsage || stats?.grandTotal) * 4.5).toLocaleString()}` : "₹0"}
+                    icon={<DollarSign size={20} />}
+                    colorClass="text-emerald-500"
+                />
+                <MetricCard
+                    label="Active Alerts"
+                    value={safe(stats?.alertsCount || stats?.activeCampusAlerts || 0)}
+                    icon={<Bell size={20} />}
+                    colorClass={(stats?.alertsCount || stats?.activeCampusAlerts) > 0 ? "text-rose-500" : "text-slate-400"}
+                />
+                <MetricCard
+                    label="Managed Blocks"
+                    value={safe(stats?.totalBlocks || 0)}
+                    icon={<Building2 size={20} />}
+                    colorClass="text-indigo-500"
+                />
+                <MetricCard
+                    label="Campus Users"
+                    value={safe(stats?.totalUsers || 0)}
+                    icon={<Users size={20} />}
+                    colorClass="text-emerald-500"
+                />
+                <MetricCard
+                    label="Total Grievances"
+                    value={safe(stats?.unresolvedComplaintsCount || 0)}
+                    icon={<MessageSquare size={20} />}
+                    colorClass="text-purple-500"
+                />
+            </div>
 
+            {/* Secondary Analytics Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Card title="Executive Watchlist (Critical Alerts)" icon={<Bell size={18} />} description="Latest pending resource threshold alerts">
+                <Card 
+                    title="Executive Watchlist (Critical Alerts)" 
+                    icon={<Bell size={18} />} 
+                    description="Latest pending resource threshold alerts"
+                >
                     <div className="space-y-4 mt-4">
                         {(recentAlerts || []).length === 0 ? (
                             <div className="py-12 flex flex-col items-center justify-center opacity-30 italic text-sm">
@@ -236,7 +303,11 @@ export default function ExecutiveDashboard() {
                     </div>
                 </Card>
 
-                <Card title="System Activity Feed" icon={<History size={18} />} description="Recent administrative actions and updates">
+                <Card 
+                    title="System Activity Feed" 
+                    icon={<History size={18} />} 
+                    description="Recent administrative actions and updates"
+                >
                     <div className="space-y-4 mt-4">
                         {(recentLogs || []).length === 0 ? (
                             <p className="text-sm text-center py-4 text-slate-400">No recent activity detected.</p>
@@ -261,61 +332,6 @@ export default function ExecutiveDashboard() {
                     </div>
                 </Card>
             </div>
-
-
-
-            {isDean && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <Card title="Recent Alerts" icon={<Bell size={18} />} description="Latest pending resource threshold alerts">
-                        <div className="space-y-4 mt-4">
-                            {recentAlerts.length === 0 ? (
-                                <p className="text-sm text-center py-4 text-slate-400">No pending alerts.</p>
-                            ) : (
-                                recentAlerts.map(alert => (
-                                    <div key={alert._id} className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex items-start gap-3">
-                                        <div className="mt-1 h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center justify-between gap-2">
-                                                <span className="font-semibold text-sm truncate">{alert.resourceType} Threshold</span>
-                                                <span className="text-[10px] text-slate-400">{new Date(alert.createdAt).toLocaleTimeString()}</span>
-                                            </div>
-                                            <p className="text-xs text-slate-500 line-clamp-1">{alert.message}</p>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                            <Button variant="link" size="sm" className="w-full text-blue-500" onClick={() => navigate('/dean/alerts')}>
-                                View All Alerts
-                            </Button>
-                        </div>
-                    </Card>
-
-                    <Card title="System Activity" icon={<History size={18} />} description="Recent administrative actions and updates">
-                        <div className="space-y-4 mt-4">
-                            {recentLogs.length === 0 ? (
-                                <p className="text-sm text-center py-4 text-slate-400">No recent activity.</p>
-                            ) : (
-                                recentLogs.map(log => (
-                                    <div key={log._id} className="flex gap-3 items-start p-2 hover:bg-slate-50 dark:hover:bg-slate-800/30 rounded-lg transition-colors">
-                                        <div className="mt-1 flex-shrink-0 w-6 h-6 rounded-md bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-[10px]">
-                                            {log.action?.charAt(0)}
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                            <p className="text-xs text-slate-600 dark:text-slate-300">
-                                                <span className="font-semibold">{log.userId?.name || 'System'}</span> {log.description}
-                                            </p>
-                                            <p className="text-[10px] text-slate-400">{new Date(log.timestamp || log.createdAt).toLocaleString()}</p>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                            <Button variant="link" size="sm" className="w-full text-blue-500" onClick={() => navigate('/dean/audit-logs')}>
-                                View Audit Trail
-                            </Button>
-                        </div>
-                    </Card>
-                </div>
-            )}
         </div>
     );
 }

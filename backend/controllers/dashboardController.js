@@ -124,8 +124,9 @@ async function getDailyTrend(matchBase, resourceType, days = 7) {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getStudentStats = async (req, res) => {
     try {
+        console.log("Dashboard API HIT - Student");
         const userId = req.userId || req.user?.id;
-        const user = await User.findById(userId).lean();
+        const user = await User.findById(userId).select('block').lean();
         if (!user) return apiError(res, 'User not found', 404);
 
         const { start: monthStart } = currentMonthRange();
@@ -209,8 +210,9 @@ exports.getStudentStats = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getWardenStats = async (req, res) => {
     try {
+        console.log("Dashboard API HIT - Warden");
         const userId = req.userId || req.user?.id;
-        const user = await User.findById(userId).lean();
+        const user = await User.findById(userId).select('block').lean();
         if (!user) return apiError(res, 'User not found', 404);
         if (!user.block) return apiSuccess(res, {
             data: {
@@ -275,6 +277,7 @@ exports.getWardenStats = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getExecutiveStats = async (req, res) => {
     try {
+        console.log("Dashboard API HIT - Executive");
         console.log(`[Dashboard] Fetching executive stats for role: ${req.user?.role}`);
 
         // Step 2 Fix: Sanitize optional blockId query param
@@ -302,23 +305,49 @@ exports.getExecutiveStats = async (req, res) => {
             { $project: { _id: 0, date: '$_id', total: { $round: ['$total', 2] } } }
         ]);
 
-        // 2. Resource-wise Summary (Standard Aggregation Requirement)
-        const summaryArr = await Usage.aggregate([
+        // 2. Resource-wise Summary (Dynamic & Case-Insensitive)
+        const aggregated = await Usage.aggregate([
             { $match: { usage_date: { $gte: monthStart }, deleted: { $ne: true } } },
-            { $group: { _id: '$resource_type', total: { $sum: '$usage_value' } } }
+            {
+                $group: {
+                    _id: { $toLower: '$resource_type' },
+                    total: { $sum: '$usage_value' },
+                    count: { $sum: 1 },
+                    avgValue: { $avg: '$usage_value' },
+                    maxValue: { $max: '$usage_value' },
+                    lastDate: { $max: '$usage_date' },
+                    totalCost: { $sum: { $multiply: ['$usage_value', 0] } } // Cost will be derived via rates later if needed, mostly a placeholder
+                }
+            }
         ]);
 
+        const configs = await ResourceConfig.find({ isActive: true }).lean();
         const summary = {};
-        summaryArr.forEach(item => {
-            summary[item._id] = {
-                total: item.total || 0,
-                current: item.total || 0,
-                unit: 'units' // Default fallback
+
+        configs.forEach(cfg => {
+            const key = cfg.name.toLowerCase();
+
+            const usage = aggregated.find(
+                u => u._id && u._id.toLowerCase() === key
+            );
+
+            summary[cfg.name] = {
+                total: usage?.total || 0,
+                current: usage?.total || 0,
+                count: usage?.count || 0,
+                avgValue: usage?.avgValue || 0,
+                maxValue: usage?.maxValue || 0,
+                lastDate: usage?.lastDate || null,
+                unit: cfg.unit,
+                monthlyLimit: cfg.monthlyLimit,
+                icon: cfg.icon,
+                color: cfg.color,
+                totalCost: usage?.totalCost || 0
             };
         });
 
         // 3. Grand Total Calculation
-        const grandTotal = summaryArr.reduce((a, b) => a + (b.total || 0), 0);
+        const grandTotal = Object.values(summary).reduce((a, b) => a + (b.total || 0), 0);
 
         // 4. Campus-wide monthly trends (Specific resources)
         const [electricity, water] = await Promise.all([
@@ -327,9 +356,9 @@ exports.getExecutiveStats = async (req, res) => {
         ]);
 
         // 5. Financials (Cost Estimation)
-        const configs = await ResourceConfig.find({ isActive: true, isDeleted: false }).lean();
+        const rateConfigs = await ResourceConfig.find({ isActive: true, isDeleted: false }).lean();
 
-        const rateMap = configs.reduce((acc, c) => {
+        const rateMap = rateConfigs.reduce((acc, c) => {
             acc[c.resource || c.name] = c.costPerUnit ?? c.rate ?? 0;
             return acc;
         }, {});

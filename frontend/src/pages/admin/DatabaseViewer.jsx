@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { AuthContext } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import api from '../../api/axios';
+import api from '../../api';
 import { Navigate } from 'react-router-dom';
 import {
     Database, Search, Filter, RefreshCw, X, Copy, Check,

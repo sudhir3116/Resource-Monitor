@@ -34,13 +34,15 @@ const ProfilePage = React.lazy(() => import('./pages/ProfilePage'));
 const DailyReportWarden = React.lazy(() => import('./pages/DailyReportWarden'));
 const GMDashboard = React.lazy(() => import('./pages/gm/GMDashboard'));
 const Reports = React.lazy(() => import('./pages/Reports'));
-const PrincipalDashboard = React.lazy(() => import('./pages/principal/PrincipalDashboard'));
 const PrincipalAnalytics = React.lazy(() => import('./pages/principal/PrincipalAnalytics'));
 const PrincipalReports = React.lazy(() => import('./pages/principal/PrincipalReports'));
 const PrincipalAnnouncements = React.lazy(() => import('./pages/principal/PrincipalAnnouncements'));
 const UnifiedDashboard = React.lazy(() => import('./pages/common/UnifiedDashboard'));
+const WardenDashboard = React.lazy(() => import('./pages/WardenDashboard'));
 const GMResourceConfig = React.lazy(() => import('./pages/gm/ResourceConfig'));
-const DeanDashboard = React.lazy(() => import('./pages/dean/DeanDashboard'));
+const ExecutiveDashboard = React.lazy(() => import('./pages/ExecutiveDashboard'));
+const PrincipalDashboard = ExecutiveDashboard;
+const DeanDashboard = ExecutiveDashboard;
 const DeanAnalytics = React.lazy(() => import('./pages/dean/DeanAnalytics'));
 const DeanReports = React.lazy(() => import('./pages/dean/DeanReports'));
 const DeanAnnouncements = React.lazy(() => import('./pages/dean/DeanAnnouncements'));
@@ -269,7 +271,7 @@ function App() {
             {/* ════════════════════════════════════════════════════════════════ */}
             <Route path="/warden/dashboard" element={
               <ProtectedRoute allowedRoles={['warden', 'admin']}>
-                <UnifiedDashboard />
+                <WardenDashboard />
               </ProtectedRoute>
             } />
             <Route path="/warden/usage" element={
@@ -442,7 +444,7 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="/analytics" element={
-              <ProtectedRoute allowedRoles={['admin', 'gm', 'dean', 'principal']}>
+              <ProtectedRoute allowedRoles={['admin', 'dean', 'principal']}>
                 <AnalyticsPage />
               </ProtectedRoute>
             } />
@@ -452,17 +454,17 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="/resource-config" element={
-              <ProtectedRoute allowedRoles={['admin']}>
+              <ProtectedRoute allowedRoles={['admin', 'gm']}>
                 <ResourceConfig />
               </ProtectedRoute>
             } />
             <Route path="/users" element={
-              <ProtectedRoute allowedRoles={['admin']}>
+              <ProtectedRoute allowedRoles={['admin', 'gm']}>
                 <UserManagement />
               </ProtectedRoute>
             } />
             <Route path="/blocks" element={
-              <ProtectedRoute allowedRoles={['admin']}>
+              <ProtectedRoute allowedRoles={['admin', 'gm']}>
                 <BlockManagement />
               </ProtectedRoute>
             } />

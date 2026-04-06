@@ -66,11 +66,11 @@ router.get('/collections', async (req, res) => {
 router.get('/stats', async (req, res) => {
     try {
         const db = mongoose.connection.db;
-        const dbStats = await db.stats();
+        const dbStats = await db.command({ dbStats: 1 });
 
         const collectionsList = await db.listCollections().toArray();
         const colStatsPromises = collectionsList.map(async (col) => {
-            const stats = await db.collection(col.name).stats();
+            const stats = await db.command({ collStats: col.name });
             return {
                 name: col.name,
                 count: stats.count,

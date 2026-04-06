@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import api from '../api/axios';
+import api from '../api';
+import { safe } from '../utils/safe';
 import {
     TrendingUp,
     TrendingDown,
@@ -66,20 +67,25 @@ export default function AnalyticsPage() {
         try {
             const blockIdForQuery = user?.block?._id || user?.block || null;
 
-            const [resourcesRes, summaryRes, trendsRes] = await Promise.all([
+            const [resourcesRes, summaryRes, trendsRes, comparisonRes] = await Promise.all([
                 api.get("/api/resources"),
                 api.get(`/api/usage/summary`, { params: { blockId: blockIdForQuery } }),
-                api.get(`/api/usage/trends`, { params: { blockId: blockIdForQuery, range: timeRange } })
+                api.get(`/api/usage/trends`, { params: { blockId: blockIdForQuery, range: timeRange } }),
+                api.get(`/api/usage/block-comparison`)
             ]);
 
             const resources = resourcesRes.data.data || resourcesRes.data || [];
             const summaryRaw = summaryRes.data.data || summaryRes.data || {};
             const trendsRaw = trendsRes.data.data || trendsRes.data || [];
+            const comparisonRaw = comparisonRes.data.data || comparisonRes.data || [];
 
             setDynamicResources(resources.filter(r => r?.isActive !== false));
+            setBlockComparison(comparisonRaw);
+            setBlockRanking(comparisonRaw);
 
             // FIX DATA MAPPING (Requirement Step 1 & 5)
-            console.log("Analytics API Raw Data (summaryRaw):", summaryRaw);
+            console.log("Dashboard Data (Summary):", summaryRes.data);
+            console.log("API Response (Trends):", trendsRes.data);
 
             // Handle both object-based summary and array-based summaryArray
             const rawItems = Array.isArray(summaryRaw.summaryArray) ? summaryRaw.summaryArray
@@ -127,6 +133,7 @@ export default function AnalyticsPage() {
             socket.on('dashboard:refresh', fetchAnalytics);
             socket.on('alerts:refresh', fetchAnalytics);
             socket.on('analytics:refresh', fetchAnalytics);
+            socket.on('blocks:refresh', fetchAnalytics);
         }
 
         return () => {
@@ -135,18 +142,34 @@ export default function AnalyticsPage() {
                 socket.off('dashboard:refresh', fetchAnalytics);
                 socket.off('alerts:refresh', fetchAnalytics);
                 socket.off('analytics:refresh', fetchAnalytics);
+                socket.off('blocks:refresh', fetchAnalytics);
             }
         };
     }, [fetchAnalytics]);
 
     const resourcesForCharts = useMemo(() => {
-        if (Array.isArray(dynamicResources) && dynamicResources.length > 0) return dynamicResources;
-        return (Array.isArray(summaryData) ? summaryData : []).map(s => ({
-            _id: s.resource,
-            resource: s.resource_type,
-            name: s.resource_type,
-            unit: s.unit
-        }));
+        if (!Array.isArray(dynamicResources) || dynamicResources.length === 0) {
+            return (Array.isArray(summaryData) ? summaryData : []).map(s => ({
+                _id: s.resource,
+                resource: s.resource_type,
+                name: s.resource_type,
+                unit: s.unit,
+                total: s.total || 0,
+                value: s.value || 0
+            }));
+        }
+
+        return dynamicResources.map(r => {
+            const s = (Array.isArray(summaryData) ? summaryData : [])
+                .find(item => (item.name || '').toLowerCase() === (r.name || '').toLowerCase() ||
+                    (item.resource_type || '').toLowerCase() === (r.name || '').toLowerCase());
+            return {
+                ...r,
+                total: s?.total || 0,
+                value: s?.value || 0,
+                unit: s?.unit || r.unit
+            };
+        });
     }, [dynamicResources, summaryData]);
 
     const activeSummary = useMemo(() => {
@@ -216,7 +239,9 @@ export default function AnalyticsPage() {
         <div className="space-y-6">
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <h1 className="text-2xl font-black">{isPrincipal ? 'Executive Insight' : 'Consumption Intelligence'}</h1>
+                <h1 className="text-2xl font-black">
+                    {(isPrincipal || isDean) ? 'Executive Consumption Insights' : 'Consumption Intelligence'}
+                </h1>
 
                 <div className="flex items-center gap-3">
                     <button
@@ -227,7 +252,8 @@ export default function AnalyticsPage() {
                         <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
                     </button>
 
-                    {!isPrincipal && (
+                    {/* Time Range Filter (Visible to All Authorized Roles) */}
+                    {(isPrincipal || isDean || !isPrincipal) && (
                         <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
                             {['7d', '30d', '90d', '1y'].map((range) => (
                                 <button
@@ -247,7 +273,9 @@ export default function AnalyticsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 {resourcesForCharts.map((res) => {
                     const resName = res.resource || res.resource_type || res.name;
-                    const stats = activeSummary.find(s => (s.resource_type || s.resource || s.name) === resName) || { value: 0, unit: res.unit || 'units' };
+                    const stats = (activeSummary || []).find(s =>
+                        (s.resource_type || s.resource || s.name || '').toLowerCase() === (resName || '').toLowerCase()
+                    ) || { value: 0, unit: res.unit || 'units' };
                     const meta = getResourceMeta(resName);
 
                     return (
@@ -259,7 +287,7 @@ export default function AnalyticsPage() {
                                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{resName}</span>
                                 <div className="flex items-baseline gap-1">
                                     <span className="text-xl font-bold truncate">
-                                        {(stats.value || stats.total || 0) > 0 ? (stats.value || stats.total).toLocaleString() : '0'}
+                                        {safe(stats.value || stats.total).toLocaleString()}
                                     </span>
                                     <span className="text-xs text-slate-500">{stats.unit || res.unit}</span>
                                 </div>
@@ -380,11 +408,11 @@ export default function AnalyticsPage() {
                     </div>
                 </Card>
 
-                {/* Block Comparison */}
-                {!isPrincipal && (
+                {/* Block Comparison (Visible to All Authorized Roles) */}
+                {true && (
                     <Card>
                         <h2 className="text-lg font-bold flex items-center gap-2 mb-6">
-                            <BarChart3 size={20} className="text-amber-500" /> Block Comparison
+                            <BarChart3 size={20} className="text-amber-500" /> Block Consumption (Monthly Cost)
                         </h2>
                         <div className="h-[300px]">
                             {loading ? (
@@ -396,14 +424,32 @@ export default function AnalyticsPage() {
                                     <BarChart data={blockRanking || blockComparison || []}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                                         <XAxis dataKey="block" stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
-                                        <YAxis stroke="var(--text-secondary)" fontSize={12} tickLine={false} axisLine={false} />
+                                        <YAxis
+                                            stroke="var(--text-secondary)"
+                                            fontSize={12}
+                                            tickLine={false}
+                                            axisLine={false}
+                                            tickFormatter={(val) => `₹${val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val}`}
+                                        />
                                         <Tooltip
                                             cursor={{ fill: 'transparent' }}
-                                            contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
+                                            content={({ active, payload, label }) => {
+                                                if (active && payload && payload.length) {
+                                                    const data = payload[0].payload;
+                                                    return (
+                                                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-xl shadow-xl shadow-black/10">
+                                                            <p className="text-sm font-bold mb-1">{label}</p>
+                                                            <p className="text-xs font-semibold text-blue-500">Efficiency: {data.score}%</p>
+                                                            <p className="text-sm font-black text-slate-700 dark:text-slate-200 mt-1">Total: ₹{Number(data.totalCost || 0).toLocaleString()}</p>
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            }}
                                         />
-                                        <Bar dataKey="score" name="Efficiency Score" radius={[6, 6, 0, 0]}>
-                                            {(blockComparison || []).map((entry, index) => (
-                                                <Cell key={`cell-${index}`} fill={getScoreColor(entry.score)} />
+                                        <Bar dataKey="totalCost" name="Total Cost" radius={[6, 6, 0, 0]}>
+                                            {(blockRanking || blockComparison || []).map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={COLORS[Object.keys(COLORS)[index % Object.keys(COLORS).length]]} />
                                             ))}
                                         </Bar>
                                     </BarChart>

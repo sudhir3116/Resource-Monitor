@@ -44,7 +44,7 @@ router.post(
 
 router.put(
     '/thresholds/bulk-update',
-    authorizeRoles(ROLES.ADMIN),
+    authorizeRoles(ROLES.ADMIN, ROLES.GM),
     runValidations,
     auditMiddleware('UPDATE', 'SystemConfig'),
     bulkUpdateThresholds
@@ -73,7 +73,7 @@ router.patch(
 // PUT by MongoDB _id (alternative for callers who have the document ID)
 router.put(
     '/thresholds/by-id/:id',
-    authorizeRoles(ROLES.ADMIN),
+    authorizeRoles(ROLES.ADMIN, ROLES.GM),
     [param('id').isMongoId().withMessage('Invalid id')],
     runValidations,
     auditMiddleware('UPDATE', 'SystemConfig'),
@@ -100,7 +100,7 @@ router.delete(
 
 router.delete(
     '/thresholds/:resource',
-    authorizeRoles(ROLES.ADMIN, ROLES.GM),
+    authorizeRoles(ROLES.ADMIN), // Keep Admin only for full resource deletion if desired, or allow GM? The requirement said "without deletion".
     [param('resource').notEmpty().withMessage('resource required')],
     runValidations,
     auditMiddleware('DELETE', 'SystemConfig'),

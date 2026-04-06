@@ -21,6 +21,8 @@ const seedUsers = async () => {
                     password: hashed,
                     role: u.role,
                     name: u.name,
+                    status: 'active',
+                    isApproved: true,
                     provider: 'local'
                 });
 

@@ -20,7 +20,10 @@ const { authLimiter } = require('../middleware/rateLimiter');
 // Standard Auth
 router.get('/me', authMiddleware, verifyToken);
 router.post('/register', authLimiter, register);
-router.post('/login', authLimiter, login);
+router.post('/login', authLimiter, (req, res, next) => {
+    console.log("LOGIN REQUEST RECEIVED");
+    next();
+}, login);
 router.post('/logout', logout);
 router.post('/refresh', refresh);
 router.post('/forgot', forgotPassword);

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import api from '../api/axios';
+import api from '../api';
 import {
     Building2, Plus, Trash2, UserCheck, UserX,
     X, RefreshCw, Shield, Users, Edit2
@@ -232,7 +232,7 @@ function AssignWardenModal({ isOpen, onClose, block, wardens, onAssigned }) {
         setLoading(true);
         try {
             const body = selectedWarden ? { wardenId: selectedWarden } : {};
-            const res = await api.put(`/api/admin/blocks/${block._id}/warden`, body);
+            const res = await api.put(`/api/admin/blocks/${block._id}/assign-warden`, body);
             addToast(res.data.message, 'success');
             onAssigned(res.data.data || { ...block, warden: null });
             onClose();
@@ -276,7 +276,11 @@ function AssignWardenModal({ isOpen, onClose, block, wardens, onAssigned }) {
 // ─── Main Block Management Page ───────────────────────────────────────────────
 export default function BlockManagement() {
     const { user } = useContext(AuthContext);
-    const isAdmin = user?.role === 'admin';
+    const userRole = (user?.role || '').toString().toLowerCase();
+    const isAdmin = userRole === 'admin' || userRole === 'administrator';
+    const isGM = userRole === 'gm' || userRole === 'general manager';
+    const canManage = isAdmin || isGM;
+
     const { addToast } = useToast();
     const [blocks, setBlocks] = useState([]);
     const [wardens, setWardens] = useState([]);
@@ -591,7 +595,7 @@ export default function BlockManagement() {
                                                         </span>
                                                     )}
                                                 </td>
-                                                {isAdmin ? (
+                                                {canManage && (
                                                     <td className="text-right">
                                                         <div className="flex justify-end gap-2">
                                                             <Button
@@ -611,17 +615,19 @@ export default function BlockManagement() {
                                                                 <UserCheck size={14} className="mr-1" />
                                                                 {warden ? 'Reassign' : 'Assign Warden'}
                                                             </Button>
-                                                            <Button
-                                                                size="sm"
-                                                                variant="danger"
-                                                                title="Delete block"
-                                                                onClick={() => handleSingleDelete(block._id, block.name)}
-                                                            >
-                                                                <Trash2 size={14} />
-                                                            </Button>
+                                                            {isAdmin && (
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="danger"
+                                                                    title="Delete block"
+                                                                    onClick={() => handleSingleDelete(block._id, block.name)}
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </Button>
+                                                            )}
                                                         </div>
                                                     </td>
-                                                ) : <td />}
+                                                )}
                                             </tr>
                                         );
                                     })}

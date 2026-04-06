@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react';
-import api from '../api/axios';
+import api from '../api';
 import { AuthContext } from '../context/AuthContext';
 import { ROLES } from '../utils/roles';
 import Card from '../components/common/Card';
@@ -126,7 +126,7 @@ function ComplaintRow({ complaint, user, onReview, onResolve, onEscalate, action
 
                     {/* Meta */}
                     <div className="flex flex-wrap gap-4 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        <span>By {complaint.user?.name || 'Unknown'} ({complaint.user?.role})</span>
+                        <span>By {complaint.user?.name || 'Unknown'} ({complaint.user?.role} - {complaint.user?.block?.name || 'Global'})</span>
                         <span>{timeAgo(complaint.createdAt)}</span>
                         {complaint.assignedTo && <span>Assigned: {complaint.assignedTo.name}</span>}
                         {isResolved && complaint.resolvedBy && (
@@ -248,7 +248,7 @@ function ComplaintDetailModal({ isOpen, onClose, complaint, user, onReview, onRe
                 </div>
 
                 <div className="flex flex-wrap gap-4 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    <span>By {complaint.user?.name || 'Unknown'} ({complaint.user?.role})</span>
+                    <span>By {complaint.user?.name || 'Unknown'} ({complaint.user?.role} - {complaint.user?.block?.name || 'Global'})</span>
                     <span>{timeAgo(complaint.createdAt)}</span>
                     {complaint.assignedTo && <span>Assigned: {complaint.assignedTo.name}</span>}
                     {isResolved && complaint.resolvedBy && (
@@ -336,12 +336,14 @@ export default function Complaints() {
     const { addToast } = useToast();
 
     const [complaints, setComplaints] = useState([]);
+    const [blocks, setBlocks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [actioningIds, setActioningIds] = useState(new Set());
 
     // Filters
     const [statusFilter, setStatusFilter] = useState('all');
     const [categoryFilter, setCategoryFilter] = useState('all');
+    const [blockFilter, setBlockFilter] = useState('all');
 
     // Submission form
     const [showForm, setShowForm] = useState(false);
@@ -378,17 +380,33 @@ export default function Complaints() {
     const fetchComplaints = useCallback(async () => {
         try {
             setLoading(true);
-            const res = await api.get('/api/complaints');
+            const params = {};
+            if (statusFilter !== 'all') params.status = statusFilter;
+            if (categoryFilter !== 'all') params.category = categoryFilter;
+            if (blockFilter !== 'all') params.block = blockFilter;
+
+            const res = await api.get('/api/complaints', { params });
             setComplaints(res.data.data || res.data.complaints || []);
         } catch (err) {
             addToast('Failed to load complaints', 'error');
         } finally {
             setLoading(false);
         }
-    }, [addToast]);
+    }, [addToast, statusFilter, categoryFilter, blockFilter]);
+
+    const fetchBlocks = useCallback(async () => {
+        if (!['admin', 'gm', 'dean', 'principal'].includes(user?.role)) return;
+        try {
+            const res = await api.get('/api/blocks');
+            setBlocks(res.data.data || res.data.blocks || []);
+        } catch (err) {
+            logger.error('Failed to load blocks for filter:', err);
+        }
+    }, [user?.role]);
 
     useEffect(() => {
         fetchComplaints();
+        fetchBlocks();
 
         const socket = getSocket();
         if (socket) {
@@ -628,6 +646,20 @@ export default function Complaints() {
                         <option key={val} value={val}>{lbl}</option>
                     ))}
                 </select>
+
+                {(isAdmin || isGM || isExecutiveReadOnly) && blocks.length > 0 && (
+                    <select
+                        className="input text-sm py-1.5 px-3"
+                        value={blockFilter}
+                        onChange={e => setBlockFilter(e.target.value)}
+                        style={{ minWidth: 160 }}
+                    >
+                        <option value="all">All Blocks</option>
+                        {blocks.map(b => (
+                            <option key={b._id} value={b._id}>{b.name}</option>
+                        ))}
+                    </select>
+                )}
             </div>
 
             {/* Complaints List */}
@@ -650,6 +682,7 @@ export default function Complaints() {
                             <tr>
                                 <th>Status</th>
                                 <th>Title</th>
+                                <th>Block</th>
                                 <th>Category</th>
                                 <th>Priority</th>
                                 <th>Assigned</th>
@@ -669,6 +702,11 @@ export default function Complaints() {
                                         </td>
                                         <td className="max-w-md">
                                             <div className="font-medium truncate">{complaint.title}</div>
+                                        </td>
+                                        <td>
+                                            <Badge variant="secondary" className="text-[10px]">
+                                                {complaint.user?.block?.name || 'Global'}
+                                            </Badge>
                                         </td>
                                         <td>
                                             {CATEGORY_LABELS[complaint.category] || complaint.category}

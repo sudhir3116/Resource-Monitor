@@ -31,8 +31,8 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: Object.values(require('../config/roles').ROLES),
-      default: 'student',
+      enum: [null, ...Object.values(require('../config/roles').ROLES), 'STUDENT', 'WARDEN', 'ADMIN', 'DEAN', 'PRINCIPAL'],
+      default: null,
       index: true
     },
     block: {
@@ -49,8 +49,12 @@ const userSchema = new mongoose.Schema(
     // Institutional Fields
     status: {
       type: String,
-      enum: ['active', 'pending', 'suspended', 'graduated'],
-      default: 'active' // Default active for now to prevent lockout, modify logic in controller
+      enum: ["PENDING", "APPROVED", "REJECTED", 'active', 'suspended', 'graduated', 'pending', 'approved', 'rejected'],
+      default: "PENDING" // Default pending for strict approval flow
+    },
+    isApproved: {
+      type: Boolean,
+      default: false
     },
     department: {
       type: String, // e.g., 'Computer Science', 'Mechanical Engineering'
@@ -75,11 +79,6 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// ── Backward Compatibility for Dean/Principal Role ──────────────────────────
-userSchema.pre('save', function () {
-  if (this.role === 'dean_principal' || this.role === 'Dean / Principal') {
-    this.role = 'dean';
-  }
-});
+// Role definitions are managed in config/roles.js
 
 module.exports = mongoose.model("User", userSchema);

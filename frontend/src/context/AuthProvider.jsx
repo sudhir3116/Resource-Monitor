@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react'
 import { AuthContext } from './AuthContextCore';
 import { useNavigate, useLocation } from 'react-router-dom'
-import api from '../api/axios'
+import api from '../api'
 import Loading from '../components/Loading'
 import { logger } from '../utils/logger'
 import { connectSocket, disconnectSocket, getSocket } from '../utils/socket'
@@ -13,15 +13,18 @@ const AuthProvider = ({ children }) => {
   const location = useLocation()
 
   const [user, setUser] = useState(null)
-  const [token, setToken] = useState(sessionStorage.getItem('token') || null)
+  const [token, setToken] = useState(localStorage.getItem('token') || null)
   const [loading, setLoading] = useState(true)
+
+  // Use a ref for socket to avoid repeated connections during state changes
+  const socketConnected = React.useRef(false);
 
   // Expose role purely derived from user state
   const role = user?.role || null
 
   useEffect(() => {
     const verifyToken = async () => {
-      const storedToken = sessionStorage.getItem('token')
+      const storedToken = localStorage.getItem('token')
 
       if (!storedToken) {
         setUser(null)
@@ -32,32 +35,33 @@ const AuthProvider = ({ children }) => {
 
       try {
         // Verify token is still valid with backend
-        const res = await api.get('/api/auth/me', {
-          headers: {
-            Authorization: `Bearer ${storedToken}`
-          }
-        })
+        const res = await api.get('/api/auth/me')
 
         const rawUserData = res.data.user || res.data.data || res.data
         const userData = { ...rawUserData, role: (rawUserData?.role || '').toLowerCase() }
         setUser(userData)
         setToken(storedToken)
 
-        // Update stored user data
-        sessionStorage.setItem('user', JSON.stringify(userData))
+        // Sync stored user data
+        localStorage.setItem('user', JSON.stringify(userData))
 
-        // Connect socket
-        connectSocket(storedToken)
+        // Connect socket once
+        if (!socketConnected.current) {
+          connectSocket(storedToken)
+          socketConnected.current = true;
+        }
 
       } catch (err) {
-        // Token invalid or expired — clear everything
-        sessionStorage.removeItem('token')
-        sessionStorage.removeItem('user')
-        setUser(null)
-        setToken(null)
-        disconnectSocket()
+        if (err.response?.status === 401) {
+            // Only clear if explicitly unauthorized
+            localStorage.removeItem('token')
+            localStorage.removeItem('user')
+            setUser(null)
+            setToken(null)
+            disconnectSocket()
+            socketConnected.current = false;
+        }
       } finally {
-        // ALWAYS set loading false — no exceptions
         setLoading(false)
       }
     }
@@ -72,36 +76,6 @@ const AuthProvider = ({ children }) => {
     return () => clearTimeout(safetyTimer)
   }, [])
 
-  const checkAuth = async () => {
-    // Left for compatibility with parts of the app that call checkAuth explicitly
-    const storedToken = sessionStorage.getItem('token')
-    if (!storedToken) {
-      setUser(null)
-      setToken(null)
-      setLoading(false)
-      return
-    }
-    try {
-      setLoading(true)
-      const res = await api.get('/api/auth/me', {
-        headers: { Authorization: `Bearer ${storedToken}` }
-      })
-      const rawUserData = res.data.user || res.data.data || res.data
-      const userData = { ...rawUserData, role: (rawUserData?.role || '').toLowerCase() }
-      setUser(userData)
-      setToken(storedToken)
-      sessionStorage.setItem('user', JSON.stringify(userData))
-    } catch (err) {
-      sessionStorage.removeItem('token')
-      sessionStorage.removeItem('user')
-      setUser(null)
-      setToken(null)
-      disconnectSocket()
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const logout = useCallback(async () => {
     try {
       await api.post('/api/auth/logout')
@@ -110,25 +84,18 @@ const AuthProvider = ({ children }) => {
     } finally {
       setUser(null)
       setToken(null)
-      sessionStorage.removeItem('token')
-      sessionStorage.removeItem('user')
-      sessionStorage.clear()
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
       disconnectSocket()
+      socketConnected.current = false;
       navigate('/login', { replace: true })
     }
   }, [navigate])
 
   useEffect(() => {
     const handleAuthError = () => logout()
-    const handleStorageChange = (event) => {
-      if (event.key === 'token') {
-        logout()
-        window.location.href = '/login'
-      }
-    }
-
+    
     window.addEventListener('auth:unauthorized', handleAuthError)
-    window.addEventListener('storage', handleStorageChange)
 
     // Socket listener for real-time suspension/deletion logout
     const s = getSocket()
@@ -141,34 +108,14 @@ const AuthProvider = ({ children }) => {
 
       if (isAffected) {
         logout()
-        // Force redirect to login with query param to explain why
         window.location.replace('/login?error=account_deactivated')
       }
     }
     s.on('user:suspended', handleSuspended)
 
-    let inactivityTimer
-    const resetTimer = () => {
-      if (inactivityTimer) clearTimeout(inactivityTimer)
-      if (user) {
-        inactivityTimer = setTimeout(() => {
-          logout()
-        }, 30 * 60 * 1000)
-      }
-    }
-
-    const events = ['load', 'mousemove', 'mousedown', 'click', 'scroll', 'keypress']
-    if (user) {
-      events.forEach(event => window.addEventListener(event, resetTimer))
-      resetTimer()
-    }
-
     return () => {
       window.removeEventListener('auth:unauthorized', handleAuthError)
-      window.removeEventListener('storage', handleStorageChange)
-      s.off('user:suspended', handleSuspended) // Clean up socket listener
-      if (inactivityTimer) clearTimeout(inactivityTimer)
-      events.forEach(event => window.removeEventListener(event, resetTimer))
+      s.off('user:suspended', handleSuspended)
     }
   }, [user, logout])
 
@@ -180,13 +127,16 @@ const AuthProvider = ({ children }) => {
       const authToken = response.data.token
 
       if (authToken) {
-        sessionStorage.setItem('token', authToken)
-        sessionStorage.setItem('user', JSON.stringify(userData))
+        localStorage.setItem('token', authToken)
+        localStorage.setItem('user', JSON.stringify(userData))
       }
 
       setUser(userData)
       setToken(authToken)
-      if (authToken) connectSocket(authToken)
+      if (authToken && !socketConnected.current) {
+        connectSocket(authToken)
+        socketConnected.current = true;
+      }
 
       // Use role-based dashboard route
       const dashboardRoute = getDashboardRoute(userData?.role)
@@ -194,16 +144,11 @@ const AuthProvider = ({ children }) => {
       navigate(from, { replace: true })
       return { success: true }
     } catch (error) {
-      console.error('Login error:', error)
-      if (error.code === "ECONNABORTED") {
-        alert("Server is waking up, please wait 20 seconds and try again");
-      }
       let errorMessage = 'Login failed. Please try again.'
 
-      if (error.message) errorMessage = error.message
       if (error.response?.data?.message) errorMessage = error.response.data.message
       else if (error.response?.status === 401) errorMessage = 'Invalid email or password.'
-      else if (error.response?.status === 429) errorMessage = 'Too many login attempts. Please try again in 15 minutes.'
+      else if (error.response?.status === 429) errorMessage = 'Too many login attempts. Please try again.'
 
       const enhancedError = new Error(errorMessage)
       enhancedError.originalError = error
@@ -211,80 +156,49 @@ const AuthProvider = ({ children }) => {
     }
   }
 
-  const googleLogin = async (credential) => {
+  const register = async (name, email, password) => {
     try {
-      const response = await api.post('/api/auth/google', { credential })
-      const rawUserData = response.data.data || response.data.user
-      const userData = rawUserData ? { ...rawUserData, role: (rawUserData.role || '').toLowerCase() } : null
-      const authToken = response.data.token
-
-      if (response.data.success && userData) {
-        if (authToken) {
-          sessionStorage.setItem('token', authToken)
-          sessionStorage.setItem('user', JSON.stringify(userData))
-        }
-        setUser(userData)
-        setToken(authToken)
-        if (authToken) connectSocket(authToken)
-
-        // Use role-based dashboard route
-        const dashboardRoute = getDashboardRoute(userData?.role)
-        const from = location.state?.from || location.state?.from?.pathname || dashboardRoute
-        navigate(from, { replace: true })
-        return { success: true }
-      } else {
-        throw new Error('Invalid response from server')
-      }
-    } catch (error) {
-      let errorMessage = 'Google login failed. Please try again.'
-
-      if (error.message && !error.message.includes('Invalid response')) errorMessage = error.message
-      if (error.response?.data?.error) errorMessage = error.response.data.error
-      if (error.response?.data?.message) errorMessage = error.response.data.message
-
-      const enhancedError = new Error(errorMessage)
-      enhancedError.originalError = error
-      throw enhancedError
-    }
-  }
-
-  const register = async (name, email, password, roleInput) => {
-    try {
-      const response = await api.post('/api/auth/register', { name, email, password, role: roleInput })
-      const rawUserData = response.data.data || response.data.user
-      const userData = { ...rawUserData, role: (rawUserData?.role || '').toLowerCase() }
+      // NOTE: blockId is no longer passed as per recent requirement where admins assign blocks later
+      const response = await api.post('/api/auth/register', { name, email, password })
       const authToken = response.data.token
 
       if (authToken) {
-        sessionStorage.setItem('token', authToken)
-        sessionStorage.setItem('user', JSON.stringify(userData))
+        const rawUserData = response.data.data || response.data.user
+        const userData = { ...rawUserData, role: (rawUserData?.role || '').toLowerCase() }
+        
+        localStorage.setItem('token', authToken)
+        localStorage.setItem('user', JSON.stringify(userData))
+        setUser(userData)
+        setToken(authToken)
+        connectSocket(authToken)
+        socketConnected.current = true;
+
+        const dashboardRoute = getDashboardRoute(userData?.role)
+        navigate(dashboardRoute, { replace: true })
+        return { success: true, immediate: true }
+      } else {
+        // Approval Workflow: registered but must wait
+        setUser(null)
+        setToken(null)
+        
+        setTimeout(() => {
+          navigate('/login', { replace: true })
+        }, 3000)
+        
+        return { success: true, pending: true, message: response.data.message }
       }
-
-      setUser(userData)
-      setToken(authToken)
-      if (authToken) connectSocket(authToken)
-
-      // Use role-based dashboard route
-      const dashboardRoute = getDashboardRoute(userData?.role)
-      navigate(dashboardRoute, { replace: true })
-      return { success: true }
     } catch (error) {
       let errorMessage = 'Registration failed. Please try again.'
-
-      if (error.message) errorMessage = error.message
       if (error.response?.data?.message) errorMessage = error.response.data.message
-      else if (error.response?.status === 400) errorMessage = 'Invalid registration data. Please check your inputs.'
-      else if (error.response?.status === 409) errorMessage = 'An account with this email already exists.'
-
       const enhancedError = new Error(errorMessage)
-      enhancedError.originalError = error
       throw enhancedError
     }
   }
 
   const setUserData = (userData) => {
-    setUser(userData);
-    sessionStorage.setItem('user', JSON.stringify(userData));
+    const normalizedData = { ...userData, role: (userData?.role || '').toLowerCase() };
+    setUser(normalizedData);
+    localStorage.setItem('user', JSON.stringify(normalizedData));
   }
 
   return (
@@ -293,10 +207,8 @@ const AuthProvider = ({ children }) => {
       token,
       loading,
       login,
-      googleLogin,
       register,
       logout,
-      checkAuth,
       setUser: setUserData,
       role,
       isAuthenticated: !!user && !!token

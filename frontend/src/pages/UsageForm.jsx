@@ -1,22 +1,25 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate, Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import api from '../api/axios';
-import { useResources, refetchResources } from '../hooks/useResources';
+import api from '../api';
+import { useResources } from '../hooks/useResources';
 import { useToast } from '../context/ToastContext';
-import { ArrowLeft, Save, Activity, LayoutGrid, Calendar, FileText, MapPin, Gauge } from 'lucide-react';
+import { ArrowLeft, Save, Activity, LayoutGrid, Calendar, FileText, MapPin, Gauge, Loader2 } from 'lucide-react';
 
 const UsageForm = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { id } = useParams();
   const { addToast } = useToast();
   const { resources, loading: resourcesLoading } = useResources();
 
+  const isEditMode = !!id;
   const [selectedResource, setSelectedResource] = useState(null)
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [notes, setNotes] = useState('')
 
+  const [loading, setLoading] = useState(isEditMode);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -24,65 +27,90 @@ const UsageForm = () => {
   const rawBlock = user?.block;
   const blockName = rawBlock?.name || user?.blockName || 'Your Block';
 
+  // Fetch usage record if in edit mode
+  const fetchUsage = useCallback(async () => {
+    if (!isEditMode) return;
+    try {
+      setLoading(true);
+      const res = await api.get(`/api/usage/${id}`);
+      const data = res.data?.data || res.data?.usage;
+      if (data) {
+        setAmount(data.usage_value || data.amount || '');
+        setNotes(data.notes || '');
+        if (data.usage_date || data.date) {
+            setDate(new Date(data.usage_date || data.date).toISOString().split('T')[0]);
+        }
+        // Match resource
+        const resId = data.resourceId?._id || data.resourceId || data.resource_id;
+        if (resId && resources) {
+            const found = resources.find(r => r._id === resId);
+            setSelectedResource(found || null);
+        }
+      }
+    } catch (err) {
+      console.error('Fetch usage error:', err);
+      setError('Failed to load usage record');
+    } finally {
+      setLoading(false);
+    }
+  }, [id, isEditMode, resources]);
+
+  useEffect(() => {
+    if (isEditMode && resources?.length > 0) {
+      fetchUsage();
+    }
+  }, [fetchUsage, isEditMode, resources]);
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError(null)
 
-    // Validate resource selected
     if (!selectedResource || !selectedResource._id) {
       setError('Please select a resource')
       return
     }
 
-    // Convert amount to number for validation
     const numericAmount = Number(amount)
-
     if (!numericAmount || isNaN(numericAmount) || numericAmount <= 0) {
       setError('Please enter a valid amount greater than 0')
       return
     }
 
-    // Validate date
     if (!date) {
       setError('Please select a date')
       return
     }
 
-    // Build exact payload backend expects
-    // Convert date to ISO format (backend requirement)
     const isoDate = new Date(date).toISOString()
-
     const payload = {
       resourceId: selectedResource._id,
       amount: numericAmount,
       date: isoDate,
-      notes: (notes || '').trim()
+      notes: (notes || '').trim(),
+      blockId: user?.block?._id || user?.block || undefined
     }
-
-    console.log('PAYLOAD:', payload)
 
     try {
       setSubmitting(true)
-
-      const res = await api.post('/api/usage', payload)
+      
+      let res;
+      if (isEditMode) {
+        res = await api.put(`/api/usage/${id}`, payload)
+      } else {
+        res = await api.post('/api/usage', payload)
+      }
 
       if (res.data?.success || res.status === 201 || res.status === 200) {
-
-        // Clear form
-        setAmount('')
-        setNotes('')
-        setSelectedResource(null)
-        setDate(new Date().toISOString().split('T')[0])
-
-        // Show success
-        if (typeof addToast === 'function') {
-          addToast('Usage logged successfully!', 'success')
+        if (!isEditMode) {
+            setAmount('')
+            setNotes('')
+            setSelectedResource(null)
+            setDate(new Date().toISOString().split('T')[0])
         }
 
-        // Trigger refresh on other pages
+        addToast(isEditMode ? 'Usage updated successfully!' : 'Usage logged successfully!', 'success')
         window.dispatchEvent(new CustomEvent('usage:added'))
 
-        // Navigate back
         const paths = {
           admin: '/admin/usage',
           warden: '/warden/usage',
@@ -95,16 +123,7 @@ const UsageForm = () => {
       }
     } catch (err) {
       console.error('Usage submit error:', err)
-      console.log('ERROR:', err.response?.data)
-
-      const msg =
-        err.response?.data?.message ||
-        err.response?.data?.error ||
-        (err.response?.data && typeof err.response.data === 'string' ? err.response.data : null) ||
-        err.message ||
-        'Failed to save usage record'
-
-      setError(msg)
+      setError(err.response?.data?.message || 'Failed to save usage record')
     } finally {
       setSubmitting(false)
     }
@@ -115,11 +134,13 @@ const UsageForm = () => {
     : role === 'warden' ? '/warden/usage'
       : '/usage';
 
-  if (resourcesLoading) {
+  if (resourcesLoading || loading) {
     return (
       <div className="flex flex-col items-center justify-center p-20 space-y-4">
-        <Activity className="animate-spin text-blue-600" size={32} />
-        <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Loading Resources...</p>
+        <Loader2 className="animate-spin text-blue-600" size={32} />
+        <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">
+          {resourcesLoading ? 'Loading Resources...' : 'Loading Record...'}
+        </p>
       </div>
     );
   }
@@ -145,13 +166,15 @@ const UsageForm = () => {
   return (
     <div className="max-w-2xl mx-auto p-4 md:p-6 pb-20">
       <div className="mb-6">
-        <Link to={`${usageBasePath}/all`} className="inline-flex items-center text-[10px] font-bold text-slate-500 hover:text-blue-500 uppercase tracking-widest transition-colors mb-4 group">
+        <Link to={`${usageBasePath}`} className="inline-flex items-center text-[10px] font-bold text-slate-500 hover:text-blue-500 uppercase tracking-widest transition-colors mb-4 group">
           <ArrowLeft size={12} className="mr-2 group-hover:-translate-x-1 transition-transform" /> Back to Records
         </Link>
         <h1 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
-          <Gauge className="text-blue-500" size={24} /> Log Resource Usage
+          <Gauge className="text-blue-500" size={24} /> {isEditMode ? 'Update Usage Record' : 'Log Resource Usage'}
         </h1>
-        <p className="text-xs text-[var(--text-secondary)] mt-1">Record consumption metrics for accurate system tracking.</p>
+        <p className="text-xs text-[var(--text-secondary)] mt-1">
+          {isEditMode ? 'Modify existing consumption metrics.' : 'Record consumption metrics for accurate system tracking.'}
+        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -272,11 +295,11 @@ const UsageForm = () => {
           >
             {submitting ? (
               <>
-                <Activity size={16} className="animate-spin" /> Saving...
+                <Activity size={16} className="animate-spin" /> {isEditMode ? 'Updating...' : 'Saving...'}
               </>
             ) : (
               <>
-                <Save size={16} /> Log Usage Data
+                <Save size={16} /> {isEditMode ? 'Update Record' : 'Log Usage Data'}
               </>
             )}
           </button>

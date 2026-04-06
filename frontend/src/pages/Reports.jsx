@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import api from '../api/axios';
+import api from '../api';
 import {
     FileText,
     Download,
@@ -11,8 +11,6 @@ import {
     Table as TableIcon,
     PieChart as PieChartIcon,
     ChevronDown,
-    FileSpreadsheet,
-    FileJson,
     Activity,
 } from 'lucide-react';
 import Card from '../components/common/Card';
@@ -21,7 +19,6 @@ import Badge from '../components/common/Badge';
 import EmptyState from '../components/common/EmptyState';
 import { useToast } from '../context/ToastContext';
 import { logger } from '../utils/logger';
-import { exportToCSV, exportToExcel, exportToJSON, exportToPDF } from '../utils/export';
 
 import { AuthContext } from '../context/AuthContext';
 import { useContext } from 'react';
@@ -115,34 +112,26 @@ export default function Reports() {
 
         setExporting(true);
         try {
-            const exportData = data.map(item => ({
-                'Resource Type': item.resource_type,
-                'Consumption': item.usage_value,
-                'Unit': item.unit || 'units',
-                'Date': new Date(item.usage_date).toLocaleDateString(),
-                'Block/Location': item.category || 'N/A',
-                'Logged By': item.userId?.name || 'System',
-                'Notes': item.notes || ''
-            }));
+            const params = new URLSearchParams();
+            if (filters.resource !== 'All') params.set('resource', filters.resource);
+            if (filters.block !== 'All') params.set('blockId', filters.block);
+            params.set('startDate', filters.startDate);
+            params.set('endDate', filters.endDate);
 
-            const fileName = `Resource_Report_${filters.resource}_${filters.startDate}_to_${filters.endDate}`;
+            const res = await api.get(`/api/usage/export/${format}?${params.toString()}`, {
+                responseType: 'blob'
+            });
 
-            switch (format) {
-                case 'csv':
-                    exportToCSV(exportData, `${fileName}.csv`);
-                    break;
-                case 'excel':
-                    exportToExcel(exportData, `${fileName}.xlsx`);
-                    break;
-                case 'json':
-                    exportToJSON(exportData, `${fileName}.json`);
-                    break;
-                case 'pdf':
-                    exportToPDF(exportData, `${fileName}.pdf`, `Resource Usage Report: ${filters.resource}`);
-                    break;
-                default:
-                    break;
-            }
+            const blob = new Blob([res.data], { type: format === 'pdf' ? 'application/pdf' : 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Usage_Report_${new Date().toISOString().split('T')[0]}.${format}`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+
             addToast(`Successfully exported as ${format.toUpperCase()}`, 'success');
         } catch (err) {
             logger.error('Export failed', err);
@@ -180,12 +169,6 @@ export default function Reports() {
                         <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 overflow-hidden">
                             <button onClick={() => handleExport('csv')} className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2">
                                 <FileText size={14} className="text-blue-500" /> Export CSV
-                            </button>
-                            <button onClick={() => handleExport('excel')} className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2">
-                                <FileSpreadsheet size={14} className="text-emerald-500" /> Export Excel
-                            </button>
-                            <button onClick={() => handleExport('json')} className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2">
-                                <FileJson size={14} className="text-amber-500" /> Export JSON
                             </button>
                             <button onClick={() => handleExport('pdf')} className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2">
                                 <FileText size={14} className="text-rose-500" /> Export PDF

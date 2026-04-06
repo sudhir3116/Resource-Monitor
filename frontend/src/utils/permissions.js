@@ -23,9 +23,9 @@ export const canView = (userRole, section) => {
 
     const permissions = {
         admin: ['all'],
-        gm: ['dashboard', 'usage', 'analytics', 'complaints', 'alerts', 'reports', 'audit-logs', 'notices', 'resource-config'],
-        dean: ['dashboard', 'analytics', 'alerts', 'reports', 'audit-logs', 'notices', 'complaints'],
-        principal: ['dashboard', 'analytics', 'reports', 'notices'],
+        gm: ['all'],
+        dean: ['dashboard', 'analytics', 'alerts', 'reports', 'notices', 'complaints'],
+        principal: ['dashboard', 'analytics', 'reports', 'notices', 'alerts', 'complaints'],
         warden: ['dashboard', 'usage', 'alerts', 'complaints', 'notices', 'daily-report'],
         student: ['dashboard', 'complaints', 'notices']
     };
@@ -42,7 +42,7 @@ export const canEdit = (userRole, resource) => {
 
     const canModify = {
         admin: ['all'],
-        gm: ['complaints', 'alerts'],
+        gm: ['usage', 'complaints', 'alerts', 'notices', 'users'],
         dean: [],
         principal: [],
         warden: ['usage', 'complaints', 'alerts'],
@@ -83,21 +83,21 @@ export const isReadOnlyExecutive = (userRole) => {
  * Determines if user is admin equivalent (should see all data)
  */
 export const isAdminEquivalent = (userRole) => {
-    return [ROLES.ADMIN, ROLES.GM].includes(userRole);
+    return [ROLES.ADMIN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL].includes(userRole);
 };
 
 /**
  * Determines if user can manage users
  */
 export const canManageUsers = (userRole) => {
-    return userRole === ROLES.ADMIN;
+    return [ROLES.ADMIN, ROLES.GM].includes(userRole);
 };
 
 /**
  * Determines if user can manage blocks
  */
 export const canManageBlocks = (userRole) => {
-    return userRole === ROLES.ADMIN;
+    return [ROLES.ADMIN, ROLES.GM].includes(userRole);
 };
 
 /**

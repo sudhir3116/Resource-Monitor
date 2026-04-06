@@ -4,7 +4,11 @@ let socket = null
 
 export const getSocket = () => {
     if (!socket) {
-        socket = io('http://localhost:5001', {
+        const socketUrl = import.meta.env.VITE_API_URL || "http://localhost:5001";
+        socket = io(socketUrl, {
+            auth: {
+                token: localStorage.getItem('token')
+            },
             withCredentials: true,
             transports: ['websocket', 'polling'],
             reconnectionAttempts: 5,

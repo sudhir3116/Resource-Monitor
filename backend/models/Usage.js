@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const usageSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Optional if block-level usage
   blockId: { type: mongoose.Schema.Types.ObjectId, ref: 'Block' },
-  resourceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Resource' }, // NEW: ObjectId Reference
+  resourceId: { type: mongoose.Schema.Types.ObjectId, ref: 'ResourceConfig' }, // NEW: ObjectId Reference
   resource_type: { type: String, required: true, trim: true }, // Legacy: for quick lookups
   category: { type: String }, // e.g., 'Lighting', 'Heating', 'Cooking'
   usage_value: { type: Number, required: true },
@@ -40,10 +40,13 @@ usageSchema.index({ lastUpdatedBy: 1 });
 // Compound index for block+resource+date queries (reports & analytics)
 usageSchema.index({ blockId: 1, resource_type: 1, usage_date: -1 });
 
-// Pre-save hook to set createdBy if not set
+// Pre-save hook to set createdBy and normalize resource_type
 usageSchema.pre('save', function (next) {
   if (this.isNew && !this.createdBy && this.userId) {
     this.createdBy = this.userId;
+  }
+  if (this.resource_type) {
+    this.resource_type = this.resource_type.trim().toLowerCase();
   }
   if (typeof next === 'function') next();
 });

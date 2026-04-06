@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import api from '../api/axios';
+import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import { ROLES } from '../utils/roles';
 import { logger } from '../utils/logger';
@@ -113,9 +113,9 @@ function ResourceRow({ config, isAdmin, isGM, onSave, onToggle, onDelete }) {
 
     /* Build initial draft values (always as numbers) */
     const initialDraft = useCallback(() => ({
-        costPerUnit: Number(config.costPerUnit) || 0,
-        dailyLimit: Number(config.dailyThreshold) || 0,
-        monthlyLimit: Number(config.monthlyThreshold) || 0,
+        costPerUnit: Number(config.costPerUnit ?? config.rate) || 0,
+        dailyLimit: Number(config.dailyLimit ?? config.dailyThreshold) || 0,
+        monthlyLimit: Number(config.monthlyLimit ?? config.monthlyThreshold) || 0,
         unit: config.unit || '',
         emoji: config.icon || '📊',
         color: config.color || '#3B82F6',
@@ -213,14 +213,14 @@ function ResourceRow({ config, isAdmin, isGM, onSave, onToggle, onDelete }) {
                 {/* Daily Limit */}
                 <td>
                     <span className="text-sm tabular-nums" style={{ color: 'var(--text-primary)' }}>
-                        {fmtQty(config.dailyThreshold, config.unit)}
+                        {fmtQty(config.dailyLimit ?? config.dailyThreshold, config.unit)}
                     </span>
                 </td>
 
                 {/* Monthly Limit */}
                 <td>
                     <span className="text-sm tabular-nums" style={{ color: 'var(--text-primary)' }}>
-                        {fmtQty(config.monthlyThreshold, config.unit)}
+                        {fmtQty(config.monthlyLimit ?? config.monthlyThreshold, config.unit)}
                     </span>
                 </td>
 
@@ -262,7 +262,7 @@ function ResourceRow({ config, isAdmin, isGM, onSave, onToggle, onDelete }) {
                             >
                                 {(config.status === 'active' || config.isActive) ? 'Deactivate' : 'Activate'}
                             </button>
-                            {isAdmin && (
+                            {isAdmin && !isGM && (
                                 <button
                                     onClick={() => onDelete(config._id)}
                                     title="Delete Permanently"
@@ -560,7 +560,8 @@ function AddResourceModal({ isOpen, onClose, existingResources, onSave }) {
                 color: form.color || '#3B82F6'
             };
 
-            await api.post('/api/resources', payload);
+            const response = await api.post('/api/resources', payload);
+            console.log("API Response (Create):", response.data);
             addToast(`"${form.name}" created successfully`, 'success');
 
             if (typeof refetchResources === 'function') await refetchResources();
@@ -722,12 +723,13 @@ export default function ResourceConfig({ isGM: isGMProp = false }) {
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [showBlockOverrides, setShowBlockOverrides] = useState(false);
 
-    const isAdmin = user?.role === 'admin';
-    const isGM = isGMProp || user?.role === 'gm';
+    const userRole = (user?.role || '').toString().toLowerCase();
+    const isAdmin = userRole === 'admin' || userRole === 'administrator';
+    const isGM = isGMProp || userRole === 'gm';
     // GM can manage values (edit/toggle) but not create/delete resource objects.
-    const canManageResources = ['admin', 'gm'].includes(user?.role) || isGM;
-    const isWarden = user?.role === 'warden';
-    const canView = canManageResources || isGM || isWarden;
+    const canManageResources = isAdmin || isGM;
+    const isWarden = userRole === 'warden';
+    const canView = canManageResources || isWarden;
 
     const { sortedData: sortedConfigs, sortField, sortDirection, handleSort } = useSortableTable(
         configs,
@@ -775,12 +777,13 @@ export default function ResourceConfig({ isGM: isGMProp = false }) {
     const handleSaveResource = async (id, draft) => {
         try {
             const res = await api.put(`/api/resources/${id}`, draft);
+            console.log("API Response (Update):", res.data);
             addToast(`Resource updated successfully`, 'success');
             if (typeof refetchResources === 'function') await refetchResources();
             await fetchData(); // refresh from backend
         } catch (err) {
-            logger.error(`[ResourceConfig] Save failed for ${resource}:`, err);
-            addToast(err.message || `Failed to save ${resource}`, 'error');
+            logger.error(`[ResourceConfig] Save failed:`, err);
+            addToast(err.message || `Failed to save ${draft.name || 'resource'}`, 'error');
             throw err; // re-throw so the row knows save failed
         }
     };
@@ -874,11 +877,9 @@ export default function ResourceConfig({ isGM: isGMProp = false }) {
                         <Button variant="secondary" onClick={() => setShowOverrideModal(true)}>
                             <Building2 size={16} className="mr-2" /> Block Override
                         </Button>
-                        {!isGM && (
-                            <Button variant="primary" onClick={() => setShowAddModal(true)}>
-                                <Plus size={16} className="mr-2" /> Add Resource
-                            </Button>
-                        )}
+                        <Button variant="primary" onClick={() => setShowAddModal(true)}>
+                            <Plus size={16} className="mr-2" /> Add Resource
+                        </Button>
                     </div>
                 )}
             </div>
@@ -1029,7 +1030,7 @@ export default function ResourceConfig({ isGM: isGMProp = false }) {
                                                 {fmtQty(config.dailyThreshold, config.unit)}
                                             </td>
                                             <td><Badge variant="warning">Override</Badge></td>
-                                            {canManageResources && (
+                                            {canManageResources && !isGM && (
                                                 <td>
                                                     <button
                                                         onClick={() => handleDeleteOverride(config.name, blockId, ov.blockName || blockId)}

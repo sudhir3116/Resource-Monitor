@@ -222,6 +222,10 @@ router.delete(
 );
 
 // ── Resource Config aliased routes ───────────────────────────────────────────
-router.use('/resource-config', require('./resourceConfigRoutes'));
+// ── Onboarding & Approval (NEW) ───────────────────────────────────────────────
+router.get('/pending-users', adminController.getPendingUsers);
+router.put('/approve/:id', adminController.approveUser);
+router.put('/reject/:id', adminController.rejectUser);
+router.put('/assign-role/:id', adminController.assignRole);
 
 module.exports = router;

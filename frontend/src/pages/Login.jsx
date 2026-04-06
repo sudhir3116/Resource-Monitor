@@ -30,6 +30,7 @@ export default function Login() {
     setLoading(true);
 
     try {
+      console.log("Calling:", import.meta.env.VITE_API_URL);
       // Normalize email to lowercase for consistency with backend
       const normalizedEmail = email.toLowerCase().trim();
       await login(normalizedEmail, password);
@@ -63,7 +64,7 @@ export default function Login() {
 
         <CardContent className="space-y-4">
           {error && (
-            <div className="p-3 rounded-md bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm flex items-start gap-2 border border-red-100 dark:border-red-900/30">
+            <div className={`p-3 rounded-md text-sm flex items-start gap-2 border ${error.toLowerCase().includes('approval') || error.toLowerCase().includes('suspended') ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900/30' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-900/30'}`}>
               <AlertCircle size={16} className="mt-0.5 shrink-0" />
               <span>{error}</span>
             </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../api/axios';
+import api from '../api';
 import { AuthContext } from '../context/AuthContext';
 import { useResources } from '../hooks/useResources';
 import {
@@ -58,27 +58,39 @@ export default function Resources() {
 
     const fetchAllData = async () => {
         try {
-            const [summaryRes, alertsRes, usagesRes] = await Promise.all([
+            const [summaryRes, alertsRes, usagesRes] = await Promise.allSettled([
                 api.get('/api/usage/summary'),
                 api.get('/api/alerts?status=pending,investigating,escalated'),
                 api.get('/api/usage?limit=50')
             ]);
 
-            const summary = summaryRes.data?.data?.summary || summaryRes.data?.summary || {};
-            const statsObj = {};
-            Object.entries(summary).forEach(([name, data]) => {
-                statsObj[name] = {
-                    current: data.total || 0,
-                    unit: data.unit || 'units',
-                    cost: data.total ? Math.round(data.total * 2.5) : 0,
-                    monthlyLimit: data.monthlyLimit || 1000
-                };
-            });
-            setStats(statsObj);
-            setAlerts(alertsRes.data?.alerts || alertsRes.data?.data || []);
+            // Summary — always update regardless of other failures
+            if (summaryRes.status === 'fulfilled') {
+                const summary = summaryRes.value.data?.data?.summary || summaryRes.value.data?.summary || {};
+                const statsObj = {};
+                Object.entries(summary).forEach(([name, data]) => {
+                    statsObj[name] = {
+                        current: data.total || 0,
+                        unit: data.unit || 'units',
+                        cost: data.totalCost || 0,
+                        monthlyLimit: data.monthlyLimit || 1000
+                    };
+                });
+                setStats(statsObj);
+            }
 
-            const arr = usagesRes.data?.data || usagesRes.data?.usages || (Array.isArray(usagesRes.data) ? usagesRes.data : []);
-            setUsages(Array.isArray(arr) ? arr : []);
+            // Alerts
+            if (alertsRes.status === 'fulfilled') {
+                setAlerts(alertsRes.value.data?.alerts || alertsRes.value.data?.data || []);
+            }
+
+            // Usage list
+            if (usagesRes.status === 'fulfilled') {
+                const arr = usagesRes.value.data?.data || usagesRes.value.data?.usages || (Array.isArray(usagesRes.value.data) ? usagesRes.value.data : []);
+                setUsages(Array.isArray(arr) ? arr : []);
+            } else {
+                logger.error('Failed to fetch usage list', usagesRes.reason);
+            }
         } catch (err) {
             logger.error('Failed to fetch resource stats', err);
         } finally {
@@ -186,8 +198,8 @@ export default function Resources() {
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-black text-[var(--text-primary)]">Usage Dashboard</h1>
-                    <p className="text-[var(--text-secondary)] text-sm font-medium">Monitor and manage campus resource consumption</p>
+                    <h1 className="text-2xl font-black text-[var(--text-primary)]">Resource Log Center</h1>
+                    <p className="text-[var(--text-secondary)] text-sm font-medium">Detailed consumption records and historical history tracking</p>
                 </div>
                 <div className="flex items-center gap-3 w-full md:w-auto">
                     <div className="relative flex-1 md:w-64">
@@ -254,7 +266,8 @@ export default function Resources() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-10">
                         {resources.map(res => {
-                            const stat = stats?.[res.name] || { current: 0, unit: res.unit, cost: 0 };
+                            // Corrected lookup: ensure case-insensitive matching for summary metrics
+                            const stat = Object.entries(stats || {}).find(([k]) => k.toLowerCase() === res.name.toLowerCase())?.[1] || { current: 0, unit: res.unit, cost: 0 };
                             const usage = stat.current || 0;
                             const limit = stat.monthlyLimit || 1000;
                             const percentage = (usage / limit) * 100;
@@ -365,7 +378,11 @@ export default function Resources() {
                                                         <td className="text-right">
                                                             <div className="flex justify-end gap-1">
                                                                 {canEdit && (
-                                                                    <Button size="sm" variant="secondary" className="!p-1.5" onClick={() => navigate(`/usage/${u._id}/edit`)}>
+                                                                    <Button size="sm" variant="secondary" className="!p-1.5" onClick={() => {
+                                                                        const rolePath = user?.role === 'warden' ? 'warden' : user?.role === 'admin' ? 'admin' : '';
+                                                                        const path = rolePath ? `/${rolePath}/usage/${u._id}/edit` : `/usage/${u._id}/edit`;
+                                                                        navigate(path);
+                                                                    }}>
                                                                         <Edit2 size={13} />
                                                                     </Button>
                                                                 )}

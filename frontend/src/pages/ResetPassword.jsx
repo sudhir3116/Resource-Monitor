@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Lock, ArrowLeft, Loader2, ShieldCheck, CheckCircle2 } from 'lucide-react';
-import api from '../api/axios';
+import api from '../api';
 
 
 export default function ResetPassword() {

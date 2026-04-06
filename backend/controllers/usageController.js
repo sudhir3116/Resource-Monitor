@@ -14,11 +14,11 @@ const exportService = require('../services/exportService')
 const metricsService = require('../services/metricsService')
 const anomalyService = require('../services/anomalyService')
 
-// ── STEP 2: Safe blockId helper (prevents [object Object] in queries) ─────────────────
 const safeBlockId = (raw) => {
   if (!raw) return null;
-  if (typeof raw === 'object' && raw._id) raw = raw._id;
-  const str = raw.toString();
+  // If raw is an object, and has an _id, resolve to its hex string immediately.
+  const str = typeof raw === 'object' ? (raw._id ? raw._id.toString() : raw.toString()) : String(raw);
+  
   if (str.includes('[object') || str.length !== 24) {
     console.warn('[UsageCtrl] Invalid blockId rejected:', str);
     return null;
@@ -200,15 +200,16 @@ exports.createUsage = async (req, res) => {
       });
     }
 
-    const canonicalResourceType = resource.resource || resource.name;
+    const canonicalResourceType = (resource.name || resource.resource || "Unknown").trim();
     const finalUnit = resource.unit || 'units';
 
     // 4. Resolve Block (Warden always uses their own block)
     let blockId = req.body.blockId || req.body.block;
+    const rawBlock = req.user?.block || req.userObj?.block;
+    const resolvedBlockId = safeBlockId(rawBlock);
+
     if (role === 'warden' || role === 'student') {
-      const rawBlock = user.block || req.userObj?.block;
-      const bId = rawBlock?._id?.toString() || rawBlock?.toString() || null;
-      if (bId) blockId = bId;
+      if (resolvedBlockId) blockId = resolvedBlockId;
     }
 
     if (!blockId) {
@@ -219,10 +220,8 @@ exports.createUsage = async (req, res) => {
     }
 
     // Validate block ID format
-    let blockObjectId;
-    try {
-      blockObjectId = new mongoose.Types.ObjectId(blockId.toString());
-    } catch (e) {
+    const blockObjectId = safeBlockId(blockId);
+    if (!blockObjectId) {
       return res.status(400).json({
         success: false,
         message: 'Invalid block ID format.'
@@ -236,7 +235,8 @@ exports.createUsage = async (req, res) => {
 
     const usage = await Usage.create({
       blockId: blockObjectId,
-      resourceId: resource._id, // Ensure resource link exists
+      userId: new mongoose.Types.ObjectId(req.userId.toString()),
+      resourceId: resource._id,
       resource_type: canonicalResourceType,
       usage_value: usageAmount,
       unit: finalUnit,
@@ -247,6 +247,8 @@ exports.createUsage = async (req, res) => {
       createdBy: new mongoose.Types.ObjectId(req.userId.toString()),
       deleted: false
     });
+
+    console.log("✅ Saved usage:", usage._id, "for user:", req.userId);
 
     // Populate for response
     const populated = await Usage
@@ -318,7 +320,7 @@ exports.getUsages = async (req, res) => {
     const filter = {};
 
     // Role-based Access Control
-    const callerRole = req.user?.role;
+    const callerRole = (req.user?.role || '').toLowerCase();
 
     // Check role and assign filters
     if (!callerRole || callerRole === 'user') {
@@ -478,9 +480,10 @@ exports.updateUsage = async (req, res) => {
     const isAdmin = user.role === 'admin';
     const isCreator = String(existingUsage.createdBy) === String(req.userId) || String(existingUsage.userId) === String(req.userId);
     const isWardenInBlock = user.role === 'warden' && user.block && existingUsage.blockId && String(user.block) === String(existingUsage.blockId);
+    const isGM = user.role === 'gm';
 
-    // Admin can edit anything; creator can edit their own; warden can edit records in their block
-    if (isAdmin || isCreator || isWardenInBlock) {
+    // Admin/GM can edit anything; creator can edit their own; warden can edit records in their block
+    if (isAdmin || isGM || isCreator || isWardenInBlock) {
       // Allowed — proceed to update
     }
     // Student / Dean / Principal / Warden (non-owners, not in block): No write access
@@ -489,7 +492,7 @@ exports.updateUsage = async (req, res) => {
         'student': 'Students cannot modify usage records. Please contact your Warden.',
         'warden': 'Wardens can only modify usage records in their assigned block.',
         'dean': 'Deans have read-only access. You cannot modify usage records.',
-        'dean': 'Principals have read-only access. You cannot modify usage records.'
+        'principal': 'Principals have read-only access. You cannot modify usage records.'
       };
       return res.status(403).json({
         success: false,
@@ -505,9 +508,40 @@ exports.updateUsage = async (req, res) => {
       });
     }
 
+    // 4. Resolve Updates (Consistency with createUsage)
+    const { resourceId, resource_id, amount, value, usage_value, date, usage_date, notes } = req.body;
+    const rId = resourceId || resource_id;
+    const finalAmount = amount !== undefined ? amount : (value !== undefined ? value : usage_value);
+    const finalDate = date || usage_date || existingUsage.usage_date;
+    const resolvedNotes = notes !== undefined ? notes : existingUsage.notes;
+
+    const updateData = {};
+    if (resolvedNotes !== undefined) updateData.notes = resolvedNotes.trim();
+    if (finalDate) updateData.usage_date = new Date(finalDate);
+
+    // If resource or amount changes, recalculate cost
+    if (rId || finalAmount !== undefined) {
+        const targetResourceId = rId || existingUsage.resourceId;
+        const targetResource = await Resource.findById(targetResourceId);
+        
+        if (targetResource) {
+            updateData.resourceId = targetResource._id;
+            updateData.resource_type = (targetResource.resource || targetResource.name).trim().toLowerCase();
+            updateData.unit = targetResource.unit || existingUsage.unit;
+            
+            const newAmount = finalAmount !== undefined ? Number(finalAmount) : existingUsage.usage_value;
+            if (!isNaN(newAmount) && newAmount > 0) {
+                updateData.usage_value = newAmount;
+                const unitCost = targetResource.costPerUnit || targetResource.rate || 0;
+                updateData.cost = newAmount * unitCost;
+            }
+        }
+    }
+
+    updateData.lastUpdatedBy = req.userId; // Audit trail
+    
     // 4. Perform Update
-    req.body.lastUpdatedBy = req.userId; // Audit trail
-    const usage = await Usage.findByIdAndUpdate(id, req.body, { returnDocument: 'after' });
+    const usage = await Usage.findByIdAndUpdate(id, { $set: updateData }, { new: true });
 
     // AUDIT LOG
     try {
@@ -565,7 +599,7 @@ exports.deleteUsage = async (req, res) => {
     //    Wardens are explicitly prohibited — they log records but cannot remove them.
     //    This enforces the operational hierarchy: wardens create, managers archive/delete.
     const user = req.userObj || await User.findById(req.userId);
-    const DELETE_ROLES = ['admin', 'gm'];
+    const DELETE_ROLES = ['admin'];
 
     if (!DELETE_ROLES.includes(user.role)) {
       const roleMessages = {
@@ -635,7 +669,8 @@ exports.getDashboardStats = async (req, res) => {
     // Higher-level roles ALWAYS see GLOBAL data
     const role = (req.user?.role || u?.role || '').toLowerCase();
     const isExecutive = ['admin', 'gm', 'dean', 'principal'].includes(role);
-    const blockId = isExecutive ? null : (req.user?.block?._id || req.user?.block || u?.block);
+    const rawBlock = req.user?.block || req.userObj?.block || u?.block;
+    const blockId = isExecutive ? null : safeBlockId(rawBlock);
 
     const data = await getUsageSummary({
       role,
@@ -915,3 +950,23 @@ exports.getAnomalies = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 }
+
+/**
+ * getBlockAnalytics
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Provides ranking data for all blocks to the comparison charts.
+ */
+exports.getBlockAnalytics = async (req, res) => {
+  try {
+    const { getBlockComparison } = require('../services/usageService');
+    const ranking = await getBlockComparison();
+    
+    res.json({
+      success: true,
+      data: ranking
+    });
+  } catch (error) {
+    console.error('[UsageCtrl] getBlockAnalytics error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

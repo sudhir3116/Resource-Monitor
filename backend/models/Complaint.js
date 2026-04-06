@@ -18,6 +18,11 @@ const complaintSchema = new mongoose.Schema({
         ref: 'User',
         required: true
     },
+    blockId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Block',
+        required: true
+    },
     status: {
         type: String,
         enum: ['open', 'under_review', 'in_progress', 'escalated', 'resolved'],

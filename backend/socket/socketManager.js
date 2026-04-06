@@ -9,21 +9,34 @@ module.exports = function socketManager(io) {
     const dashboardNs = io.of('/dashboard');
     const notifyNs = io.of('/notify');
 
+    const verifyAndSetup = (socket, token) => {
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            socket.data.userId = decoded.id;
+            socket.data.role = decoded.role;
+            connectedUsers.set(decoded.id.toString(), socket.id);
+            console.log(`[Socket] Authenticated user: ${decoded.id} with role: ${decoded.role}`);
+            
+            // Join a room for their role
+            socket.join(`role:${decoded.role}`);
+            return true;
+        } catch (err) {
+            console.error('[Socket] Authentication failed:', err.message);
+            return false;
+        }
+    };
+
     io.on('connection', (socket) => {
         console.log(`[Socket] New connection: ${socket.id}`);
 
-        socket.on('authenticate', (token) => {
-            try {
-                const decoded = jwt.verify(token, process.env.JWT_SECRET);
-                socket.data.userId = decoded.id;
-                socket.data.role = decoded.role;
-                connectedUsers.set(decoded.id.toString(), socket.id);
-                console.log(`[Socket] Authenticated user: ${decoded.id} with role: ${decoded.role}`);
+        // Try auth from handshake first
+        const token = socket.handshake.auth?.token;
+        if (token) {
+            verifyAndSetup(socket, token);
+        }
 
-                // Also join a room for their role
-                socket.join(`role:${decoded.role}`);
-            } catch (err) {
-                console.error('[Socket] Authentication failed:', err.message);
+        socket.on('authenticate', (token) => {
+            if (!verifyAndSetup(socket, token)) {
                 socket.disconnect();
             }
         });

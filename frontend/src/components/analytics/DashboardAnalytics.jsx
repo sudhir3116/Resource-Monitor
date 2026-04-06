@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api from '../../api/axios';
+import api from '../../api';
 import SummaryCard from './SummaryCard';
 import TrendChart from './TrendChart';
 import AnomalyAlerts from './AnomalyAlerts';

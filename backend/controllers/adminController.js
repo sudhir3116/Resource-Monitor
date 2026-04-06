@@ -115,6 +115,15 @@ exports.updateUserRole = async (req, res) => {
         const oldUser = await User.findById(req.params.id);
         if (!oldUser) return res.status(404).json({ success: false, message: 'User not found' });
 
+        // Role restriction for GM
+        if (req.user.role === ROLES.GM) {
+            const isTargetHigher = oldUser.role === ROLES.ADMIN || oldUser.role === ROLES.GM;
+            const isNewRoleHigher = role === ROLES.ADMIN || role === ROLES.GM;
+            if (isTargetHigher || isNewRoleHigher) {
+                return res.status(403).json({ success: false, message: 'General Managers cannot manage Administrative/GM roles.' });
+            }
+        }
+
         const user = await User.findByIdAndUpdate(req.params.id, { role }, { returnDocument: 'after' }).select('-password');
 
         // Audit Log
@@ -422,8 +431,14 @@ exports.createUser = async (req, res) => {
     try {
         const { name, email, password, role = ROLES.STUDENT, block, room, status = 'active' } = req.body;
 
+        // Validation
         if (!name || !email || !password) {
             return res.status(400).json({ success: false, message: 'Name, email, and password are required.' });
+        }
+
+        // GM Restrictions
+        if (req.user.role === ROLES.GM && (role === ROLES.ADMIN || role === ROLES.GM)) {
+            return res.status(403).json({ success: false, message: 'General Managers cannot create Administrative/GM accounts.' });
         }
 
         const existing = await User.findOne({ email: email.toLowerCase() });
@@ -458,6 +473,7 @@ exports.createUser = async (req, res) => {
             block: block || undefined,
             room: room || undefined,
             status,
+            isApproved: true,
             provider: 'local',
             createdBy: req.user.id,
         });
@@ -517,12 +533,22 @@ exports.updateUser = async (req, res) => {
         if (status !== undefined) updates.status = status;
         if (room !== undefined) updates.room = room;
 
-        // Role change logic
+        // ── Role change logic
         const newRole = role !== undefined ? role : existing.role;
         if (newRole !== existing.role) {
             if (!Object.values(ROLES).includes(newRole)) {
                 return res.status(400).json({ success: false, message: 'Invalid role.' });
             }
+
+            // GM Restrictions
+            if (req.user.role === ROLES.GM) {
+                const isTargetHigher = existing.role === ROLES.ADMIN || existing.role === ROLES.GM;
+                const isNewRoleHigher = newRole === ROLES.ADMIN || newRole === ROLES.GM;
+                if (isTargetHigher || isNewRoleHigher) {
+                    return res.status(403).json({ success: false, message: 'General Managers cannot manage Administrative/GM roles.' });
+                }
+            }
+
             // If changing FROM warden, clear block assignment in Block model
             if (existing.role === ROLES.WARDEN) {
                 await clearBlockWarden(id);
@@ -904,5 +930,158 @@ exports.bulkResetPassword = async (req, res) => {
         } catch (e) { /* non-fatal */ }
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ONBOARDING WORKFLOW (Approval-based Registration)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc    Get all pending users
+ * @route   GET /api/admin/pending-users
+ * @access  Admin
+ */
+exports.getPendingUsers = async (req, res) => {
+    try {
+        // Fetch users who are PENDING or APPROVED but have no role
+        const users = await User.find({ 
+            $or: [
+                { status: { $in: ['PENDING', 'pending'] } },
+                { status: { $in: ['APPROVED', 'approved', 'active'] }, role: null }
+            ]
+        })
+            .select('-password')
+            .populate('block', 'name')
+            .sort({ createdAt: -1 });
+
+        res.json({
+            success: true,
+            message: 'Pending users fetched successfully',
+            data: users
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to fetch pending users', error: err.message });
+    }
+};
+
+/**
+ * @desc    Approve user status
+ * @route   PUT /api/admin/approve/:id
+ */
+exports.approveUser = async (req, res) => {
+    try {
+        const user = await User.findByIdAndUpdate(
+            req.params.id,
+            { status: 'APPROVED', isApproved: true },
+            { new: true }
+        ).select('-password');
+
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        await AuditLog.create({
+            action: 'UPDATE',
+            resourceType: 'User',
+            resourceId: user._id,
+            userId: req.user.id,
+            description: `Approved registration for ${user.email}`,
+            ipAddress: req.ip
+        });
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                io.emit('users:refresh');
+                io.emit('dashboard:refresh');
+            }
+        } catch (e) { /* non-fatal */ }
+
+        res.json({ success: true, message: 'User status approved', data: user });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Approval failed', error: err.message });
+    }
+};
+
+/**
+ * @desc    Reject user registration
+ * @route   PUT /api/admin/reject/:id
+ */
+exports.rejectUser = async (req, res) => {
+    try {
+        const user = await User.findByIdAndUpdate(
+            req.params.id,
+            { status: 'REJECTED', isApproved: false },
+            { new: true }
+        ).select('-password');
+
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                io.emit('users:refresh');
+                io.emit('dashboard:refresh');
+            }
+        } catch (e) { /* non-fatal */ }
+
+        res.json({ success: true, message: 'User registration rejected', data: user });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Rejection failed', error: err.message });
+    }
+};
+
+/**
+ * @desc    Assign role to approved user
+ * @route   PUT /api/admin/assign-role/:id
+ */
+exports.assignRole = async (req, res) => {
+    try {
+        const { role, blockId, block } = req.body;
+        const finalBlockId = blockId || block;
+        if (!role) return res.status(400).json({ success: false, message: 'Role is required' });
+
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        // Rule: Only assign role if status is APPROVED (Check both case versions for safety)
+        if (user.status !== 'APPROVED' && user.status !== 'approved' && user.status !== 'active') {
+            return res.status(400).json({ success: false, message: 'User must be approved before role assignment' });
+        }
+
+        // Map incoming roles to system ROLES if needed, but the current backend uses lowercase
+        const systemRole = role.toLowerCase(); 
+        if (!Object.values(ROLES).includes(systemRole)) {
+            return res.status(400).json({ success: false, message: `Invalid role: ${role}` });
+        }
+
+        user.role = systemRole;
+        if (finalBlockId) {
+            user.block = finalBlockId;
+        }
+        await user.save();
+
+        await AuditLog.create({
+            action: 'UPDATE',
+            resourceType: 'User',
+            resourceId: user._id,
+            userId: req.user.id,
+            description: `Assigned role ${systemRole} to ${user.email}`,
+            ipAddress: req.ip
+        });
+
+        try {
+            const socketUtil = require('../utils/socket');
+            const io = socketUtil.getIO && socketUtil.getIO();
+            if (io) {
+                io.emit('users:refresh');
+                io.emit('dashboard:refresh');
+            }
+        } catch (e) { /* non-fatal */ }
+
+        res.json({ success: true, message: 'Role assigned successfully', data: user });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Role assignment failed', error: err.message });
     }
 };

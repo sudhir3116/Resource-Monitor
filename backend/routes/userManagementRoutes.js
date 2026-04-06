@@ -19,25 +19,35 @@ const {
   updateUser,
   deleteUser,
   assignUserToBlock,
-  getUserStats
+  getUserStats,
+  getPendingUsers,
+  approveUser,
+  rejectUser
 } = require('../controllers/userManagementController');
 
 // All routes require authentication
 router.use(auth);
 
 // ── READ ──────────────────────────────────────────────────────────────────────
-// Get all users (Admin only)
+// Get all users (Admin or GM)
 router.get(
   '/',
-  authorizeRoles(ROLES.ADMIN),
+  authorizeRoles(ROLES.ADMIN, ROLES.GM),
   getUsers
 );
 
 // Get user stats dashboard
 router.get(
   '/stats',
-  authorizeRoles(ROLES.ADMIN),
+  authorizeRoles(ROLES.ADMIN, ROLES.GM),
   getUserStats
+);
+
+// Get pending users approval list
+router.get(
+  '/pending-users',
+  authorizeRoles(ROLES.ADMIN, ROLES.GM),
+  getPendingUsers
 );
 
 // Get single user (Admin or self)
@@ -49,10 +59,10 @@ router.get(
 );
 
 // ── CREATE ────────────────────────────────────────────────────────────────────
-// Create new user (Admin only)
+// Create new user (Admin or GM)
 router.post(
   '/',
-  authorizeRoles(ROLES.ADMIN),
+  authorizeRoles(ROLES.ADMIN, ROLES.GM),
   [
     body('name').notEmpty().withMessage('Name is required'),
     body('email').isEmail().withMessage('Valid email is required'),
@@ -80,6 +90,26 @@ router.patch(
   updateUser
 );
 
+// Approve User Registration
+router.patch(
+  '/approve/:id',
+  authorizeRoles(ROLES.ADMIN, ROLES.GM),
+  [param('id').isMongoId().withMessage('Invalid id')],
+  runValidations,
+  auditMiddleware('UPDATE', 'User'),
+  approveUser
+);
+
+// Reject User Registration
+router.patch(
+  '/reject/:id',
+  authorizeRoles(ROLES.ADMIN, ROLES.GM),
+  [param('id').isMongoId().withMessage('Invalid id')],
+  runValidations,
+  auditMiddleware('UPDATE', 'User'),
+  rejectUser
+);
+
 // ── DELETE ────────────────────────────────────────────────────────────────────
 // Delete/suspend user (Admin only)
 router.delete(
@@ -92,10 +122,10 @@ router.delete(
 );
 
 // ── ASSIGN TO BLOCK ───────────────────────────────────────────────────────────
-// Assign user to block (Admin only)
+// Assign user to block
 router.put(
   '/:id/assign-block',
-  authorizeRoles(ROLES.ADMIN),
+  authorizeRoles(ROLES.ADMIN, ROLES.GM),
   [
     param('id').isMongoId().withMessage('Invalid user id'),
     body('blockId').isMongoId().withMessage('Invalid block id')

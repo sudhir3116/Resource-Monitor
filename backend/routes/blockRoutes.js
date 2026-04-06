@@ -18,13 +18,17 @@ const {
   createBlock,
   updateBlock,
   deleteBlock,
-  assignWarden
+  assignWarden,
+  getPublicBlocks
 } = require('../controllers/blockController');
 
-const GM = ROLES.GM;
+// Public route for registration
+router.get('/public', getPublicBlocks);
 
-// All routes require authentication
+// All other routes require authentication
 router.use(auth);
+
+const GM = ROLES.GM;
 
 // ── READ ──────────────────────────────────────────────────────────────────────
 // Blockscan be read by Admin, GM, Warden, Dean, Principal
@@ -58,10 +62,10 @@ router.post(
 );
 
 // ── UPDATE ────────────────────────────────────────────────────────────────────
-// Only Admin can update blocks
+// Admin & GM can update blocks
 router.patch(
   '/:id',
-  authorizeRoles(ROLES.ADMIN),
+  authorizeRoles(ROLES.ADMIN, GM),
   [param('id').isMongoId().withMessage('Invalid id')],
   runValidations,
   auditMiddleware('UPDATE', 'Block'),
@@ -80,10 +84,10 @@ router.delete(
 );
 
 // ── ASSIGN WARDEN ─────────────────────────────────────────────────────────────
-// Only Admin can assign wardens to blocks
+// Admin & GM can assign wardens to blocks
 router.put(
   '/:id/assign-warden',
-  authorizeRoles(ROLES.ADMIN),
+  authorizeRoles(ROLES.ADMIN, GM),
   [
     param('id').isMongoId().withMessage('Invalid block id'),
     body('wardenId').isMongoId().withMessage('Invalid warden id')

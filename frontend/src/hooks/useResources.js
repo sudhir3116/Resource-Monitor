@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import api from '../api/axios'
+import api from '../api'
 import { getSocket } from '../utils/socket'
 
 // Global cache shared across all hook instances

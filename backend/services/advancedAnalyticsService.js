@@ -395,7 +395,7 @@ exports.resourceEfficiency = async (options = {}) => {
         { $sort: { total: -1 } }
     ]);
 
-    const configs = await Resource.find({ isActive: { $ne: false } }).lean();
+    const configs = await SystemConfig.find({ isActive: { $ne: false } }).lean();
     const configMap = {};
     configs.forEach(c => configMap[c.resource] = c);
 

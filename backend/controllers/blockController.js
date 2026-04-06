@@ -320,7 +320,29 @@ exports.assignWarden = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Get all blocks (Public list for registration)
+ * @route   GET /api/blocks/public
+ * @access  Public
+ */
+exports.getPublicBlocks = async (req, res) => {
+  try {
+    const blocks = await Block.find({ status: { $ne: 'Closed' } })
+      .select('name type')
+      .sort({ name: 1 })
+      .lean();
+
+    res.json({
+      success: true,
+      data: blocks
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch blocks' });
+  }
+};
+
 module.exports = {
+  getPublicBlocks: exports.getPublicBlocks,
   getBlocks: exports.getBlocks,
   getBlock: exports.getBlock,
   createBlock: exports.createBlock,

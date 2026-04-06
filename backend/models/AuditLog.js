@@ -11,7 +11,7 @@ const auditLogSchema = new mongoose.Schema({
             'ADD_COMMENT', 'DISMISS_ALERT', 'UPDATE_THRESHOLD',
             'RESOLVE_COMPLAINT', 'ESCALATE_COMPLAINT', 'COMMENT_COMPLAINT',
             'COMPLAINT_SLA_BREACH',
-            'BULK_DELETE', 'BULK_UPDATE'
+            'BULK_DELETE', 'BULK_UPDATE', 'DB_VIEWER_ACCESS'
         ]
     },
 
@@ -19,7 +19,7 @@ const auditLogSchema = new mongoose.Schema({
     resourceType: {
         type: String,
         required: true,
-        enum: ['Usage', 'User', 'Block', 'Alert', 'SystemConfig', 'Auth', 'Complaint']
+        enum: ['Usage', 'User', 'Block', 'Alert', 'SystemConfig', 'Auth', 'Complaint', 'Database']
     },
     resourceId: { type: mongoose.Schema.Types.ObjectId },
 

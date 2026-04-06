@@ -67,26 +67,29 @@ const getComplaints = async (req, res) => {
         let filter = {};
         const userRole = req.user.role;
         const userId = req.user.id || req.userId;
-        const { page = 1, limit = 20, status, category, priority } = req.query;
+        const { page = 1, limit = 20, status, category, priority, block } = req.query;
         const { skip, limit: pageLimit } = parsePagination({ page, limit });
 
+        const blockId = req.user.block?._id || req.user.block;
+        console.log("[DEBUG] Complaint Fetch - User Role:", userRole);
+        console.log("[DEBUG] Complaint Fetch - User Block ID:", blockId);
+
         if (userRole === ROLES.STUDENT) {
-            try {
-                filter.user = new mongoose.Types.ObjectId(userId.toString());
-            } catch (e) {
-                filter.user = userId;
-            }
+            filter.user = userId;
         } else if (userRole === ROLES.WARDEN) {
-            const User = require('../models/User');
-            const currentUser = await User.findById(userId);
-            if (currentUser && currentUser.block) {
-                const usersInBlock = await User.find({ block: currentUser.block }).select('_id');
-                filter.user = { $in: usersInBlock.map(u => u._id) };
+            if (blockId) {
+                filter.blockId = blockId;
             } else {
                 filter._id = null; // Warden without a block sees nothing
             }
+        } else if (['admin', 'principal', 'dean', 'gm'].includes(userRole)) {
+            // Officials see all, or filter by block if provided in query
+            if (block) {
+                filter.blockId = block;
+            }
         }
-        // Admin, Dean, Principal see all
+
+        console.log("[DEBUG] Final Applied Filter:", filter);
 
         if (status) filter.status = status;
         if (category) filter.category = category;
@@ -94,7 +97,11 @@ const getComplaints = async (req, res) => {
 
         const [complaints, total] = await Promise.all([
             Complaint.find(filter)
-                .populate('user', 'name email role')
+                .populate({
+                    path: 'user',
+                    select: 'name email role block',
+                    populate: { path: 'block', select: 'name' }
+                })
                 .populate('assignedTo', 'name email')
                 .populate('resolvedBy', 'name email')
                 .populate('escalatedBy', 'name email')
@@ -135,22 +142,32 @@ const createComplaint = async (req, res) => {
         if (!category) return res.status(400).json({ success: false, error: 'Category is required' });
         if (!VALID_CATEGORIES.includes(category)) return res.status(400).json({ success: false, error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(', ')}` });
 
+        const blockId = req.user.block?._id || req.user.block;
+        if (!blockId && req.user.role !== 'admin') {
+            return res.status(403).json({ success: false, error: 'Cannot file complaint: No block assigned to your profile.' });
+        }
+
         const complaint = await Complaint.create({
             title: title.trim(),
             description: description.trim(),
             category,
             priority: priority || 'medium',
-            user: new mongoose.Types.ObjectId(userId.toString()),
+            user: userId,
+            blockId: blockId,
             history: [{
                 action: 'created',
-                performedBy: new mongoose.Types.ObjectId(userId.toString()),
+                performedBy: userId,
                 toStatus: 'open',
                 note: 'Complaint submitted'
             }]
         });
 
         const populated = await Complaint.findById(complaint._id)
-            .populate('user', 'name email role')
+            .populate({
+                path: 'user',
+                select: 'name email role block',
+                populate: { path: 'block', select: 'name' }
+            })
             .populate('history.performedBy', 'name email role');
 
         try {
@@ -205,7 +222,11 @@ const reviewComplaint = async (req, res) => {
                 }
             }
         }, { returnDocument: 'after' })
-            .populate('user', 'name email role')
+            .populate({
+                path: 'user',
+                select: 'name email role block',
+                populate: { path: 'block', select: 'name' }
+            })
             .populate('assignedTo', 'name email')
             .populate('resolvedBy', 'name email')
             .populate('escalatedBy', 'name email')
@@ -267,7 +288,11 @@ const resolveComplaint = async (req, res) => {
                 }
             }
         }, { returnDocument: 'after', runValidators: true })
-            .populate('user', 'name email role')
+            .populate({
+                path: 'user',
+                select: 'name email role block',
+                populate: { path: 'block', select: 'name' }
+            })
             .populate('assignedTo', 'name email')
             .populate('resolvedBy', 'name email')
             .populate('escalatedBy', 'name email')
@@ -331,7 +356,11 @@ const escalateComplaint = async (req, res) => {
                 }
             }
         }, { returnDocument: 'after' })
-            .populate('user', 'name email role')
+            .populate({
+                path: 'user',
+                select: 'name email role block',
+                populate: { path: 'block', select: 'name' }
+            })
             .populate('assignedTo', 'name email')
             .populate('resolvedBy', 'name email')
             .populate('escalatedBy', 'name email')
@@ -406,7 +435,11 @@ const updateComplaintStatus = async (req, res) => {
         }
 
         const updated = await Complaint.findByIdAndUpdate(id, updateData, { returnDocument: 'after', runValidators: true })
-            .populate('user', 'name email role')
+            .populate({
+                path: 'user',
+                select: 'name email role block',
+                populate: { path: 'block', select: 'name' }
+            })
             .populate('assignedTo', 'name email')
             .populate('resolvedBy', 'name email')
             .populate('escalatedBy', 'name email');
@@ -432,14 +465,19 @@ const updateComplaintStatus = async (req, res) => {
 const getComplaintStatistics = async (req, res) => {
     try {
         let filter = {};
+        const { block } = req.query;
+
+        const blockId = req.user.block?._id || req.user.block;
+
         if (req.user.role === ROLES.WARDEN) {
-            const User = require('../models/User');
-            const currentUser = await User.findById(req.user.id || req.userId);
-            if (currentUser && currentUser.block) {
-                const usersInBlock = await User.find({ block: currentUser.block }).select('_id');
-                filter.user = { $in: usersInBlock.map(u => u._id) };
+            if (blockId) {
+                filter.blockId = blockId;
             } else {
                 filter._id = null;
+            }
+        } else if (['admin', 'gm', 'dean', 'principal'].includes(req.user.role)) {
+            if (block) {
+                filter.blockId = block;
             }
         }
 

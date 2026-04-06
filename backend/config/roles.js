@@ -13,7 +13,7 @@ const ACCESS_LEVELS = {
     [ROLES.ADMIN]: { read: ['all'], write: ['all'] },
     [ROLES.DEAN]: { read: ['campus'], write: ['none'] },
     [ROLES.PRINCIPAL]: { read: ['campus'], write: ['none'] },
-    [ROLES.GM]: { read: ['all'], write: ['alerts'] }
+    [ROLES.GM]: { read: ['all'], write: ['limited'] }
 };
 
 module.exports = {

@@ -99,11 +99,30 @@ router.get('/trends',
         }
     }
 )
+
+/**
+ * @route GET /api/usage/block-comparison
+ * @desc Get efficiency ranking for all blocks
+ * @access Admin/GM/Dean/Principal
+ */
+router.get('/block-comparison', 
+    authorizeRoles(ROLES.ADMIN, GM, ROLES.DEAN, ROLES.PRINCIPAL),
+    usageController.getBlockAnalytics
+)
 router.get('/stats', usageController.getDashboardStats)
 
-// Usage list and detail — all roles view their respective data
-router.get('/', authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.STUDENT), usageController.getUsages)
-router.get('/:id', authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.STUDENT), usageController.getUsage)
+// ── EXPORT ROUTES ────────────────────────────────────────────────────────────
+router.get(
+    '/export/csv',
+    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
+    usageController.exportUsageCSV
+)
+
+router.get(
+    '/export/pdf',
+    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
+    usageController.exportUsagePDF
+)
 
 // Write routes — ONLY Admin and Warden can CREATE usage records
 // Students, Dean, Principal, GM are BLOCKED at middleware level (403 Forbidden)
@@ -144,18 +163,9 @@ router.delete(
     usageController.deleteUsage
 )
 
-// ── EXPORT ROUTES ────────────────────────────────────────────────────────────
-router.get(
-    '/export/csv',
-    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
-    usageController.exportUsageCSV
-)
-
-router.get(
-    '/export/pdf',
-    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL),
-    usageController.exportUsagePDF
-)
+// Usage list and detail — all roles view their respective data
+router.get('/', authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.STUDENT), usageController.getUsages)
+router.get('/:id', authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.STUDENT), usageController.getUsage)
 
 // ── METRICS ROUTES ───────────────────────────────────────────────────────────
 router.get(

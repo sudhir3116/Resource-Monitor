@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { AlertCountContext } from './AlertCountContext';
-import api from '../api/axios';
+import api from '../api';
 import { AuthContext } from './AuthContext';
 import { getSocket } from '../utils/socket';
 

@@ -17,19 +17,11 @@ const runValidations = require('../middleware/validate');
 // All analytics routes require authentication
 router.use(authMiddleware);
 
-// Executive Access Control
-router.use((req, res, next) => {
-    const isPrincipal = (req.user?.role || '').toLowerCase() === 'principal';
-    const allowedForPrincipal = ['/summary', '/trends'];
+const { authorizeRoles } = require('../middleware/roleMiddleware');
+const { ROLES } = require('../config/roles');
 
-    if (isPrincipal && !allowedForPrincipal.some(p => req.path.startsWith(p))) {
-        return res.status(403).json({
-            success: false,
-            message: 'Principal role restricted to summary analytics only'
-        });
-    }
-    next();
-});
+// Executive Access Control - Principal, Dean, and Admin can access all analytics
+router.use(authorizeRoles(ROLES.ADMIN, ROLES.PRINCIPAL, ROLES.DEAN));
 
 // GET /api/analytics/summary?period=daily|weekly|monthly
 router.get('/summary', [query('period').optional().isIn(['daily', 'weekly', 'monthly'])], runValidations, getAnalyticsSummary);

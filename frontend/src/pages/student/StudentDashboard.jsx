@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext, useCallback } from 'react';
-import api from '../../api/axios';
+import api from '../../api';
+import { safe } from '../../utils/safe';
 import { useAuth } from '../../context/AuthContext';
 import { ThemeContext } from '../../context/ThemeContext';
 import { Activity, Leaf, RefreshCw } from 'lucide-react';
@@ -46,6 +47,7 @@ const StudentDashboard = () => {
 
       if (summaryRes.status === 'fulfilled') {
         const data = summaryRes.value.data?.data;
+        console.log("Dashboard Data:", summaryRes.value.data);
         setSummary(data?.summary || {});
         setScore(data?.sustainabilityScore || 0);
       } else {
@@ -248,14 +250,14 @@ const StudentDashboard = () => {
           <div className="space-y-1">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sustainability Score</span>
             <div className="flex items-baseline gap-1">
-              <span className={`text-3xl font-bold ${sustainabilityColor(sustainabilityScore)}`}>
-                {sustainabilityScore}%
+              <span className={`text-3xl font-bold ${sustainabilityColor(safe(sustainabilityScore))}`}>
+                {safe(sustainabilityScore)}%
               </span>
             </div>
             <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-1 overflow-hidden">
               <div
                 className="h-full bg-emerald-500 transition-all duration-1000"
-                style={{ width: `${sustainabilityScore}%` }}
+                style={{ width: `${safe(sustainabilityScore)}%` }}
               />
             </div>
           </div>

@@ -1,226 +1,287 @@
-import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
-import api from '../../api/axios';
-import { AuthContext } from '../../context/AuthContext';
+import React, { useEffect, useState, useCallback, useMemo, useContext } from 'react';
+import api from '../../api';
+import { getSocket } from '../../utils/socket';
 import {
-    Zap, Droplets, Flame, Wind, Sun, Trash2,
-    RefreshCw, TrendingUp, TrendingDown,
-    PieChart as PieChartIcon, Activity, Bell, History
+    Users,
+    AlertTriangle,
+    Activity,
+    Settings,
+    UserPlus,
+    Shield,
+    Building2,
+    MessageSquare,
+    RefreshCw,
+    ChevronDown,
+    Search
 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import Card from '../../components/common/Card';
 import MetricCard from '../../components/common/MetricCard';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Building2, Settings, AlertTriangle } from 'lucide-react';
-import DonutChart from '../../components/analytics/DonutChart';
 import { logger } from '../../utils/logger';
-import { getSocket } from '../../utils/socket';
 import { useResources } from '../../hooks/useResources';
+import { safe } from '../../utils/safe';
+import { AuthContext } from '../../context/AuthContext';
 
-const GMDashboard = () => {
+const renderResIcon = (resName, resources) => {
+    const r = (resources || []).find(rc => rc.name === resName);
+    const icon = r?.icon || r?.emoji || '📊';
+    const color = r?.color || '#3B82F6';
+    if (typeof icon === 'string' && icon.length <= 4) return <span style={{ color }}>{icon}</span>;
+    return <Activity size={16} style={{ color }} />;
+};
+
+export default function GMDashboard() {
     const { user } = useContext(AuthContext);
     const navigate = useNavigate();
-    const { resources } = useResources();  // Get active resources from single source
-    const [summaryData, setSummaryData] = useState(null);
-    const [trendData, setTrendData] = useState([]);
+    const { resources } = useResources();
+    const [stats, setStats] = useState({
+        totalUsers: 0,
+        totalBlocks: 0,
+        totalResources: 0,
+        activeAlerts: 0,
+        unresolvedComplaints: 0,
+        totalUsage: 0,
+        recentAlerts: [],
+        recentComplaints: [],
+        usageSummary: {}
+    });
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [activeAlerts, setActiveAlerts] = useState(0);
-    const [recentActivity, setRecentActivity] = useState(0);
-    const [recentAlerts, setRecentAlerts] = useState([]);
-    const [recentComplaints, setRecentComplaints] = useState([]);
-    const [totalBlocks, setTotalBlocks] = useState(0);
 
-    const fetchData = useCallback(async () => {
-        setLoading(true);
-        setError(null);
+    const fetchDashboard = useCallback(async () => {
         try {
-            console.log("Fetching dashboard data for:", user?.role);
             const res = await api.get('/api/dashboard');
-            const data = res.data.data || res.data || {};
+            const data = res.data.data || res.data;
 
-            if (res.data?.success || data) {
-                // FIX DATA MAPPING (Executive API consistency)
-                setSummaryData(data);
-
-                // Safe trend mapping
-                const rawTrends = data.trendsOverTime || data.trends || [];
-                setTrendData(Array.isArray(rawTrends) ? rawTrends : []);
-
-                // Safe alert count
-                setActiveAlerts(data.activeCampusAlerts || data.alertsCount || 0);
-
-                // Safe alerts list
-                setRecentAlerts(Array.isArray(data.criticalAlerts) ? data.criticalAlerts : []);
-
-                setTotalBlocks(data.totalBlocks || 0);
-            }
+            setStats({
+                totalUsers: data.totalUsers || 0,
+                totalBlocks: data.totalBlocks || 0,
+                totalResources: data.totalResources || 0,
+                activeAlerts: data.alertsCount || data.activeCampusAlerts || 0,
+                unresolvedComplaints: data.unresolvedComplaintsCount || 0,
+                recentAlerts: data.criticalAlerts || [],
+                recentComplaints: data.recentComplaints || [],
+                totalUsage: data.grandTotal || 0,
+                usageSummary: data.usageSummary || {}
+            });
         } catch (err) {
-            console.error('GM Dashboard Error:', err.response?.data || err.message);
-            setError('Failed to load dashboard data. Please try again.');
+            logger.error('Failed to load GM Dashboard stats', err);
         } finally {
             setLoading(false);
         }
-    }, [user]);
+    }, []);
 
     useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    // Real-time updates: usage/alerts affect dashboard KPIs and charts.
-    useEffect(() => {
+        fetchDashboard();
         const socket = getSocket();
-        const refresh = () => fetchData();
-        if (!socket) return;
 
-        socket.on('usage:refresh', refresh);
-        socket.on('alerts:refresh', refresh);
-        socket.on('dashboard:refresh', refresh);
-        socket.on('resources:refresh', refresh);
-        socket.on('usage:added', refresh);
-
-        window.addEventListener('usage:added', refresh);
+        if (socket) {
+            socket.on('dashboard:refresh', fetchDashboard);
+            socket.on('usage:refresh', fetchDashboard);
+            socket.on('complaints:refresh', fetchDashboard);
+        }
 
         return () => {
-            socket.off('usage:refresh', refresh);
-            socket.off('alerts:refresh', refresh);
-            socket.off('dashboard:refresh', refresh);
-            socket.off('resources:refresh', refresh);
-            socket.off('usage:added', refresh);
-            window.removeEventListener('usage:added', refresh);
+            if (socket) {
+                socket.off('dashboard:refresh', fetchDashboard);
+                socket.off('usage:refresh', fetchDashboard);
+                socket.off('complaints:refresh', fetchDashboard);
+            }
         };
-    }, [fetchData]);
+    }, [fetchDashboard]);
 
-    if (loading && !summaryData) {
+    if (loading && !stats.totalResources) {
         return (
-            <div className="p-6 space-y-6">
-                <div className="h-10 w-64 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
+            <div className="space-y-6">
+                <div className="h-8 w-48 rounded animate-pulse bg-slate-200 dark:bg-slate-700"></div>
+                <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-6">
                     {[1, 2, 3, 4, 5, 6].map(i => (
-                        <div key={i} className="h-32 bg-slate-200 dark:bg-slate-700 rounded-xl animate-pulse" />
+                        <div key={i} className="h-32 rounded-xl animate-pulse bg-slate-200 dark:bg-slate-700"></div>
                     ))}
                 </div>
             </div>
         );
     }
 
-    if (error) {
-        return (
-            <div className="p-6 flex flex-col items-center justify-center">
-                <p className="text-rose-500 font-semibold mb-4">{error}</p>
-                <Button onClick={fetchData}>Retry</Button>
-            </div>
-        );
-    }
-
-
-    const summary = summaryData?.summary || {};
-    const grandTotal = summaryData?.grandTotal || 0;
-    const totalCost = summaryData?.estimatedCost || Object.values(summary).reduce((acc, data) => {
-        const val = typeof data === 'number' ? 0 : (data?.totalCost || 0);
-        return acc + val;
-    }, 0);
-
-    const mostUsed = Object.entries(summary).reduce((max, [name, data]) => {
-        const val = typeof data === 'number' ? data : (data?.total || 0);
-        if (!max || val > max.value) return { name, value: val, data };
-        return max;
-    }, null);
-
-    const distributionData = Object.entries(summary)
-        .map(([name, data]) => ({
-            name,
-            value: typeof data === 'number' ? data : (data?.total || data?.current || 0)
-        }))
-        .filter(d => typeof d.value === 'number' && d.value > 0);
-
     return (
-        <div className="p-6 space-y-8 max-w-7xl mx-auto">
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div className="space-y-6 pb-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--border-color)]">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                        General Manager Dashboard
-                    </h1>
-                    <p className="text-slate-500 mt-1">
-                        Campus-wide resource monitoring and analytics
-                    </p>
+                     <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white uppercase">Operational Status</h1>
+                     <p className="text-slate-500 text-[10px] font-black tracking-widest uppercase mt-0.5">Campus General Monitoring</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <Button variant="secondary" size="sm" onClick={() => navigate('/gm/usage')}>
-                        View Detailed Usage &rarr;
-                    </Button>
-                    <Badge variant={activeAlerts > 0 ? "danger" : "success"} className="px-4 py-1 flex items-center gap-2">
-                        <Bell size={14} /> {activeAlerts} Active Alerts
-                    </Badge>
-                    <Button variant="secondary" size="sm" onClick={fetchData}>
-                        <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                    </Button>
+                    <button
+                        onClick={fetchDashboard}
+                        className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all shadow-sm group flex items-center justify-center"
+                        title="Refresh Data"
+                    >
+                        <RefreshCw size={18} className={`${loading ? 'animate-spin' : ''} text-[var(--text-secondary)] group-hover:text-blue-500 transition-colors`} />
+                    </button>
+                    <Link to="/gm/users">
+                        <Button variant="primary" className="!px-6 !py-2.5">
+                            <UserPlus size={18} className="mr-2" /> User Control
+                        </Button>
+                    </Link>
                 </div>
             </div>
 
-            {/* KPI row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5">
                 <MetricCard
-                    icon={<Settings size={22} className="text-emerald-500" />}
-                    label="Total Resources"
-                    value={resources?.length || 0}
+                    label="Campus Usage"
+                    value={stats.totalUsage > 0 ? safe(stats.totalUsage).toLocaleString() : '0'}
+                    icon={<Activity size={22} />}
+                    colorClass="text-purple-500"
                 />
                 <MetricCard
-                    icon={<Activity size={22} className="text-blue-500" />}
-                    label="Total Usage"
-                    value={grandTotal > 0 ? grandTotal.toLocaleString() : '0'}
+                    label="Infrastructure"
+                    value={safe(stats.totalBlocks)}
+                    icon={<Building2 size={22} />}
+                    colorClass="text-indigo-500"
                 />
                 <MetricCard
-                    icon={<AlertTriangle size={22} className="text-rose-500" />}
-                    label="Active Alerts"
-                    value={activeAlerts}
-                    colorClass={activeAlerts > 0 ? 'text-rose-500' : 'text-slate-400'}
-                    trend={activeAlerts > 0 ? 'negative' : 'none'}
+                    label="Resources"
+                    value={safe(stats.totalResources)}
+                    icon={<Settings size={22} />}
+                    colorClass="text-emerald-500"
                 />
                 <MetricCard
-                    icon={<Building2 size={22} className="text-indigo-500" />}
-                    label="Total Blocks"
-                    value={totalBlocks}
+                    label="Active Issues"
+                    value={safe(stats.activeAlerts)}
+                    icon={<AlertTriangle size={22} />}
+                    colorClass={stats.activeAlerts > 0 ? "text-rose-500" : "text-slate-400"}
+                    trend={stats.activeAlerts > 0 ? "negative" : "none"}
+                />
+                <MetricCard
+                    label="Tickets"
+                    value={safe(stats.unresolvedComplaints)}
+                    icon={<MessageSquare size={22} />}
+                    colorClass="text-amber-500"
+                />
+                <MetricCard
+                    label="Campus Users"
+                    value={safe(stats.totalUsers)}
+                    icon={<Users size={22} />}
+                    colorClass="text-blue-500"
                 />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
-                {/* Critical Alerts / Recent Activity Section */}
-                <Card title="Critical Incidents Watchlist" icon={<AlertTriangle size={20} className="text-rose-500" />}>
-                    <div className="space-y-4 mt-4">
-                        {(recentAlerts || []).length > 0 ? (
-                            recentAlerts.map(alert => (
-                                <div key={alert._id} className="flex items-center justify-between p-4 bg-rose-50/50 dark:bg-rose-900/10 rounded-2xl border border-rose-100 dark:border-rose-900/20 group hover:shadow-sm transition-all">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-10 w-10 rounded-xl bg-white dark:bg-slate-800 flex items-center justify-center text-rose-500 shadow-sm group-hover:scale-110 transition-transform">
-                                            <AlertTriangle size={20} />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-4">
+                    <Card title="Latest System Alerts" action={<Link to="/gm/alerts" className="text-xs font-bold text-blue-500 hover:scale-105 transition-transform uppercase tracking-wider">View All</Link>} className="!p-0 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                        <div className="overflow-x-auto">
+                            <table className="table">
+                                <thead>
+                                    <tr>
+                                        <th className="!pl-6">Resource</th>
+                                        <th>Block</th>
+                                        <th>Severity</th>
+                                        <th>Status</th>
+                                        <th className="!pr-6">Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {stats.recentAlerts.length === 0 ? (
+                                        <tr><td colSpan={5} className="text-center py-12 text-slate-500 font-medium whitespace-pre-wrap">✨ All systems normal. \nNo active alerts detected.</td></tr>
+                                    ) : (
+                                        stats.recentAlerts.map(alert => (
+                                            <tr key={alert._id}>
+                                                <td className="!pl-6">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-muted flex-shrink-0">
+                                                            {renderResIcon(alert.resourceType, resources)}
+                                                        </div>
+                                                        <span className="font-bold text-primary">{alert.resource || alert.resourceType}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="font-medium text-secondary">{alert.block?.name || (typeof alert.block === 'string' ? alert.block : '-')}</td>
+                                                <td>
+                                                    {(() => {
+                                                        const sev = String(alert.severity || '').toUpperCase();
+                                                        const variant = (sev === 'CRITICAL' || sev === 'SEVERE') ? 'danger'
+                                                            : (sev === 'HIGH') ? 'warning'
+                                                                : 'secondary';
+                                                        return <Badge variant={variant}>{alert.severity}</Badge>;
+                                                    })()}
+                                                </td>
+                                                <td>
+                                                    <Badge variant="warning">{alert.status}</Badge>
+                                                </td>
+                                                <td className="!pr-6 text-xs text-slate-400 font-bold tabular-nums">
+                                                    {new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+
+                    <Card title="Pending Grievances" action={<Link to="/gm/complaints" className="text-xs font-bold text-blue-500 hover:scale-105 transition-transform uppercase tracking-wider">View All</Link>} className="shadow-sm hover:shadow-md transition-shadow">
+                        <div className="space-y-3 mt-4">
+                            {stats.recentComplaints.length === 0 ? (
+                                <p className="text-center py-12 text-slate-500 font-medium italic">No pending grievances at this time.</p>
+                            ) : (
+                                stats.recentComplaints.map(complaint => (
+                                    <div key={complaint._id} className="flex items-center justify-between p-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-muted)]/10 hover:bg-[var(--bg-muted)]/40 hover:border-blue-500/20 transition-all group">
+                                        <div className="flex items-start gap-4">
+                                            <div className="h-10 w-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                                <MessageSquare size={20} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <h4 className="font-bold text-primary group-hover:text-blue-600 transition-colors uppercase tracking-tight">{complaint.title || complaint.subject}</h4>
+                                                <p className="text-xs text-secondary font-medium tracking-tight line-clamp-1">{complaint.description}</p>
+                                                <div className="flex items-center gap-3 pt-1">
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                                                        <Building2 size={10} /> {complaint.block?.name || 'Global Monitoring'}
+                                                    </span>
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                                        By {complaint.user?.name || complaint.userId?.name || 'Campus Student'}
+                                                    </span>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <p className="text-sm font-bold text-slate-800 dark:text-rose-100 truncate max-w-[200px]">{alert.title || alert.message}</p>
-                                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{alert.block?.name || 'Campus'}</p>
+                                        <Badge variant={String(complaint.status || '').toLowerCase() === 'resolved' ? 'success' : 'warning'} className="shadow-sm">
+                                            {complaint.status}
+                                        </Badge>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </Card>
+                </div>
+
+                <div className="space-y-4">
+                    <Card title="Infrastructure Watch" className="shadow-sm hover:shadow-md transition-shadow">
+                        <div className="space-y-3 mt-4">
+                            {[
+                                { label: 'Campus Analytics', link: '/gm/analytics', icon: <Activity size={18} />, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/10' },
+                                { label: 'Resource Controls', link: '/gm/resource-config', icon: <Settings size={18} />, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-900/10' },
+                                { label: 'Manage Blocks', link: '/gm/blocks', icon: <Building2 size={18} />, color: 'text-indigo-500', bg: 'bg-indigo-50 dark:bg-indigo-900/10' },
+                                { label: 'Security & Integrity', link: '/gm/audit-logs', icon: <Shield size={18} />, color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-900/10' },
+                            ].map(tool => (
+                                <Link key={tool.link} to={tool.link} className="flex items-center justify-between p-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-muted)]/10 hover:bg-white dark:hover:bg-slate-800 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/5 transition-all group">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`h-11 w-11 rounded-xl flex items-center justify-center ${tool.bg} ${tool.color} group-hover:scale-110 transition-transform`}>
+                                            {tool.icon}
                                         </div>
+                                        <span className="font-bold text-sm text-primary group-hover:text-blue-600 transition-colors uppercase tracking-tight">{tool.label}</span>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <Badge variant="danger">{alert.severity}</Badge>
-                                        <span className="text-[10px] text-slate-400 font-bold tabular-nums">{new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                    <div className="h-8 w-8 rounded-full flex items-center justify-center text-slate-300 group-hover:text-blue-500 group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 transition-all">
+                                        <ChevronRight size={18} />
                                     </div>
-                                </div>
-                            ))
-                        ) : (
-                            <div className="py-12 flex flex-col items-center justify-center opacity-30 italic text-sm">
-                                <Activity size={32} className="mb-2" />
-                                All systems currently nominal. No active critical incidents.
-                            </div>
-                        )}
-                        <Button variant="secondary" size="sm" fullWidth className="!rounded-xl text-[10px] font-black uppercase tracking-tighter" onClick={() => navigate('/gm/alerts')}>
-                            Manage Operational Alerts &rarr;
-                        </Button>
-                    </div>
-                </Card>
+                                </Link>
+                            ))}
+                        </div>
+                    </Card>
+                </div>
             </div>
         </div>
     );
-};
+}
 
-export default GMDashboard;
+function ChevronRight({ size, className }) {
+    return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m9 18 6-6-6-6" /></svg>
+}

@@ -31,13 +31,13 @@ exports.getUsageSummary = async (options = {}) => {
     const bId = toObjectId(blockId);
     const uId = toObjectId(userId);
 
-    console.log("Dashboard fetch request - Role:", normalizedRole, "BlockId:", blockId);
+    console.log("[UsageService] Dashboard request - Role:", normalizedRole, "BlockId:", blockId);
 
     if (normalizedRole === 'warden') {
         if (bId) {
             matchStage.blockId = bId;
         } else {
-            // Warden MUST have a block, but we return empty instead of crashing
+            console.warn("[UsageService] Warden missing block context, returning empty stats.");
             return { summary: {}, summaryArray: [], grandTotal: 0, alertsCount: 0, resourceCount: 0, role: normalizedRole };
         }
     } else if (normalizedRole === 'student') {
@@ -49,11 +49,9 @@ exports.getUsageSummary = async (options = {}) => {
             return { summary: {}, summaryArray: [], grandTotal: 0, alertsCount: 0, resourceCount: 0, role: normalizedRole };
         }
     } else if (['admin', 'gm', 'dean', 'principal'].includes(normalizedRole)) {
-        // GLOBAL ACCESS: No filters added to matchStage
-        // This ensures Dean/Principal/GM dashboards reflect overall campus status
+        // GLOBAL ACCESS
+        if (bId) matchStage.blockId = bId; // Optional drill-down
     }
-
-    console.log("Match filter applied:", matchStage);
 
     if (startDate || endDate) {
         matchStage.usage_date = {};
@@ -61,12 +59,12 @@ exports.getUsageSummary = async (options = {}) => {
         if (endDate) matchStage.usage_date.$lte = new Date(endDate);
     }
 
-    // ── 2. Aggregate Usage Data (Requirement: Standard Query) ───────────────────
+    // ── 2. Aggregate Usage Data ────────────────────────────────────────────────
     const pipeline = [
         { $match: matchStage },
         {
             $group: {
-                _id: { $toLower: '$resource_type' },
+                _id: { $toLower: { $trim: { input: '$resource_type' } } },
                 total: { $sum: '$usage_value' },
                 count: { $sum: 1 },
                 avgValue: { $avg: '$usage_value' },
@@ -77,49 +75,38 @@ exports.getUsageSummary = async (options = {}) => {
         }
     ];
 
+    console.log("[UsageService] Aggregation Pipeline Match:", JSON.stringify(matchStage));
     const results = await Usage.aggregate(pipeline);
-    console.log("Aggregated usage (Raw):", results); // Mandatory Debug Logging
+    console.log("[UsageService] Raw Aggregation Result Count:", results.length);
 
-    const configs = await ResourceConfig.find({
-        $or: [
-            { isActive: { $ne: false } },
-            { isDeleted: { $ne: true } }
-        ]
-    }).lean();
-
-    // ── 3. Map Configs to Summary (Requirement: item.total / item._id) ─────────
+    // ── 3. Map Configs to Summary (Dynamic & Case-Insensitive) ─────────
+    const configs = await ResourceConfig.find({ isActive: { $ne: false }, isDeleted: { $ne: true } }).lean();
     const summary = {};
-    const summaryArray = []; // For frontend components that iterate directly
+    const summaryArray = [];
 
     configs.forEach(cfg => {
-        const result = results.find(r =>
-            (r._id || '').toString().toLowerCase() === (cfg.name || '').toString().toLowerCase()
-        ) || { total: 0, count: 0 };
-
-        const total = Math.round((result.total || 0) * 100) / 100;
-        const rate = cfg.rate || cfg.costPerUnit || 0;
+        const key = (cfg.name || '').trim().toLowerCase();
+        const usage = results.find(item => (item._id || '').toString().toLowerCase() === key);
 
         const metrics = {
             _id: cfg.name,
             resource_type: cfg.name,
-            total,
-            current: total,
-            count: result.count || 0,
-            avgValue: Math.round((result.avgValue || 0) * 100) / 100,
-            maxValue: result.maxValue || 0,
-            lastDate: result.lastDate || null,
+            total: usage ? Math.round(usage.total * 100) / 100 : 0,
+            current: usage ? Math.round(usage.total * 100) / 100 : 0,
+            count: usage ? usage.count : 0,
+            avgValue: usage ? Math.round(usage.avgValue * 100) / 100 : 0,
+            maxValue: usage ? usage.maxValue : 0,
+            lastDate: usage ? usage.lastDate : null,
             unit: cfg.unit || 'units',
             monthlyLimit: cfg.monthlyLimit || 1000,
             icon: cfg.icon || '📊',
             color: cfg.color || '#64748b',
-            totalCost: Math.round((result.totalCost || (total * rate)) * 100) / 100
+            totalCost: usage ? Math.round(usage.totalCost * 100) / 100 : 0
         };
 
         summary[cfg.name] = metrics;
         summaryArray.push(metrics);
     });
-
-    console.log("Aggregated usage (Mapped Summary):", summary); // Mandatory Debug Logging
 
     const grandTotal = Object.values(summary).reduce((sum, r) => sum + r.total, 0);
 
@@ -195,6 +182,79 @@ async function calculateSustainabilityScore(userId, userRole, blockId) {
 }
 
 /**
+ * getBlockComparison
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Compares all blocks based on their current month usage efficiency.
+ * Returns: [{ block: 'Block A', score: 85 }]
+ */
+exports.getBlockComparison = async () => {
+    try {
+        const Block = require('../models/Block');
+        const ResourceConfig = require('../models/ResourceConfig');
+        const Usage = require('../models/Usage');
+        
+        // 1. Get configs for thresholds
+        const configs = await ResourceConfig.find({ isActive: true, isDeleted: false }).lean();
+        if (!configs || configs.length === 0) return [];
+
+        // 2. Get active blocks
+        const blocks = await Block.find({ isDeleted: { $ne: true } }).lean();
+        if (!blocks || blocks.length === 0) return [];
+
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        // 3. Score calculation
+        const comparisons = await Promise.all(blocks.map(async (block) => {
+            const usageData = await Usage.aggregate([
+                { $match: { blockId: block._id, usage_date: { $gte: startOfMonth }, deleted: { $ne: true } } },
+                { $group: { _id: '$resource_type', total: { $sum: '$usage_value' } } }
+            ]);
+
+            let totalRatio = 0;
+            let totalCost = 0;
+            let resourceCountSeen = 0;
+
+            usageData.forEach(stat => {
+                const config = configs.find(c => (c.name || '').toLowerCase() === (stat._id || '').toString().toLowerCase());
+                if (config) {
+                    resourceCountSeen++;
+                    const usageVal = stat.total || 0;
+                    const limit = config.monthlyLimit || 1; // avoid div by zero
+                    const rate = config.costPerUnit || 0;
+
+                    totalRatio += (usageVal / limit);
+                    totalCost += (usageVal * rate);
+                }
+            });
+
+            // Normalization: Use at least 1 config to avoid NaN
+            const divisor = Math.max(configs.length, 1);
+            const averageRatio = totalRatio / divisor;
+
+            // Score: 100 is best (0 usage), drops as usage increases.
+            // If they use exactly the limit on average, score is 50.
+            // If they are way over the limit, it goes to 0.
+            // Formula: 100 - (ratio * 50) => if ratio is 1, score is 50.
+            const finalScore = Math.max(0, 100 - (averageRatio * 50));
+
+            return {
+                block: block.name,
+                score: Math.round(finalScore),
+                totalCost: Math.round(totalCost),
+                usageCount: usageData.length
+            };
+        }));
+
+        // Sort descending (best performance first)
+        return comparisons.sort((a, b) => b.score - a.score);
+    } catch (err) {
+        console.error('[UsageService] getBlockComparison error:', err);
+        return [];
+    }
+};
+
+/**
  * getUsageTrends
  * ─────────────────────────────────────────────────────────────────────────────
  * Groups by date and resource_type for line charts.
@@ -215,7 +275,14 @@ exports.getUsageTrends = async (options = {}) => {
     };
 
     const bId = toObjectId(blockId);
-    if (['warden', 'student'].includes(normalizedRole) && bId) {
+    if (normalizedRole === 'warden' || normalizedRole === 'student') {
+        if (bId) {
+            matchStage.blockId = bId;
+        } else {
+            console.warn("[UsageService] Warden/Student missing block context for trends.");
+            return [];
+        }
+    } else if (bId) {
         matchStage.blockId = bId;
     }
 
@@ -225,7 +292,7 @@ exports.getUsageTrends = async (options = {}) => {
             $group: {
                 _id: {
                     date: { $dateToString: { format: '%Y-%m-%d', date: '$usage_date' } },
-                    resource: '$resource_type'
+                    resource: { $toLower: { $trim: { input: '$resource_type' } } }
                 },
                 total: { $sum: '$usage_value' }
             }
@@ -233,14 +300,28 @@ exports.getUsageTrends = async (options = {}) => {
         { $sort: { '_id.date': 1 } }
     ]);
 
+    const configs = await ResourceConfig.find({ isDeleted: { $ne: true } }).lean();
+    const configMap = {};
+    const resourceNames = [];
+    configs.forEach(c => {
+        const name = c.name || 'Resource';
+        configMap[(name).toLowerCase()] = name;
+        resourceNames.push(name);
+    });
+
     const trendMap = {};
     trends.forEach(t => {
         const d = t._id.date;
-        const r = t._id.resource;
-        if (!trendMap[d]) trendMap[d] = { date: d };
-        trendMap[d][r] = Math.round(t.total * 100) / 100;
+        const lowerRes = t._id.resource;
+        const originalName = configMap[lowerRes] || lowerRes;
+
+        if (!trendMap[d]) {
+            trendMap[d] = { date: d };
+            // Initialize all resources to 0 for this date to ensure continuous chart lines
+            resourceNames.forEach(rn => trendMap[d][rn] = 0);
+        }
+        trendMap[d][originalName] = Math.round(t.total * 100) / 100;
     });
 
     return Object.values(trendMap).sort((a, b) => a.date.localeCompare(b.date));
 };
-

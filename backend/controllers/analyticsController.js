@@ -80,14 +80,14 @@ const getAnalyticsSummary = async (req, res) => {
         const matchStage = { deleted: { $ne: true } };
 
         if (!isExecutive) {
-            const blockObjId = safeBlockId(blockId);
+            const rawBlock = req.user.block || req.userObj?.block;
+            const blockObjId = safeBlockId(rawBlock);
             if (!blockObjId) {
                 console.log(`[Analytics] Non-executive ${role} missing blockId, returning empty.`);
                 return res.status(200).json({ success: true, data: [] });
             }
             matchStage.blockId = blockObjId;
         } else if (req.query.blockId) {
-            // Executives can optionally filter by a specific block via query param
             const targetBlockId = safeBlockId(req.query.blockId);
             if (targetBlockId) matchStage.blockId = targetBlockId;
         }
@@ -123,7 +123,8 @@ const getAnalyticsSummary = async (req, res) => {
 
         // 5. Map results to requested format
         const summary = configs.map(cfg => {
-            const result = results.find(r => r._id === cfg.name) || {};
+            const key = (cfg.name || '').trim().toLowerCase();
+            const result = results.find(r => (r._id || '').toString().toLowerCase() === key) || {};
             return {
                 resource: cfg.name,
                 total: Math.round((result.total || 0) * 100) / 100,
@@ -197,7 +198,7 @@ const getResourceTrends = async (req, res) => {
                 $group: {
                     _id: {
                         date: { $dateToString: { format: '%Y-%m-%d', date: '$usage_date' } },
-                        resource: '$resource_type'
+                        resource: { $toLower: { $trim: { input: '$resource_type' } } }
                     },
                     total: { $sum: '$usage_value' },
                     count: { $sum: 1 }
@@ -706,8 +707,9 @@ const getBlockAnalytics = async (req, res) => {
         // Fetch usage data for the block
         const usageData = await Usage.find({
             blockId,
-            createdAt: { $gte: startDate }
-        }).sort({ createdAt: -1 });
+            usage_date: { $gte: startDate },
+            deleted: { $ne: true }
+        }).sort({ usage_date: -1 });
 
         // Group data by resource type (no hardcoded resource list)
         const resourceStats = {};

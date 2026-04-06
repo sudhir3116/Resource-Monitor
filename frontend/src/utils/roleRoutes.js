@@ -5,7 +5,6 @@
 
 export const ROLE_ROUTE_MAP = {
   admin: '/admin/dashboard',
-  gm: '/gm/dashboard',
   warden: '/warden/dashboard',
   dean: '/dean/dashboard',
   principal: '/principal/dashboard',
@@ -14,7 +13,6 @@ export const ROLE_ROUTE_MAP = {
 
 export const ROLE_PREFIXES = {
   admin: '/admin',
-  gm: '/gm',
   warden: '/warden',
   dean: '/dean',
   principal: '/principal',
@@ -45,9 +43,8 @@ export const hasRouteAccess = (role, routePath) => {
   // Role-specific access
   const roleAccessMap = {
     admin: ['/admin', '/users', '/blocks', '/resource-config', '/audit-logs', '/database-viewer', '/reports', '/alerts', '/usage', '/analytics'],
-    gm: ['/gm', '/alerts', '/analytics', '/reports', '/audit-logs'],
     warden: ['/warden', '/usage', '/alerts', '/complaints', '/warden/daily-report', '/announcements'],
-    dean: ['/dean', '/analytics', '/reports', '/audit-logs', '/alerts', '/announcements', '/profile'],
+    dean: ['/dean', '/analytics', '/reports', '/alerts', '/announcements', '/profile'],
     principal: ['/principal', '/analytics', '/reports', '/announcements', '/profile'],
     student: ['/student', '/complaints', '/announcements', '/profile']
   };
@@ -62,6 +59,6 @@ export const hasRouteAccess = (role, routePath) => {
  * @returns {Array} Array of navigation items
  */
 export const getNormalizedRole = (role) => {
-  const validRoles = ['admin', 'gm', 'warden', 'dean', 'principal', 'student'];
+  const validRoles = ['admin', 'warden', 'dean', 'principal', 'student'];
   return validRoles.includes(role) ? role : 'student';
 };

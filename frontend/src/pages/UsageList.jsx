@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../api/axios';
+import api from '../api';
 import {
     Search,
     Download,
@@ -204,20 +204,33 @@ export default function UsageList() {
                         </div>
                     </div>
 
-                    <div>
-                        <label className="text-[10px] uppercase font-black tracking-widest text-secondary mb-1.5 block">Block/Area</label>
-                        <div className="relative">
-                            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                            <select
-                                className="input pl-9 h-10 text-sm appearance-none"
-                                value={filters.block}
-                                onChange={e => setFilters({ ...filters, block: e.target.value })}
-                            >
-                                <option value="All">All Areas</option>
-                                {blocks.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
-                            </select>
+                    {/* Hide block filter for students since they are restricted to their own block anyway */}
+                    {user?.role !== ROLES.STUDENT && (
+                        <div>
+                            <label className="text-[10px] uppercase font-black tracking-widest text-secondary mb-1.5 block">Block/Area</label>
+                            <div className="relative">
+                                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                                <select
+                                    className="input pl-9 h-10 text-sm appearance-none"
+                                    value={filters.block}
+                                    onChange={e => setFilters({ ...filters, block: e.target.value })}
+                                >
+                                    <option value="All">All Areas</option>
+                                    {blocks.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
+                                </select>
+                            </div>
                         </div>
-                    </div>
+                    )}
+
+                    {/* For students, show their block name as a read-only field if we want, or just hide the filter column */}
+                    {user?.role === ROLES.STUDENT && (
+                        <div>
+                            <label className="text-[10px] uppercase font-black tracking-widest text-secondary mb-1.5 block">Current Block</label>
+                            <div className="input h-10 text-sm flex items-center bg-slate-100/50 border-dashed">
+                                <span className="opacity-60 px-2 font-bold">{user?.block?.name || 'Assigned Block'}</span>
+                            </div>
+                        </div>
+                    )}
 
                     <div>
                         <label className="text-[10px] uppercase font-black tracking-widest text-secondary mb-1.5 block">From Date</label>
@@ -298,7 +311,15 @@ export default function UsageList() {
                                             <td className="text-right">
                                                 <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     {canEdit && (
-                                                        <Button size="sm" variant="secondary" className="!p-1.5 h-8 w-8" onClick={() => navigate(`/warden/usage/${u._id}/edit`)}>
+                                                        <Button 
+                                                            size="sm" 
+                                                            variant="secondary" 
+                                                            className="!p-1.5 h-8 w-8" 
+                                                            onClick={() => {
+                                                                const rolePath = user?.role === 'admin' ? 'admin' : 'warden';
+                                                                navigate(`/${rolePath}/usage/${u._id}/edit`);
+                                                            }}
+                                                        >
                                                             <Edit2 size={14} />
                                                         </Button>
                                                     )}

@@ -22,6 +22,17 @@ require('./config/passport');
 const app = express();
 // We'll attach socket.io after server starts and store on app for controllers
 
+// Define allowed origins early for both Express and Socket.io
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'https://resource-monitor-red.vercel.app',
+  'https://resource-monitor.onrender.com'
+];
+if (process.env.FRONTEND_URL && !allowedOrigins.includes(process.env.FRONTEND_URL)) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
 // Security Middleware
 app.use(helmet());
 app.use(compression()); // Compress all responses
@@ -35,11 +46,26 @@ app.use((req, res, next) => {
   next();
 });
 
-// Rate Limiting (100 requests per 15 minutes on all /api routes)
+// Rate Limiting
 app.use('/api', apiLimiter);
 
 app.use(cors({
-  origin: true,
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const isAllowed = allowedOrigins.includes(origin) || 
+                      origin.includes('localhost') || 
+                      origin.includes('127.0.0.1') ||
+                      process.env.NODE_ENV !== 'production';
+
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Rejected origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 
@@ -108,41 +134,21 @@ mongoose.connect(process.env.MONGO_URI, {
   // ⭐ NORMALIZATION: Align all usage resource_type to match ResourceConfig.name exactly
   const normalizeUsageResourceTypes = async () => {
     try {
-      const allConfigs = await ResourceConfig.find({ isActive: true, isDeleted: { $ne: true } }).select('name').lean()
-      // Deduplicate by name (case-insensitive) to prevent normalization flip-flops
-      const seen = new Set()
-      const configs = allConfigs.filter(cfg => {
-        const lower = cfg.name.toLowerCase()
-        if (seen.has(lower)) return false
-        seen.add(lower)
-        return true
-      })
+      const configs = await ResourceConfig.find({ isActive: true }).lean();
 
       for (const cfg of configs) {
-        const regex = new RegExp(`^${cfg.name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}$`, 'i')
-        const result = await Usage.updateMany(
-          {
-            resource_type: { $regex: regex, $ne: cfg.name }
-          },
+        await Usage.updateMany(
+          { resource_type: { $regex: new RegExp(`^${cfg.name}$`, "i") } },
           { $set: { resource_type: cfg.name } }
-        )
-        if (result.modifiedCount > 0) {
-          console.log(`✅ Normalized ${result.modifiedCount} records → "${cfg.name}"`)
-        }
+        );
       }
-      console.log('✅ Resource type normalization complete')
-    } catch (e) {
-      console.error('Normalization error:', e.message)
-    }
-  }
-  normalizeUsageResourceTypes()
 
-  const allowedOrigins = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'https://resource-monitor-red.vercel.app',
-    'https://resource-monitor.onrender.com'
-  ];
+      console.log("✅ Resource normalization fixed");
+    } catch (err) {
+      console.error(err);
+    }
+  };
+  normalizeUsageResourceTypes();
 
   const PORT = process.env.PORT || 5001;
 
@@ -154,6 +160,10 @@ mongoose.connect(process.env.MONGO_URI, {
     console.log(`🔗 Frontend Allowed: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
     console.log(`----------------------------------------------\n`);
   });
+
+  // Optimize keepalive to prevent premature closure during heavy traffic (esp. Cloudflare/Render)
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 66000;
 
   // Attach socket.io to the running server for real-time features
   const { Server } = require('socket.io');
@@ -219,7 +229,12 @@ mongoose.connect(process.env.MONGO_URI, {
   process.exit(1);
 });
 
-// Routes
+// Login debug middleware
+app.post("/api/auth/login", (req, res, next) => {
+  console.log("LOGIN HIT");
+  next();
+});
+
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/profile", require("./routes/profileRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));

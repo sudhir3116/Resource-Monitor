@@ -1,4 +1,4 @@
-import api from './api';
+import api from '../api';
 
 export const getStudentStats = async () => {
     const response = await api.get('/api/dashboard/student');

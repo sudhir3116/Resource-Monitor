@@ -38,7 +38,7 @@ const GENERATE_TOKENS = (user) => {
   const accessToken = jwt.sign(
     payload,
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
+    { expiresIn: '7d' } // Long-lived token as requested
   );
 
   const refreshToken = jwt.sign(
@@ -92,7 +92,7 @@ const formatUserResponse = (user) => {
 // @route   POST /api/auth/register
 // @access  Public
 const register = asyncHandler(async (req, res) => {
-  let { name, email, password } = req.body;
+  let { name, email, password, blockId } = req.body;
 
   if (!name || !email || !password) {
     res.status(400);
@@ -100,7 +100,10 @@ const register = asyncHandler(async (req, res) => {
   }
 
   email = email.toLowerCase(); // Normalize email
+  
+  // Try auto-detection, fallback to provided blockId
   const autoBlockId = await getBlockFromEmail(email);
+  const finalBlockId = autoBlockId || blockId;
 
   const existingUser = await User.findOne({ email });
   if (existingUser) {
@@ -114,21 +117,36 @@ const register = asyncHandler(async (req, res) => {
     name,
     email,
     password: hashedPassword,
-    role: ROLES.STUDENT,
-    block: autoBlockId || null,
-    provider: 'local'
+    role: null, // Role assignment delayed until after approval
+    block: finalBlockId || null,
+    provider: 'local',
+    status: 'PENDING',
+    isApproved: false
   });
 
-  const { accessToken, refreshToken } = GENERATE_TOKENS(user);
-  SET_COOKIES(res, accessToken, refreshToken);
+  // Notify admins via alert
+  try {
+    const Alert = require('../models/Alert');
+    await Alert.create({
+      resourceType: 'User',
+      severity: 'medium',
+      message: `New user registration pending approval: ${email}`,
+      status: 'active'
+    });
 
-  // Return full formatted user object for consistency
+    const socketUtil = require('../utils/socket');
+    const io = socketUtil.getIO && socketUtil.getIO();
+    if (io) {
+      io.emit('alerts:refresh');
+      io.emit('dashboard:refresh');
+      io.emit('users:refresh');
+    }
+  } catch(e) {}
+
   res.status(201).json({
     success: true,
-    message: "Registered successfully",
-    token: accessToken,
-    user: formatUserResponse(user),
-    data: formatUserResponse(user)
+    message: "Registration submitted. Waiting for admin approval.",
+    user: formatUserResponse(user)
   });
 });
 
@@ -156,6 +174,19 @@ const login = asyncHandler(async (req, res) => {
   // Check suspension status
   if (user.status === 'suspended') {
     return res.status(403).json({ success: false, message: 'Your account has been suspended. Please contact the administrator.' });
+  }
+
+  // STRICT VALIDATION: Check Approval Status
+  if (user.status !== "APPROVED") {
+    // Check for legacy lowercase status just in case, but prioritize the new Uppercase
+    if (user.status !== 'approved' && user.status !== 'active') {
+        return res.status(403).json({ success: false, message: "Your account is not approved yet" });
+    }
+  }
+  
+  // STRICT VALIDATION: Check Role Assignment
+  if (!user.role) {
+    return res.status(403).json({ success: false, message: "Your role is not assigned yet. Please contact admin" });
   }
 
   // Handle existing users with plain passwords (Task 5 from previous instruction, Task 1 from this one if needed)
@@ -243,6 +274,17 @@ const googleLogin = asyncHandler(async (req, res) => {
       if (user.status === 'suspended') {
         return res.status(403).json({ success: false, message: 'Your account has been suspended. Please contact the administrator.' });
       }
+
+      // Approval Blocking Logic
+      if (user.status?.toUpperCase() === "PENDING") {
+        return res.status(403).json({ success: false, message: "Waiting for admin approval" });
+      }
+      if (user.status?.toUpperCase() === "REJECTED") {
+        return res.status(403).json({ success: false, message: "Your request was rejected" });
+      }
+      if (!user.isApproved && user.status?.toUpperCase() !== 'APPROVED') {
+        return res.status(403).json({ success: false, message: "Not approved yet" });
+      }
       // Update Google ID and avatar if not set
       let needsSave = false;
       if (!user.googleId) {
@@ -265,7 +307,7 @@ const googleLogin = asyncHandler(async (req, res) => {
     } else {
       console.log('🆕 Creating new user from Google account');
 
-      // Create new user with default student role
+      // Create new user with default student role and pending status
       user = await User.create({
         name: payload.name,
         email: payload.email,
@@ -274,9 +316,32 @@ const googleLogin = asyncHandler(async (req, res) => {
         provider: 'google',
         avatar: payload.picture,
         block: autoBlockId || null,
-        role: ROLES.STUDENT // Default role
+        role: ROLES.STUDENT, // Default role
+        status: 'PENDING',
+        isApproved: false
       });
       console.log('✅ New user created with STUDENT role - ID:', user._id, 'Block:', autoBlockId || 'None');
+
+      // Notify admins via alert
+      try {
+        const Alert = require('../models/Alert');
+        await Alert.create({
+          resourceType: 'User',
+          severity: 'medium',
+          message: `New Google integration pending approval: ${payload.email}`,
+          status: 'active'
+        });
+
+        const socketUtil = require('../utils/socket');
+        const io = socketUtil.getIO && socketUtil.getIO();
+        if (io) io.emit('alerts:refresh');
+      } catch(e) {}
+
+      return res.status(201).json({
+        success: true,
+        message: "Registration successful. Await admin approval.",
+        user: formatUserResponse(user)
+      });
     }
 
     // Generate JWT tokens
@@ -381,15 +446,6 @@ const refresh = asyncHandler(async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
 
-    // Check if token is from a previous server instance (or missing instanceId)
-    if (!decoded.instanceId || decoded.instanceId !== SERVER_INSTANCE_ID) {
-      // Clear invalid cookies
-      res.clearCookie('accessToken');
-      res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
-      res.status(403);
-      throw new Error('Session expired (server reset or invalid token). Please log in again.');
-    }
-
     const user = await User.findById(decoded.id);
     if (!user) {
       // Clear cookies for non-existent user
@@ -408,9 +464,9 @@ const refresh = asyncHandler(async (req, res) => {
     }
 
     const accessToken = jwt.sign(
-      { id: user._id, role: user.role, instanceId: SERVER_INSTANCE_ID },
+      { id: user._id, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
+      { expiresIn: '7d' }
     );
 
     res.cookie('accessToken', accessToken, {

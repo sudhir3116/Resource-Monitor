@@ -24,12 +24,6 @@ module.exports = async function (req, res, next) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (!decoded || !decoded.id) return res.status(401).json({ message: 'Token invalid' });
 
-    // Validate server instance to enforce logout on restart
-    const { SERVER_INSTANCE_ID } = require('../config/runtime');
-    if (decoded.instanceId !== SERVER_INSTANCE_ID) {
-      return res.status(401).json({ message: 'Session expired (server restart)' });
-    }
-
     // Attach decoded token
     req.user = { id: decoded.id, role: decoded.role }
     req.userId = decoded.id

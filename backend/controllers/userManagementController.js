@@ -20,8 +20,9 @@ const { parsePagination } = require('../utils/queryBuilder');
  */
 exports.getUsers = async (req, res) => {
   try {
-    if (req.user?.role !== ROLES.ADMIN) {
-      return res.status(403).json({ success: false, message: 'Only admins can view users' });
+    const callerRole = req.user?.role;
+    if (callerRole !== ROLES.ADMIN && callerRole !== ROLES.GM) {
+      return res.status(403).json({ success: false, message: 'Only administrators or General Managers can view users' });
     }
 
     const { page = 1, limit = 50, role, status, search, blockId } = req.query;
@@ -87,7 +88,10 @@ exports.getUser = async (req, res) => {
     }
 
     // Authorization: Admin or self
-    if (req.user?.role !== ROLES.ADMIN && req.user?.id !== req.params.id) {
+    const callerRole = req.user?.role;
+    const isSpecialRole = callerRole === ROLES.ADMIN || callerRole === ROLES.GM;
+
+    if (!isSpecialRole && req.user?.id !== req.params.id) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
@@ -105,8 +109,9 @@ exports.getUser = async (req, res) => {
  */
 exports.createUser = async (req, res) => {
   try {
-    if (req.user?.role !== ROLES.ADMIN) {
-      return res.status(403).json({ success: false, message: 'Only admins can create users' });
+    const callerRole = req.user?.role;
+    if (callerRole !== ROLES.ADMIN && callerRole !== ROLES.GM) {
+      return res.status(403).json({ success: false, message: 'Insufficient permissions' });
     }
 
     const { name, email, password, role = 'student', blockId, department, phoneNumber, status = 'active' } = req.body;
@@ -118,6 +123,11 @@ exports.createUser = async (req, res) => {
 
     if (!Object.values(ROLES).includes(role)) {
       return res.status(400).json({ success: false, message: 'Invalid role' });
+    }
+
+    // Role Restriction for GM
+    if (callerRole === ROLES.GM && (role === ROLES.ADMIN || role === ROLES.GM)) {
+      return res.status(403).json({ success: false, message: 'General Managers cannot create Administrative/GM accounts.' });
     }
 
     // Check existing email
@@ -217,10 +227,12 @@ exports.updateUser = async (req, res) => {
     }
 
     // Authorization: Admin or self (limited fields)
-    const isAdmin = req.user?.role === ROLES.ADMIN;
+    const callerRole = req.user?.role;
+    const isAdmin = callerRole === ROLES.ADMIN;
+    const isGM = callerRole === ROLES.GM;
     const isSelf = req.user?.id === req.params.id;
 
-    if (!isAdmin && !isSelf) {
+    if (!isAdmin && !isGM && !isSelf) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
@@ -228,7 +240,7 @@ exports.updateUser = async (req, res) => {
     const updates = {};
 
     // Admin can change anything, self can change limited fields
-    if (isAdmin) {
+    if (isAdmin || isGM) {
       if (name) updates.name = name;
       if (email && email.toLowerCase() !== user.email) {
         const existing = await User.findOne({ email: email.toLowerCase(), _id: { $ne: req.params.id } });
@@ -239,7 +251,22 @@ exports.updateUser = async (req, res) => {
       }
       if (phoneNumber) updates.phoneNumber = phoneNumber;
       if (department) updates.department = department;
-      if (role && Object.values(ROLES).includes(role)) updates.role = role;
+      
+      // Role Change Restriction: only ADMIN, and GM cannot change TO admin/gm
+      if (role && Object.values(ROLES).includes(role)) {
+        if (isAdmin) {
+            updates.role = role;
+        } else if (isGM) {
+            // GM can change roles for others, but NOT to ADMIN or GM, and cannot change an existing ADMIN/GM's role
+            const isTargetHigher = user.role === ROLES.ADMIN || user.role === ROLES.GM;
+            const isNewRoleHigher = role === ROLES.ADMIN || role === ROLES.GM;
+            
+            if (!isTargetHigher && !isNewRoleHigher) {
+                updates.role = role;
+            }
+        }
+      }
+
       if (status && ['active', 'pending', 'suspended', 'graduated'].includes(status)) updates.status = status;
 
       if (role === ROLES.WARDEN) {
@@ -269,7 +296,7 @@ exports.updateUser = async (req, res) => {
     }
 
     // Handle password change (admin only)
-    if (password && isAdmin) {
+    if (password && (isAdmin || (isGM && !isSelf && user.role !== ROLES.ADMIN))) {
       updates.password = await bcrypt.hash(password, 10);
     }
 
@@ -370,8 +397,9 @@ exports.deleteUser = async (req, res) => {
  */
 exports.assignUserToBlock = async (req, res) => {
   try {
-    if (req.user?.role !== ROLES.ADMIN) {
-      return res.status(403).json({ success: false, message: 'Only admins can assign users to blocks' });
+    const callerRole = req.user?.role;
+    if (callerRole !== ROLES.ADMIN && callerRole !== ROLES.GM) {
+      return res.status(403).json({ success: false, message: 'Only admins and GMs can assign users to blocks' });
     }
 
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -439,8 +467,9 @@ exports.assignUserToBlock = async (req, res) => {
  */
 exports.getUserStats = async (req, res) => {
   try {
-    if (req.user?.role !== ROLES.ADMIN) {
-      return res.status(403).json({ success: false, message: 'Only admins can view user stats' });
+    const callerRole = req.user?.role;
+    if (callerRole !== ROLES.ADMIN && callerRole !== ROLES.GM) {
+      return res.status(403).json({ success: false, message: 'Only admins and GMs can view user stats' });
     }
 
     const [total, byRole, byStatus, byBlock] = await Promise.all([
@@ -477,6 +506,91 @@ exports.getUserStats = async (req, res) => {
   }
 };
 
+exports.getPendingUsers = async (req, res) => {
+  try {
+    const users = await User.find({ status: 'pending', isApproved: false })
+      .select('name email role block status createdAt')
+      .populate('block', 'name')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({
+      success: true,
+      users,
+      count: users.length
+    });
+  } catch (error) {
+    console.error('Get pending users error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.approveUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.status = 'approved';
+    user.isApproved = true;
+    await user.save();
+
+    // Alert user 
+    try {
+        const Alert = require('../models/Alert');
+        await Alert.create({
+          resourceType: 'User',
+          severity: 'info',
+          message: `Your account has been approved`,
+          status: 'resolved',
+          user: user._id
+        });
+        const socketUtil = require('../utils/socket');
+        const io = socketUtil.getIO && socketUtil.getIO();
+        if (io) io.emit('alerts:refresh');
+    } catch(e) {}
+
+    res.json({ success: true, message: 'User approved successfully', user });
+  } catch (error) {
+    console.error('Approve user error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.rejectUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.status = 'rejected';
+    user.isApproved = false;
+    await user.save();
+
+    // Alert user 
+    try {
+        const Alert = require('../models/Alert');
+        await Alert.create({
+          resourceType: 'User',
+          severity: 'critical',
+          message: `Your account was rejected`,
+          status: 'resolved',
+          user: user._id
+        });
+        const socketUtil = require('../utils/socket');
+        const io = socketUtil.getIO && socketUtil.getIO();
+        if (io) io.emit('alerts:refresh');
+    } catch(e) {}
+
+    res.json({ success: true, message: 'User rejected successfully', user });
+  } catch (error) {
+    console.error('Reject user error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getUsers: exports.getUsers,
   getUser: exports.getUser,
@@ -484,5 +598,8 @@ module.exports = {
   updateUser: exports.updateUser,
   deleteUser: exports.deleteUser,
   assignUserToBlock: exports.assignUserToBlock,
-  getUserStats: exports.getUserStats
+  getUserStats: exports.getUserStats,
+  getPendingUsers: exports.getPendingUsers,
+  approveUser: exports.approveUser,
+  rejectUser: exports.rejectUser
 };

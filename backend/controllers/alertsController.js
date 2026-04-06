@@ -78,11 +78,23 @@ exports.getAlerts = async (req, res) => {
 
     let filter = await _buildScopeFilter(req.user);
 
-    // Additional query filters
+    // ── Additional query filters (Safety First) ──────────────────────────────
     if (status) filter.status = status;
     if (severity) filter.severity = severity;
     if (alertType) filter.alertType = alertType;
-    if (blockId) filter.block = blockId;
+
+    // Only allow block filter override for Executives (Admin/GM/Dean/Principal)
+    const normalizedRole = (req.user.role || '').toLowerCase();
+    const isExecutive = ['admin', 'gm', 'dean', 'principal'].includes(normalizedRole);
+
+    if (blockId) {
+      if (isExecutive) {
+        filter.block = blockId;
+      } else {
+        // Log attempt to bypass scope (optional)
+        console.warn(`[Alerts] Non-executive ${normalizedRole} attempted to filter by block ${blockId}. Request restricted to assigned scope.`);
+      }
+    }
 
     if (startDate || endDate) {
       filter.createdAt = {};

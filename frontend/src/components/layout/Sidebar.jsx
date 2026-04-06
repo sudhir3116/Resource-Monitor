@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import { ROLES } from '../../utils/roles';
-import api from '../../api/axios';
+import api from '../../api';
 import { Activity, User, Bell, ChevronRight } from 'lucide-react';
 
 const NAV_CONFIG = {
@@ -27,6 +27,8 @@ const NAV_CONFIG = {
         { label: 'Complaints', icon: '📝', path: '/gm/complaints' },
         { label: 'Analytics', icon: '📈', path: '/gm/analytics' },
         { label: 'Notice Board', icon: '📌', path: '/gm/notices' },
+        { label: 'Users', icon: '👥', path: '/gm/users' },
+        { label: 'Blocks', icon: '🏠', path: '/gm/blocks' },
         { label: 'Resource Config', icon: '⚙️', path: '/gm/resource-config' },
         { label: 'Reports', icon: '📤', path: '/gm/reports' },
         { label: 'Audit Logs', icon: '🗃️', path: '/gm/audit-logs' },
@@ -51,12 +53,16 @@ const NAV_CONFIG = {
         { label: 'Analytics', icon: '📈', path: '/dean/analytics' },
         { label: 'Reports', icon: '📤', path: '/dean/reports' },
         { label: 'Announcements', icon: '📌', path: '/dean/announcements' },
+        { label: 'Audit Logs', icon: '🗃️', path: '/dean/audit-logs' },
     ],
     principal: [
         { label: 'Dashboard', icon: '📊', path: '/principal/dashboard' },
+        { label: 'Alerts', icon: '🔔', path: '/principal/alerts' },
+        { label: 'Complaints', icon: '📝', path: '/principal/complaints' },
         { label: 'Analytics', icon: '📈', path: '/principal/analytics' },
         { label: 'Reports', icon: '📤', path: '/principal/reports' },
         { label: 'Announcements', icon: '📌', path: '/principal/announcements' },
+        { label: 'Audit Logs', icon: '🗃️', path: '/principal/audit-logs' },
     ]
 }
 

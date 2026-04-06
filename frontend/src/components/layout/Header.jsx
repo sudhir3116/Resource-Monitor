@@ -83,15 +83,6 @@ export default function Header() {
                                     >
                                         <User size={18} /> Profile Settings
                                     </Link>
-                                    {user?.role === 'admin' && (
-                                        <Link
-                                            to="/admin/audit-logs"
-                                            onClick={() => setShowUserMenu(false)}
-                                            className="flex items-center gap-3 px-4 py-3 text-sm font-bold text-secondary hover:text-primary hover:bg-[var(--bg-muted)] rounded-xl transition-colors"
-                                        >
-                                            <ShieldCheck size={18} /> System Audit
-                                        </Link>
-                                    )}
                                 </div>
 
                                 {/* Logout Action */}
