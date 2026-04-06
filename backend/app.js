@@ -20,6 +20,7 @@ validateEnvironment();
 require('./config/passport');
 
 const app = express();
+app.set("trust proxy", 1);
 // We'll attach socket.io after server starts and store on app for controllers
 
 // Define allowed origins early for both Express and Socket.io
