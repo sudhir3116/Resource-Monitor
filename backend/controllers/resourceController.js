@@ -1,3 +1,4 @@
+const Resource = require('../models/ResourceConfig');
 const normalizeResourceName = (name) => {
     if (!name) return "";
     const trimmed = name.trim();
