@@ -216,6 +216,7 @@ const login = asyncHandler(async (req, res) => {
 
   // Return full formatted user object for consistency with Task 5 requirement
   res.status(200).json({
+    success: true,
     token: accessToken,
     user: formatUserResponse(user),
     data: formatUserResponse(user)

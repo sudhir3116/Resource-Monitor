@@ -23,8 +23,9 @@ const app = express();
 app.set("trust proxy", 1);
 // We'll attach socket.io after server starts and store on app for controllers
 
-// Define allowed origins early for both Express and Socket.io
+// Define allowed origins for both Express CORS and Socket.io
 const allowedOrigins = [
+  'http://localhost:3000',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'https://resource-monitor-red.vercel.app',
@@ -50,23 +51,9 @@ app.use((req, res, next) => {
 // Rate Limiting
 app.use('/api', apiLimiter);
 
+// Use the single allowedOrigins array for both CORS and Socket.io
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    const isAllowed = allowedOrigins.includes(origin) || 
-                      origin.includes('localhost') || 
-                      origin.includes('127.0.0.1') ||
-                      process.env.NODE_ENV !== 'production';
-
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.warn(`[CORS] Rejected origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: allowedOrigins,
   credentials: true
 }));
 
@@ -230,11 +217,7 @@ mongoose.connect(process.env.MONGO_URI, {
   process.exit(1);
 });
 
-// Login debug middleware
-app.post("/api/auth/login", (req, res, next) => {
-  console.log("LOGIN HIT");
-  next();
-});
+// Note: Login debug log is handled inside authController login() to avoid duplicate middleware
 
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/profile", require("./routes/profileRoutes"));

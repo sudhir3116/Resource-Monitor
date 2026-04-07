@@ -211,7 +211,7 @@ exports.updateThreshold = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Monthly limit must be greater than 0' });
         }
 
-        const existing = await Resource.findOne({ resource });
+        const existing = await Resource.findOne({ name: resource });
         if (!existing) {
             return res.status(404).json({ success: false, message: `Configuration for '${resource}' not found` });
         }

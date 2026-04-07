@@ -4,7 +4,7 @@ let socket = null
 
 export const getSocket = () => {
     if (!socket) {
-        const socketUrl = import.meta.env.VITE_API_URL || "http://localhost:5001";
+        const socketUrl = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || "https://resource-monitor.onrender.com";
         socket = io(socketUrl, {
             auth: {
                 token: localStorage.getItem('token')

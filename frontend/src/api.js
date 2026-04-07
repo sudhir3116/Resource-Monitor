@@ -1,7 +1,7 @@
 import axios from "axios";
 
-// Determine API Base URL properly for both localhost and production
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
+// Determine API Base URL for both development and production
+const API_BASE_URL = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || "https://resource-monitor.onrender.com";
 
 const api = axios.create({
     baseURL: API_BASE_URL,
