@@ -19,10 +19,19 @@ module.exports = async function (req, res, next) {
       token = req.cookies.accessToken;
     }
 
-    if (!token) return res.status(401).json({ message: 'No token provided' });
+    if (!token) return res.status(401).json({ success: false, message: 'No token provided' });
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (!decoded || !decoded.id) return res.status(401).json({ message: 'Token invalid' });
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (jwtErr) {
+      // Distinguish expired vs invalid to give better UX messages
+      if (jwtErr.name === 'TokenExpiredError') {
+        return res.status(401).json({ success: false, message: 'Token invalid' }); // frontend matches this
+      }
+      return res.status(401).json({ success: false, message: 'Token invalid' });
+    }
+    if (!decoded || !decoded.id) return res.status(401).json({ success: false, message: 'Token invalid' });
 
     // Attach decoded token
     req.user = { id: decoded.id, role: decoded.role }
@@ -47,7 +56,7 @@ module.exports = async function (req, res, next) {
           const tokenIssuedAt = decoded.iat; // seconds since epoch
           const lastLogoutAtSec = Math.floor(new Date(userObj.lastLogoutAt).getTime() / 1000);
           if (tokenIssuedAt <= lastLogoutAtSec) {
-            return res.status(401).json({ message: 'Token invalid (user logged out)' });
+            return res.status(401).json({ success: false, message: 'Token invalid (user logged out)' });
           }
         }
       }
@@ -60,7 +69,7 @@ module.exports = async function (req, res, next) {
       const TokenBlacklist = require('../models/TokenBlacklist');
       const blacklisted = await TokenBlacklist.findOne({ token }).lean();
       if (blacklisted) {
-        return res.status(401).json({ message: 'Token has been invalidated. Please log in again.' });
+        return res.status(401).json({ success: false, message: 'Token has been invalidated. Please log in again.' });
       }
     } catch (e) {
       // fail open if db check fails temporarily
@@ -69,6 +78,7 @@ module.exports = async function (req, res, next) {
 
     return next()
   } catch (err) {
-    return res.status(401).json({ message: 'Token invalid' })
+    // Catch-all: JWT verification failures (expired, malformed, wrong secret)
+    return res.status(401).json({ success: false, message: 'Token invalid' });
   }
 }

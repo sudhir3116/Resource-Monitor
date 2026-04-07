@@ -52,15 +52,46 @@ const AuthProvider = ({ children }) => {
         }
 
       } catch (err) {
-        if (err.response?.status === 401) {
-            // Only clear if explicitly unauthorized
-            localStorage.removeItem('token')
-            localStorage.removeItem('user')
-            setUser(null)
-            setToken(null)
-            disconnectSocket()
-            socketConnected.current = false;
+        const status = err.response?.status;
+        const msg = err.response?.data?.message || '';
+
+        // Token-invalid messages — matches the same list in api.js interceptor
+        const TOKEN_INVALID_MESSAGES = [
+          'Token invalid',
+          'No token provided',
+          'Token invalid (user logged out)',
+          'Token has been invalidated',
+          'Invalid authentication session',
+          'jwt expired',
+          'invalid signature',
+          'invalid token',
+        ];
+        const isTokenDead = status === 401 &&
+          TOKEN_INVALID_MESSAGES.some(m => msg.toLowerCase().includes(m.toLowerCase()));
+
+        if (isTokenDead) {
+          // Token is genuinely dead — clear session
+          localStorage.removeItem('token')
+          localStorage.removeItem('user')
+          setUser(null)
+          setToken(null)
+          disconnectSocket()
+          socketConnected.current = false;
+        } else if (!err.response) {
+          // Network error / Render cold start — keep user logged in from cache
+          const cachedUser = localStorage.getItem('user');
+          if (cachedUser) {
+            try {
+              const parsed = JSON.parse(cachedUser);
+              setUser(parsed)
+              setToken(storedToken)
+              console.warn('[Auth] Backend unreachable — session restored from cache.');
+            } catch (_) {
+              localStorage.removeItem('user')
+            }
+          }
         }
+        // Other errors (403, 5xx) — keep user logged in, API calls will surface errors
       } finally {
         setLoading(false)
       }
@@ -68,10 +99,10 @@ const AuthProvider = ({ children }) => {
 
     verifyToken()
 
-    // Absolute safety timeout — 8 seconds max loading
+    // Safety timeout — 10s to account for Render cold start delay
     const safetyTimer = setTimeout(() => {
       setLoading(false)
-    }, 8000)
+    }, 10000)
 
     return () => clearTimeout(safetyTimer)
   }, [])

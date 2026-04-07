@@ -26,48 +26,79 @@ api.interceptors.request.use((config) => {
     return config;
 }, (error) => Promise.reject(error));
 
-// Response Interceptor: Handle errors and auto-logout on session expiration
+// Response Interceptor: Handle errors and auto-logout ONLY on true token invalidation
 api.interceptors.response.use(
     (res) => res,
     async (err) => {
         const { config, response } = err;
-        
-        // Handle Session Expiration (401 Unauthorized)
+
+        // ── 401 Handler: Only logout on TRUE token invalidation ──────────────
         if (response?.status === 401) {
-            // Check if the error is due to a stale token rather than a login attempt
-            const isLoginRequest = config.url.includes('/login') || config.url.includes('/auth/login');
-            
-            if (!isLoginRequest) {
-                console.warn("[API] Authorization failed. Clearing local data and redirecting...");
-                
-                // Clear all stored auth data safely
-                localStorage.removeItem('token');
-                localStorage.removeItem('user');
-                
-                // Perform a cleaner redirect to the login page avoiding infinite loops
-                const currentPath = window.location.pathname;
-                if (!currentPath.includes('/login') && !currentPath.includes('/register') && !currentPath.includes('/forgot')) {
-                    window.location.replace('/login');
+            const isAuthEndpoint = config?.url?.includes('/login') ||
+                config?.url?.includes('/register') ||
+                config?.url?.includes('/forgot') ||
+                config?.url?.includes('/reset');
+
+            if (!isAuthEndpoint) {
+                const msg = response?.data?.message || '';
+
+                // The ONLY messages that mean the token itself is dead
+                const TOKEN_INVALID_MESSAGES = [
+                    'Token invalid',
+                    'No token provided',
+                    'Token invalid (user logged out)',
+                    'Token has been invalidated',
+                    'Invalid authentication session',
+                    'jwt expired',
+                    'invalid signature',
+                    'invalid token',
+                ];
+
+                const isTokenDead = TOKEN_INVALID_MESSAGES.some(m =>
+                    msg.toLowerCase().includes(m.toLowerCase())
+                );
+
+                if (isTokenDead) {
+                    console.warn('[API] Token genuinely invalid — clearing session and redirecting to login.');
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+
+                    const currentPath = window.location.pathname;
+                    if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
+                        window.location.replace('/login');
+                    }
+                } else {
+                    // 401 for permission/role/approval reasons — do NOT logout
+                    // Let the component handle it (show an error, restrict UI, etc.)
+                    if (import.meta.env.DEV) {
+                        console.warn(`[API] 401 on ${config?.url} — reason: "${msg}" — NOT logging out (not a token issue).`);
+                    }
                 }
             }
             return Promise.reject(err);
         }
 
-        // Generic error logging for debugging
+        // Generic error logging (dev only)
         if (import.meta.env.DEV) {
             console.error(`[API ERROR] ${response?.status || 'Network'} - ${config?.url}`, response?.data || err.message);
         }
 
-        // Handle specific network errors / timeouts
-        if (err.code === "ECONNABORTED" || err.message === "Network Error") {
-            // Limited retry logic for specific idempotent requests (GET)
-            if (config?.method === 'get' && (!config.retry || config.retry < 2)) {
-                config.retry = (config.retry || 0) + 1;
-                console.warn(`[RETRY] Retrying ${config.url} due to network timeout... (${config.retry}/2)`);
-                return new Promise(resolve => setTimeout(() => resolve(api(config)), 1500));
-            }
+        // ── Network Error / Timeout: Retry logic (handles Render cold start) ─
+        const isNetworkError = err.code === 'ECONNABORTED' ||
+            err.message === 'Network Error' ||
+            err.code === 'ERR_NETWORK';
+
+        if (isNetworkError && config && !config._retryCount) {
+            config._retryCount = 0;
         }
-        
+
+        if (isNetworkError && config && (config._retryCount ?? 0) < 2) {
+            config._retryCount = (config._retryCount || 0) + 1;
+            const delay = config._retryCount * 2000; // 2s, then 4s
+            console.warn(`[RETRY] ${config.url} — attempt ${config._retryCount}/2 in ${delay}ms (Render wake-up)`);
+            return new Promise(resolve => setTimeout(() => resolve(api(config)), delay));
+        }
+
         return Promise.reject(err);
     }
 );
