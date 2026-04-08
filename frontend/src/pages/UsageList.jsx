@@ -77,7 +77,8 @@ export default function UsageList() {
             setUsages(Array.isArray(data) ? data : []);
         } catch (err) {
             logger.error('Failed to fetch usages', err);
-            addToast('Error loading usage data', 'error');
+            const msg = err.response?.data?.message || err.response?.data?.error || 'Error loading usage data';
+            addToast(msg, 'error');
         } finally {
             setLoading(false);
         }

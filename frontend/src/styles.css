@@ -142,8 +142,8 @@
   }
 
   .card:hover {
-    box-shadow: var(--shadow-md);
-    @apply -translate-y-0.5;
+    box-shadow: var(--shadow-lg);
+    @apply -translate-y-1 border-blue-500/20 backdrop-blur-sm;
   }
 
   .metric-card {

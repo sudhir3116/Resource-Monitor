@@ -169,10 +169,8 @@ const AuthProvider = ({ children }) => {
         socketConnected.current = true;
       }
 
-      // Use role-based dashboard route
-      const dashboardRoute = getDashboardRoute(userData?.role)
-      const from = location.state?.from || location.state?.from?.pathname || dashboardRoute
-      navigate(from, { replace: true })
+      // Always go to dashboard after login as per new requirement
+      navigate('/dashboard', { replace: true })
       return { success: true }
     } catch (error) {
       let errorMessage = 'Login failed. Please try again.'

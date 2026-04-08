@@ -299,13 +299,13 @@ function ComplaintDetailModal({ isOpen, onClose, complaint, user, onReview, onRe
                     {canReview && (
                         <Button size="sm" variant="secondary" disabled={isActioning} onClick={() => onReview(complaint._id)}>
                             {isActioning ? <RefreshCw size={13} className="animate-spin mr-1" /> : <Eye size={13} className="mr-1" />}
-                            Review
+                            {isActioning ? 'Updating...' : 'Review'}
                         </Button>
                     )}
                     {canResolve && (
                         <Button size="sm" variant="primary" disabled={isActioning} onClick={() => onResolve(complaint)}>
                             {isActioning ? <RefreshCw size={13} className="animate-spin mr-1" /> : <CheckCircle size={13} className="mr-1" />}
-                            Resolve
+                            {isActioning ? 'Resolving...' : 'Resolve'}
                         </Button>
                     )}
                     {canEscalate && (

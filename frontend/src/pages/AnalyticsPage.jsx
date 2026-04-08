@@ -52,15 +52,7 @@ export default function AnalyticsPage() {
     const [blockRanking, setBlockRanking] = useState([]);
     const [stats, setStats] = useState({}); // Restored missing stats state
 
-    const COLORS = {
-        Diesel: "#3b82f6",
-        Electricity: "#facc15",
-        Food: "#22c55e",
-        LPG: "#ef4444",
-        Petrol: "#a855f7",
-        Waste: "#10b981",
-        Water: "#38bdf8"
-    };
+    // Removed hardcoded COLORS object. Using dynamic colors from resources.
 
     const fetchAnalytics = useCallback(async () => {
         setLoading(true);
@@ -191,10 +183,11 @@ export default function AnalyticsPage() {
     const getResourceMeta = (type) => {
         const res = (Array.isArray(resourcesForCharts) ? resourcesForCharts : [])
             .find(r => (r?.name || r?.resource) === type);
+        const color = res?.color || '#64748b';
         return {
             icon: res?.icon || '📊',
-            color: COLORS[type] || res?.color || '#64748b',
-            bg: (COLORS[type] || res?.color || '#64748b') + '15',
+            color: color,
+            bg: color + '15',
             unit: res?.unit || 'units'
         };
     };
@@ -313,8 +306,8 @@ export default function AnalyticsPage() {
                                 <defs>
                                     {resourcesForCharts.map((res, i) => (
                                         <linearGradient key={`grad-${i}`} id={`color-${res.name || res.resource_type}`} x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor={COLORS[res.name || res.resource_type] || res.color || '#3B82F6'} stopOpacity={0.1} />
-                                            <stop offset="95%" stopColor={COLORS[res.name || res.resource_type] || res.color || '#3B82F6'} stopOpacity={0} />
+                                            <stop offset="5%" stopColor={res.color || '#3B82F6'} stopOpacity={0.1} />
+                                            <stop offset="95%" stopColor={res.color || '#3B82F6'} stopOpacity={0} />
                                         </linearGradient>
                                     ))}
                                 </defs>
@@ -346,7 +339,7 @@ export default function AnalyticsPage() {
                                             type="monotone"
                                             dataKey={rName}
                                             name={rName}
-                                            stroke={COLORS[rName] || res.color || '#3B82F6'}
+                                            stroke={res.color || '#3B82F6'}
                                             strokeWidth={3}
                                             fillOpacity={1}
                                             fill={`url(#color-${rName})`}
@@ -391,12 +384,15 @@ export default function AnalyticsPage() {
                                             `${name} ${(percent * 100).toFixed(0)}%`
                                         }
                                     >
-                                        {activeSummary.map((entry, index) => (
-                                            <Cell
-                                                key={`cell-${index}`}
-                                                fill={COLORS[entry.name] || "#8884d8"}
-                                            />
-                                        ))}
+                                        {activeSummary.map((entry, index) => {
+                                            const meta = getResourceMeta(entry.name);
+                                            return (
+                                                <Cell
+                                                    key={`cell-${index}`}
+                                                    fill={meta.color}
+                                                />
+                                            );
+                                        })}
                                     </Pie>
                                     <Tooltip
                                         contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }}
@@ -448,9 +444,13 @@ export default function AnalyticsPage() {
                                             }}
                                         />
                                         <Bar dataKey="totalCost" name="Total Cost" radius={[6, 6, 0, 0]}>
-                                            {(blockRanking || blockComparison || []).map((entry, index) => (
-                                                <Cell key={`cell-${index}`} fill={COLORS[Object.keys(COLORS)[index % Object.keys(COLORS).length]]} />
-                                            ))}
+                                            {(blockRanking || blockComparison || []).map((entry, index) => {
+                                                // Cycle through dynamic colors if we don't have enough resources
+                                                const resColor = resourcesForCharts[index % resourcesForCharts.length]?.color || '#3b82f6';
+                                                return (
+                                                    <Cell key={`cell-${index}`} fill={resColor} />
+                                                );
+                                            })}
                                         </Bar>
                                     </BarChart>
                                 </ResponsiveContainer>

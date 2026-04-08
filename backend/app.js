@@ -78,6 +78,17 @@ mongoose.connect(process.env.MONGO_URI, {
 
   const seedResourceConfig = async () => {
     try {
+      // 1. Skip seeding if not requested (optional flag)
+      if (process.env.SEED_DATA === "false") return;
+
+      // 2. CHECK: Only seed if the collection is EMPTY (User's requirement)
+      // This prevents deleted resources from reappearing on restart.
+      const currentCount = await ResourceConfig.countDocuments();
+      if (currentCount > 0 && process.env.SEED_DATA !== "true") {
+        return;
+      }
+
+      console.log('🌱 Seeding default ResourceConfig...');
       const defaults = [
         { name: 'Electricity', unit: 'kWh', dailyLimit: 400, monthlyLimit: 12000, costPerUnit: 8.5, icon: '⚡', color: '#F59E0B', isActive: true, isDeleted: false },
         { name: 'Water', unit: 'Liters', dailyLimit: 20000, monthlyLimit: 600000, costPerUnit: 0.05, icon: '💧', color: '#3B82F6', isActive: true, isDeleted: false },
@@ -86,6 +97,7 @@ mongoose.connect(process.env.MONGO_URI, {
         { name: 'Solar', unit: 'kWh', dailyLimit: 200, monthlyLimit: 6000, costPerUnit: 0, icon: '☀️', color: '#10B981', isActive: true, isDeleted: false },
         { name: 'Waste', unit: 'kg', dailyLimit: 80, monthlyLimit: 2400, costPerUnit: 2, icon: '♻️', color: '#6B7280', isActive: true, isDeleted: false },
       ];
+
       for (const r of defaults) {
         // Seed ResourceConfig (Case-insensitive check)
         await ResourceConfig.findOneAndUpdate(
@@ -112,7 +124,7 @@ mongoose.connect(process.env.MONGO_URI, {
           { upsert: true }
         ).catch(() => { });
       }
-      console.log('✅ ResourceConfig & SystemConfig seeded');
+      console.log('✅ ResourceConfig & SystemConfig initialized');
     } catch (e) {
       console.error('Seed error:', e.message);
     }

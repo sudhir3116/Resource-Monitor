@@ -1,6 +1,7 @@
-import React, { useState, useContext } from 'react';
-import { Navigate, Link, useLocation } from 'react-router-dom';
+import React, { useState, useContext, useEffect } from 'react';
+import { Navigate, Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
+import { isTokenValid } from '../utils/auth';
 import { getDashboardRoute } from '../utils/roleRoutes';
 import { logger } from '../utils/logger';
 import { Activity, Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
@@ -10,19 +11,16 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 
 
 export default function Login() {
-  const { login, user } = useContext(AuthContext);
-  const location = useLocation();
+  const { login } = useContext(AuthContext);
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  if (user) {
-    const from = location.state?.from;
-    const destination = from || getDashboardRoute(user.role);
-    return <Navigate to={destination} replace />;
-  }
+  // Removed auto-redirect on mount to follow strict "enforce login" check
+  // The root route (/) in App.jsx now handles the initial decision.
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -36,7 +34,8 @@ export default function Login() {
       await login(normalizedEmail, password);
     } catch (err) {
       logger.error("Login failed", err);
-      const msg = err.response?.data?.message || err.message || 'Invalid email or password';
+      // Enhanced error reporting from backend
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Invalid email or password';
       setError(msg);
     } finally {
       setLoading(false);
@@ -116,7 +115,7 @@ export default function Login() {
             <Button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
             >
               {loading ? (
                 <>

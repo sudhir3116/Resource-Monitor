@@ -8,11 +8,6 @@ export default function PublicRoute({ children }) {
 
     if (loading) return <Loading />
 
-    // If user is authenticated, redirect to dashboard
-    if (user) {
-        return <Navigate to="/dashboard" replace />
-    }
-
     // Otherwise, allow access to public page (Login/Register)
     return children
 }
