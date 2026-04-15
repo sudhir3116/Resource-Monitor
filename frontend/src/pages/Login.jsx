@@ -8,6 +8,7 @@ import { Activity, Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/Card';
+import ThemeToggle from '../components/ThemeToggle';
 
 
 export default function Login() {
@@ -44,6 +45,9 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 px-4 py-12 relative">
+      <div className="absolute top-8 right-8">
+        <ThemeToggle />
+      </div>
 
 
       <Card className="w-full max-w-[400px] shadow-sm border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">

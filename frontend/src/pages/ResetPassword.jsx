@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Lock, ArrowLeft, Loader2, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import api from '../api';
+import ThemeToggle from '../components/ThemeToggle';
 
 
 export default function ResetPassword() {
@@ -46,17 +47,20 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="flex min-h-screen w-full bg-slate-50 items-center justify-center p-6">
+    <div className="flex min-h-screen w-full bg-slate-50 dark:bg-slate-950 items-center justify-center p-6 relative">
+      <div className="absolute top-8 right-8">
+        <ThemeToggle />
+      </div>
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-md bg-white p-10 rounded-[40px] shadow-2xl border border-slate-100 ring-1 ring-slate-100"
+        className="w-full max-w-md bg-white dark:bg-slate-900 p-10 rounded-[40px] shadow-2xl border border-slate-100 dark:border-slate-800 ring-1 ring-slate-100 dark:ring-slate-800"
       >
         <div className="text-center mb-10">
-          <div className="h-20 w-20 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner ring-1 ring-emerald-100">
+          <div className="h-20 w-20 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner ring-1 ring-emerald-100 dark:ring-emerald-900/30">
             <Lock size={32} />
           </div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Set New Password</h2>
+          <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Set New Password</h2>
           <p className="mt-2 text-slate-500 font-medium">Please enter a strong password to secure your account.</p>
         </div>
 

@@ -6,6 +6,7 @@ import {
   ArrowRight, Loader2, AlertCircle, Eye, EyeOff 
 } from 'lucide-react';
 import Button from '../components/common/Button';
+import ThemeToggle from '../components/ThemeToggle';
 
 export default function Register() {
   const { user, register } = useAuth();
@@ -71,7 +72,10 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen flex w-full">
+    <div className="min-h-screen flex w-full relative">
+      <div className="absolute top-8 right-8 z-50">
+        <ThemeToggle />
+      </div>
       {/* ── Left Side - Hero / Branding (Hidden on mobile) ──────────────── */}
       <div className="hidden lg:flex w-1/2 relative overflow-hidden bg-slate-900 text-white">
         <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-indigo-900 via-slate-900 to-black opacity-80"></div>

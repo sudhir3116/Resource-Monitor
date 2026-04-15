@@ -2,11 +2,15 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Home, ArrowLeft, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import ThemeToggle from '../components/ThemeToggle';
 
 
 export default function NotFound() {
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center px-4">
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center px-4 relative">
+            <div className="absolute top-8 right-8">
+                <ThemeToggle />
+            </div>
             <div className="max-w-md w-full text-center">
                 {/* Error Icon */}
                 <div className="mb-8 flex justify-center">

@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Mail, ArrowLeft, Loader2, Key } from 'lucide-react';
 import api from '../api';
+import ThemeToggle from '../components/ThemeToggle';
 
 
 export default function ForgotPassword() {
@@ -33,17 +34,20 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="flex min-h-screen w-full bg-slate-50 items-center justify-center p-6">
+    <div className="flex min-h-screen w-full bg-slate-50 dark:bg-slate-950 items-center justify-center p-6 relative">
+      <div className="absolute top-8 right-8">
+        <ThemeToggle />
+      </div>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md bg-white p-10 rounded-[32px] shadow-2xl border border-slate-100 ring-1 ring-slate-100"
+        className="w-full max-w-md bg-white dark:bg-slate-900 p-10 rounded-[32px] shadow-2xl border border-slate-100 dark:border-slate-800 ring-1 ring-slate-100 dark:ring-slate-800"
       >
         <div className="text-center mb-10">
-          <div className="h-16 w-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+          <div className="h-16 w-16 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <Key size={32} />
           </div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Forgot password?</h2>
+          <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Forgot password?</h2>
           <p className="mt-2 text-slate-500 font-medium">No worries, we'll send you reset instructions.</p>
         </div>
 

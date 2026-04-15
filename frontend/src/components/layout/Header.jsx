@@ -5,6 +5,7 @@ import { AlertCountContext } from '../../context/AlertCountContext';
 import { ThemeContext } from '../../context/ThemeContext';
 import { Bell, Moon, Sun, LogOut, ChevronDown, User, Settings, ShieldCheck } from 'lucide-react';
 import NotificationBell from '../NotificationBell';
+import ThemeToggle from '../ThemeToggle';
 
 export default function Header() {
     const { user, logout } = useContext(AuthContext);
@@ -33,6 +34,9 @@ export default function Header() {
 
             {/* Right Side Actions - Standard Polished SaaS Tools */}
             <div className="flex items-center gap-3">
+
+                {/* Theme Toggle */}
+                <ThemeToggle />
 
                 {/* Notification Center — single bell */}
                 <NotificationBell />
