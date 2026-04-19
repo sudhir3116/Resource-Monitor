@@ -309,19 +309,30 @@ exports.getUsageTrends = async (options = {}) => {
         resourceNames.push(name);
     });
 
-    const trendMap = {};
-    trends.forEach(t => {
-        const d = t._id.date;
-        const lowerRes = t._id.resource;
-        const originalName = configMap[lowerRes] || lowerRes;
+    const result = {};
 
-        if (!trendMap[d]) {
-            trendMap[d] = { date: d };
-            // Initialize all resources to 0 for this date to ensure continuous chart lines
-            resourceNames.forEach(rn => trendMap[d][rn] = 0);
+    trends.forEach(item => {
+        const date = item._id.date;
+        
+        // Capitalize exactly back to what frontend chart expects
+        const typeRaw = item._id.resource || 'unknown';
+        const type = configMap[typeRaw] || (typeRaw.charAt(0).toUpperCase() + typeRaw.slice(1).toLowerCase());
+
+        if (!result[date]) {
+            result[date] = {
+                date,
+                Diesel: 0,
+                Electricity: 0,
+                Water: 0,
+                LPG: 0,
+                Petrol: 0,
+                Waste: 0,
+                Kerosene: 0
+            };
         }
-        trendMap[d][originalName] = Math.round(t.total * 100) / 100;
+
+        result[date][type] = Math.round(item.total * 100) / 100;
     });
 
-    return Object.values(trendMap).sort((a, b) => a.date.localeCompare(b.date));
+    return Object.values(result).sort((a, b) => a.date.localeCompare(b.date));
 };

@@ -154,17 +154,22 @@ const AuthProvider = ({ children }) => {
     try {
       const response = await api.post('/api/auth/login', { email, password })
       const rawUserData = response.data.data || response.data.user
-      const userData = { ...rawUserData, role: (rawUserData?.role || '').toLowerCase() }
       const authToken = response.data.token
 
-      if (authToken) {
-        localStorage.setItem('token', authToken)
-        localStorage.setItem('user', JSON.stringify(userData))
+      // Guard: if no token returned, treat as failed login
+      if (!authToken) {
+        throw new Error('Authentication failed: no token received from server.')
       }
+
+      const userData = { ...rawUserData, role: (rawUserData?.role || '').toLowerCase() }
+
+      // Write to localStorage BEFORE state update so ProtectedRoute sees it immediately
+      localStorage.setItem('token', authToken)
+      localStorage.setItem('user', JSON.stringify(userData))
 
       setUser(userData)
       setToken(authToken)
-      if (authToken && !socketConnected.current) {
+      if (!socketConnected.current) {
         connectSocket(authToken)
         socketConnected.current = true;
       }
@@ -176,10 +181,12 @@ const AuthProvider = ({ children }) => {
       let errorMessage = 'Login failed. Please try again.'
 
       if (error.response?.data?.message) errorMessage = error.response.data.message
+      else if (error.message && !error.response) errorMessage = error.message
       else if (error.response?.status === 401) errorMessage = 'Invalid email or password.'
       else if (error.response?.status === 429) errorMessage = 'Too many login attempts. Please try again.'
 
       const enhancedError = new Error(errorMessage)
+      enhancedError.response = error.response  // preserve for Login.jsx error display
       enhancedError.originalError = error
       throw enhancedError
     }

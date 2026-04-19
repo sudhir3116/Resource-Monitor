@@ -802,6 +802,123 @@ exports.exportUsageCSV = async (req, res) => {
 }
 
 /**
+ * @desc    Generate AI Usage for missing records
+ * @route   POST /api/usage/ai-generate
+ * @access  Private (Admin, GM, Warden)
+ */
+exports.generateAIUsage = async (req, res) => {
+  try {
+    const role = (req.user?.role || '').toLowerCase();
+    let queryBlockIds = [];
+
+    if (role === 'warden') {
+      const rawBlock = req.user?.block || req.userObj?.block;
+      const bId = safeBlockId(rawBlock);
+      if (!bId) return res.status(403).json({ success: false, message: 'Warden has no block assigned' });
+      queryBlockIds = [bId];
+    } else {
+      const Block = require('../models/Block');
+      const allBlocks = await Block.find({}, '_id');
+      queryBlockIds = allBlocks.map(b => b._id);
+    }
+
+    if (!queryBlockIds.length) {
+      return res.status(400).json({ success: false, message: 'No blocks found to generate usage' });
+    }
+
+    const resources = await Resource.find({ isActive: true, isDeleted: false });
+    if (!resources.length) {
+      return res.status(400).json({ success: false, message: 'No active resources found' });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    let generatedCount = 0;
+
+    for (const blockId of queryBlockIds) {
+      for (const resource of resources) {
+        const canonicalType = (resource.name || resource.resource || 'Unknown').trim();
+        
+        // 1. Check if already generated/logged today
+        const existing = await Usage.findOne({
+          blockId,
+          resource_type: { $regex: new RegExp(`^${canonicalType}$`, 'i') },
+          usage_date: { $gte: today, $lt: tomorrow },
+          deleted: { $ne: true }
+        });
+
+        if (existing) continue;
+
+        // 2. Value generation
+        const lastRecord = await Usage.findOne({
+           blockId, 
+           resource_type: { $regex: new RegExp(`^${canonicalType}$`, 'i') },
+           deleted: { $ne: true }
+        }).sort({ usage_date: -1 });
+
+        let newValue = 0;
+        if (lastRecord && lastRecord.usage_value) {
+            // +/- 5% to 15%
+            const variancePercent = 0.05 + (Math.random() * 0.10);
+            const sign = Math.random() > 0.5 ? 1 : -1;
+            newValue = lastRecord.usage_value * (1 + (sign * variancePercent));
+        } else {
+            // Fallback: 60% to 90% of daily limit
+            const limit = resource.dailyLimit || 100;
+            const variancePercent = 0.60 + (Math.random() * 0.30);
+            newValue = limit * variancePercent;
+        }
+
+        // Avoid extreme drops to zero if past data was weird
+        if (newValue < 0) newValue = Math.abs(newValue) || 10;
+        newValue = Math.round(newValue * 100) / 100;
+
+        const unitCost = resource.costPerUnit || resource.rate || 0;
+        const totalCost = newValue * unitCost;
+
+        await Usage.create({
+          blockId,
+          userId: req.userId,
+          resourceId: resource._id,
+          resource_type: canonicalType,
+          usage_value: newValue,
+          unit: resource.unit || 'units',
+          cost: totalCost,
+          usage_date: new Date(),
+          source: 'AI',
+          createdBy: req.userId,
+          deleted: false
+        });
+
+        generatedCount++;
+      }
+    }
+
+    try {
+      const socketUtil = require('../utils/socket');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) {
+        io.emit('usage:refresh');
+        io.emit('dashboard:refresh');
+        io.emit('alerts:refresh');
+      }
+    } catch (e) {}
+
+    return res.json({
+      success: true,
+      message: generatedCount > 0 ? `AI generated ${generatedCount} usage records successfully` : 'All resources already have usage logged for today.',
+      count: generatedCount
+    });
+  } catch (err) {
+    console.error('AI Generate Error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
  * @desc    Export usage data as PDF
  * @route   GET /api/usage/export/pdf?startDate=&endDate=&resource=&blockId=
  * @access  Private (not students)

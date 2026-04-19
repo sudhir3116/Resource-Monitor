@@ -77,26 +77,41 @@ export default function AnalyticsPage() {
 
             // FIX DATA MAPPING (Requirement Step 1 & 5)
             console.log("Dashboard Data (Summary):", summaryRes.data);
-            console.log("API Response (Trends):", trendsRes.data);
+            console.log("TREND DATA:", trendsRes.data);
 
             // Handle both object-based summary and array-based summaryArray
             const rawItems = Array.isArray(summaryRaw.summaryArray) ? summaryRaw.summaryArray
                 : (Array.isArray(summaryRaw.summary) ? summaryRaw.summary
                     : Object.values(summaryRaw.summary || {}));
 
-            const summary = rawItems.map(item => ({
-                name: item.resource_type || item._id,
-                value: item.total || item.usage_value || 0,
-                total: item.total || 0,
+            let summary = rawItems.map(item => ({
+                name: item.resource_type || item._id || item.name,
+                value: item.total || item.value || 0,
+                total: item.total || item.value || 0,
                 _id: item._id,
                 ...item
             }));
 
-            const trends = (trendsRaw || []).map(item => ({
-                name: item.resource_type || item.date,
-                value: item.total || item.usage_value,
-                ...item
-            }));
+            // 6. OPTIONAL FALLBACK (IMPORTANT): Seed sample data (SAFE MODE)
+            const hasRealData = summary.some(s => s.value > 0 || s.total > 0);
+            let trends = trendsRaw || [];
+            
+            if (!hasRealData) {
+                console.log("[Analytics] No non-zero data found. Using fallback safe data.");
+                summary = [
+                    { name: "Electricity", value: 120, total: 120, unit: "kWh", _id: "Electricity", resource_type: "Electricity", type: "Electricity" },
+                    { name: "Water", value: 88, total: 88, unit: "Litres", _id: "Water", resource_type: "Water", type: "Water" },
+                    { name: "Diesel", value: 60, total: 60, unit: "Litres", _id: "Diesel", resource_type: "Diesel", type: "Diesel" }
+                ];
+                
+                // Fallback for trends as well so the tooltip doesn't show 0
+                const today = new Date().toISOString().split('T')[0];
+                const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+                trends = [
+                    { date: yesterday, Electricity: 90, Water: 70, Diesel: 50 },
+                    { date: today, Electricity: 120, Water: 88, Diesel: 60 }
+                ];
+            }
 
             // Create keyed object for card lookups
             const statsMap = {};

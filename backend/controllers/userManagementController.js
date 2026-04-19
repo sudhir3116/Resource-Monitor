@@ -591,6 +591,76 @@ exports.rejectUser = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Toggle user status: 'active'/'APPROVED' ↔ 'suspended'
+ * @route   PATCH /api/users/:id/status
+ * @access  Private (Admin, GM)
+ */
+exports.updateStatus = async (req, res) => {
+  try {
+    const callerRole = req.user?.role;
+    if (callerRole !== ROLES.ADMIN && callerRole !== ROLES.GM) {
+      return res.status(403).json({ success: false, message: 'Insufficient permissions' });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID' });
+    }
+
+    if (req.user.id === req.params.id) {
+      return res.status(400).json({ success: false, message: 'Cannot change your own account status' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Treat 'active', 'APPROVED', 'approved' all as the "active" state
+    const currentStatusNorm = (user.status || '').toLowerCase();
+    const isCurrentlyActive = currentStatusNorm === 'active' || currentStatusNorm === 'approved';
+    const newStatus = isCurrentlyActive ? 'suspended' : 'active';
+
+    const updated = await User.findByIdAndUpdate(
+      req.params.id,
+      { status: newStatus },
+      { new: true }
+    ).select('-password').populate('block', 'name');
+
+    // Audit log
+    await AuditLog.create({
+      action: 'UPDATE',
+      resourceType: 'User',
+      resourceId: user._id,
+      userId: req.user.id,
+      description: `Status changed to "${newStatus}" for: ${user.email}`
+    });
+
+    // Real-time socket events
+    try {
+      const socketUtil = require('../utils/socket');
+      const io = socketUtil.getIO && socketUtil.getIO();
+      if (io) {
+        io.emit('users:refresh');
+        io.emit('dashboard:refresh');
+        if (newStatus === 'suspended') {
+          io.emit('user:suspended', { userId: req.params.id });
+        }
+      }
+    } catch (e) { /* non-fatal */ }
+
+    res.json({
+      success: true,
+      message: `User ${newStatus === 'active' ? 'activated' : 'suspended'} successfully.`,
+      data: { status: newStatus },
+      user: updated
+    });
+  } catch (error) {
+    console.error('Update status error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getUsers: exports.getUsers,
   getUser: exports.getUser,
@@ -601,5 +671,6 @@ module.exports = {
   getUserStats: exports.getUserStats,
   getPendingUsers: exports.getPendingUsers,
   approveUser: exports.approveUser,
-  rejectUser: exports.rejectUser
+  rejectUser: exports.rejectUser,
+  updateStatus: exports.updateStatus
 };

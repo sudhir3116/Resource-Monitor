@@ -26,17 +26,32 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    // Client-side validation before hitting the network
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
+
+    if (!trimmedEmail || !trimmedPassword) {
+      setError('Email and password are required.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      console.log("Calling:", import.meta.env.VITE_API_URL);
       // Normalize email to lowercase for consistency with backend
-      const normalizedEmail = email.toLowerCase().trim();
-      await login(normalizedEmail, password);
+      await login(trimmedEmail.toLowerCase(), trimmedPassword);
     } catch (err) {
       logger.error("Login failed", err);
-      // Enhanced error reporting from backend
-      const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Invalid email or password';
+      // Show backend message if available, otherwise fall back to err.message
+      const msg = err.response?.data?.message
+        || err.response?.data?.error
+        || err.message
+        || 'Invalid email or password';
       setError(msg);
     } finally {
       setLoading(false);

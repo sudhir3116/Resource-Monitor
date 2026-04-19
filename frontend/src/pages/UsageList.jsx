@@ -47,6 +47,7 @@ export default function UsageList() {
 
     const [deleteId, setDeleteId] = useState(null);
     const [deleteItem, setDeleteItem] = useState(null);
+    const [generatingAI, setGeneratingAI] = useState(false);
 
     const canEdit = user && [ROLES.WARDEN].includes(user.role);
     const canDelete = user && [ROLES.ADMIN].includes(user.role);
@@ -141,6 +142,19 @@ export default function UsageList() {
         }
     };
 
+    const handleGenerateAI = async () => {
+        setGeneratingAI(true);
+        try {
+            const res = await api.post('/api/usage/ai-generate');
+            addToast(res.data.message || 'AI generated usage successfully', 'success');
+            fetchUsages();
+        } catch (err) {
+            addToast(err.response?.data?.message || 'Failed to generate AI usage', 'error');
+        } finally {
+            setGeneratingAI(false);
+        }
+    };
+
     const resourceTypes = [...new Set(usages.map(u => u.resource_type).filter(Boolean))];
 
     return (
@@ -160,6 +174,12 @@ export default function UsageList() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {showActions && (
+                        <Button variant="secondary" onClick={handleGenerateAI} disabled={generatingAI || loading} className="mr-2">
+                            <Activity size={18} className={`mr-2 ${generatingAI ? 'animate-pulse text-blue-500' : 'text-blue-500'}`} />
+                            {generatingAI ? 'Generating...' : 'Generate AI Usage'}
+                        </Button>
+                    )}
                     <button
                         onClick={fetchUsages}
                         className="p-2.5 rounded-xl bg-[var(--bg-muted)] hover:bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all flex items-center justify-center"

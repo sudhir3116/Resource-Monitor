@@ -664,7 +664,7 @@ exports.resetPassword = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TOGGLE STATUS  (active ↔ suspended)
+// TOGGLE STATUS  (active/APPROVED ↔ suspended)
 // ─────────────────────────────────────────────────────────────────────────────
 exports.toggleStatus = async (req, res) => {
     try {
@@ -676,7 +676,10 @@ exports.toggleStatus = async (req, res) => {
         const user = await User.findById(id);
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-        const newStatus = user.status === 'active' ? 'suspended' : 'active';
+        // Treat 'active', 'APPROVED', 'approved' all as the "active" state
+        const currentStatusNorm = (user.status || '').toLowerCase();
+        const isCurrentlyActive = currentStatusNorm === 'active' || currentStatusNorm === 'approved';
+        const newStatus = isCurrentlyActive ? 'suspended' : 'active';
         user.status = newStatus;
         await user.save();
 

@@ -46,6 +46,7 @@ export default function Resources() {
     const [sortMode] = useState('newest');
     const [deleteId, setDeleteId] = useState(null);
     const [deleteItem, setDeleteItem] = useState(null);
+    const [generatingAI, setGeneratingAI] = useState(false);
 
     const navigate = useNavigate();
     const { user } = useContext(AuthContext);
@@ -194,6 +195,19 @@ export default function Resources() {
         }
     };
 
+    const handleGenerateAI = async () => {
+        setGeneratingAI(true);
+        try {
+            const res = await api.post('/api/usage/ai-generate');
+            addToast(res.data.message || 'AI generated usage successfully', 'success');
+            await fetchAllData();
+        } catch (err) {
+            addToast(err.response?.data?.message || 'Failed to generate AI usage', 'error');
+        } finally {
+            setGeneratingAI(false);
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -225,6 +239,12 @@ export default function Resources() {
                     {canEdit && (
                         <Button variant="primary" size="sm" onClick={() => navigate('/warden/usage/new')}>
                             <Plus size={16} className="mr-2" /> Log Usage
+                        </Button>
+                    )}
+                    {showActions && (
+                        <Button variant="secondary" size="sm" onClick={handleGenerateAI} disabled={generatingAI || loading}>
+                            <Zap size={16} className={`mr-2 ${generatingAI ? 'animate-pulse text-blue-500' : 'text-blue-500'}`} />
+                            {generatingAI ? 'Generating...' : 'Generate AI Usage'}
                         </Button>
                     )}
                 </div>

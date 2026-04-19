@@ -3,6 +3,7 @@ import api from '../api';
 import { getSocket } from '../utils/socket';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { logger } from '../utils/logger';
 import {
     Users, Search, Trash2, Edit2, Plus, Key, ToggleLeft, ToggleRight, UserCheck, RefreshCw, XCircle
 } from 'lucide-react';
@@ -527,6 +528,7 @@ export default function UserManagement() {
     const [editUser, setEditUser] = useState(null);      // null = closed
     const [resetTarget, setResetTarget] = useState(null); // null = closed
     const [userToDelete, setUserToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     // Bulk Modals
     const [showBulkRole, setShowBulkRole] = useState(false);
@@ -575,16 +577,21 @@ export default function UserManagement() {
 
     // ── Delete ────────────────────────────────────────────────────────────────
     const handleDelete = async () => {
-        if (!userToDelete) return;
+        if (!userToDelete || isDeleting) return; // guard against double-click
+        setIsDeleting(true);
         try {
             const res = await api.delete(`/api/admin/users/${userToDelete._id}`);
             if (res.data.success) {
-                addToast('User deleted successfully', 'success');
-                fetchUsers();
+                // Optimistic UI: remove from local state immediately, then refetch
+                setUsers(prev => prev.filter(u => u._id !== userToDelete._id));
+                setSelectedIds(prev => prev.filter(id => id !== userToDelete._id));
+                addToast(`${userToDelete.name} has been permanently deleted.`, 'success');
+                fetchUsers(); // background sync with server
             }
         } catch (err) {
-            addToast(err.response?.data?.message || 'Failed to delete user', 'error');
+            addToast(err.response?.data?.message || 'Failed to delete user. Please try again.', 'error');
         } finally {
+            setIsDeleting(false);
             setUserToDelete(null);
         }
     };
@@ -770,11 +777,29 @@ export default function UserManagement() {
     );
 
     const statusVariant = (s) => {
-        if (s === 'active' || s === 'APPROVED' || s === 'approved') return 'success';
-        if (s === 'suspended' || s === 'REJECTED' || s === 'rejected') return 'danger';
-        if (s === 'PENDING' || s === 'pending') return 'warning';
+        const norm = (s || '').toLowerCase();
+        if (norm === 'active' || norm === 'approved') return 'success';
+        if (norm === 'suspended' || norm === 'rejected') return 'danger';
+        if (norm === 'pending') return 'warning';
         return 'warning';
     };
+
+    // Normalize status string for display (DB may store 'APPROVED', 'active', etc.)
+    const normalizeStatusLabel = (s) => {
+        const norm = (s || '').toLowerCase();
+        if (norm === 'active' || norm === 'approved') return 'Active';
+        if (norm === 'suspended') return 'Suspended';
+        if (norm === 'pending') return 'Pending';
+        if (norm === 'rejected') return 'Rejected';
+        return s || 'Unknown';
+    };
+
+    // Whether user is currently in an "active" state (for toggle button display)
+    const isUserActive = (s) => {
+        const norm = (s || '').toLowerCase();
+        return norm === 'active' || norm === 'approved';
+    };
+
 
     // ─────────────────────────────────────────────────────────────────────────
     return (
@@ -1045,7 +1070,7 @@ export default function UserManagement() {
                                             {/* Status badge */}
                                             <td>
                                                 <Badge variant={statusVariant(user.status)}>
-                                                    {user.status || 'active'}
+                                                    {normalizeStatusLabel(user.status)}
                                                 </Badge>
                                             </td>
 
@@ -1079,9 +1104,9 @@ export default function UserManagement() {
                                                                 variant="secondary"
                                                                 size="sm"
                                                                 onClick={() => handleToggleStatus(user)}
-                                                                title={user.status === 'active' ? 'Deactivate user' : 'Activate user'}
+                                                                title={isUserActive(user.status) ? 'Suspend user' : 'Activate user'}
                                                             >
-                                                                {user.status === 'active'
+                                                                {isUserActive(user.status)
                                                                     ? <ToggleRight size={14} style={{ color: 'var(--color-success)' }} />
                                                                     : <ToggleLeft size={14} style={{ color: 'var(--color-danger)' }} />
                                                                 }
@@ -1183,15 +1208,16 @@ export default function UserManagement() {
             {/* Confirm Delete */}
             <ConfirmModal
                 isOpen={!!userToDelete}
-                onClose={() => setUserToDelete(null)}
+                onClose={() => !isDeleting && setUserToDelete(null)}
                 onConfirm={handleDelete}
                 title="Delete User"
                 message={userToDelete
                     ? `Are you sure you want to permanently delete:\n\n${userToDelete.name} (${userToDelete.email})\n\nThis action cannot be undone.`
                     : ''
                 }
-                confirmText="Delete User"
+                confirmText={isDeleting ? 'Deleting…' : 'Delete User'}
                 type="danger"
+                disabled={isDeleting}
             />
 
             {/* Bulk Role Change */}

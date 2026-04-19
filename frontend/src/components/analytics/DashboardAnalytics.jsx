@@ -46,6 +46,7 @@ export default function DashboardAnalytics({ userRole }) {
             ]);
 
             setSummary(summaryRes.data);
+            console.log("TREND DATA:", trendsRes.data.trends); // Step 5 - Log response
             setTrends(trendsRes.data);
             setAnomalies(anomaliesRes.data?.anomalies || []);
             setSustainabilityScore(scoreRes.data);

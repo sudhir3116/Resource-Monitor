@@ -13,6 +13,7 @@ const usageSchema = new mongoose.Schema({
   cost: { type: Number, default: 0 },
   currency: { type: String, default: '₹' },
   notes: { type: String },
+  source: { type: String, enum: ['MANUAL', 'AI'], default: 'MANUAL' },
 
   // Audit fields
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

@@ -165,14 +165,13 @@ const login = asyncHandler(async (req, res) => {
 
   console.log("Login attempt:", email);
   const user = await User.findOne({ email }).populate('block', 'name');
-  console.log("User found:", user);
 
   if (!user) {
-    return res.status(401).json({ message: "Invalid credentials" });
+    return res.status(401).json({ success: false, message: "Invalid credentials" });
   }
 
-  // Check suspension status
-  if (user.status === 'suspended') {
+  // Check suspension status (case-insensitive)
+  if ((user.status || '').toLowerCase() === 'suspended') {
     return res.status(403).json({ success: false, message: 'Your account has been suspended. Please contact the administrator.' });
   }
 
@@ -198,7 +197,7 @@ const login = asyncHandler(async (req, res) => {
 
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
-    return res.status(401).json({ message: "Invalid credentials" });
+    return res.status(401).json({ success: false, message: "Invalid credentials" });
   }
 
   // Auto-assign block based on email pattern if not already assigned

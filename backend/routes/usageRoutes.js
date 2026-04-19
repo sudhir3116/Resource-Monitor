@@ -127,6 +127,13 @@ router.get(
 // Write routes — ONLY Admin and Warden can CREATE usage records
 // Students, Dean, Principal, GM are BLOCKED at middleware level (403 Forbidden)
 router.post(
+    '/ai-generate',
+    authorizeRoles(ROLES.ADMIN, GM, ROLES.WARDEN),
+    auditMiddleware('CREATE', 'Usage_AI'),
+    usageController.generateAIUsage
+)
+
+router.post(
     '/',
     wardenMiddleware,
     auditMiddleware('CREATE', 'Usage'),

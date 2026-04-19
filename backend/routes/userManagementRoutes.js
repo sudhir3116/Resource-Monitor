@@ -22,7 +22,8 @@ const {
   getUserStats,
   getPendingUsers,
   approveUser,
-  rejectUser
+  rejectUser,
+  updateStatus
 } = require('../controllers/userManagementController');
 
 // All routes require authentication
@@ -76,6 +77,16 @@ router.post(
 );
 
 // ── UPDATE ────────────────────────────────────────────────────────────────────
+// Toggle suspend/activate status (Admin or GM, not self)
+router.patch(
+  '/:id/status',
+  authorizeRoles(ROLES.ADMIN, ROLES.GM),
+  [param('id').isMongoId().withMessage('Invalid id')],
+  runValidations,
+  auditMiddleware('UPDATE', 'User'),
+  updateStatus
+);
+
 // Update user (Admin or self)
 router.patch(
   '/:id',
