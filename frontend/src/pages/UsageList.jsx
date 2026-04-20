@@ -120,7 +120,7 @@ export default function UsageList() {
             Unit: u.unit || 'units',
             Location: u.blockId?.name || 'N/A',
             Date: new Date(u.usage_date).toLocaleString(),
-            LoggedBy: u.userId?.name || 'N/A',
+            LoggedBy: u.createdBy?.name || u.userId?.name || 'System',
             Notes: u.notes || ''
         }));
 
@@ -324,8 +324,10 @@ export default function UsageList() {
                                             <span className="ml-2 opacity-50 text-[10px]">{new Date(u.usage_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                         </td>
                                         <td>
-                                            <div className="text-sm font-semibold truncate max-w-[120px]">
-                                                {u.userId?.name || 'System'}
+                                            <div className="text-sm font-semibold truncate max-w-[140px]" title={u.createdBy?.name || u.userId?.name || 'System'}>
+                                                {u.createdBy?.name || u.userId?.name || (
+                                                    <span className="text-slate-400 italic text-xs">System</span>
+                                                )}
                                             </div>
                                         </td>
                                         {showActions && (

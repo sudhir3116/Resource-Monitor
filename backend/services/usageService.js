@@ -263,11 +263,13 @@ exports.getUsageTrends = async (options = {}) => {
     const { role, blockId, userId, range = '7d' } = options;
     const normalizedRole = (role || '').toLowerCase();
 
+    // Parse range string → days
+    const rangeToDays = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 };
+    const days = typeof range === 'number' ? range : (rangeToDays[range] || 30);
+
     const endDate = new Date();
-    let startDate = new Date();
-    if (range === '7d') startDate.setDate(endDate.getDate() - 7);
-    else if (range === '30d') startDate.setDate(endDate.getDate() - 30);
-    else startDate.setDate(endDate.getDate() - 7);
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - days);
 
     const matchStage = {
         deleted: { $ne: true },
@@ -279,7 +281,7 @@ exports.getUsageTrends = async (options = {}) => {
         if (bId) {
             matchStage.blockId = bId;
         } else {
-            console.warn("[UsageService] Warden/Student missing block context for trends.");
+            console.warn('[UsageService] Warden/Student missing block context for trends.');
             return [];
         }
     } else if (bId) {
@@ -300,12 +302,13 @@ exports.getUsageTrends = async (options = {}) => {
         { $sort: { '_id.date': 1 } }
     ]);
 
-    const configs = await ResourceConfig.find({ isDeleted: { $ne: true } }).lean();
+    // Build config map for proper casing (Electricity, Water, etc.)
+    const configs = await ResourceConfig.find({ isActive: true, isDeleted: { $ne: true } }).lean();
     const configMap = {};
     const resourceNames = [];
     configs.forEach(c => {
-        const name = c.name || 'Resource';
-        configMap[(name).toLowerCase()] = name;
+        const name = (c.name || 'Resource').trim();
+        configMap[name.toLowerCase()] = name;
         resourceNames.push(name);
     });
 
@@ -313,25 +316,21 @@ exports.getUsageTrends = async (options = {}) => {
 
     trends.forEach(item => {
         const date = item._id.date;
-        
-        // Capitalize exactly back to what frontend chart expects
-        const typeRaw = item._id.resource || 'unknown';
-        const type = configMap[typeRaw] || (typeRaw.charAt(0).toUpperCase() + typeRaw.slice(1).toLowerCase());
+        const typeRaw = item._id.resource || '';
+        // Map back to proper-cased config name
+        const type = configMap[typeRaw] || (typeRaw.charAt(0).toUpperCase() + typeRaw.slice(1));
 
         if (!result[date]) {
-            result[date] = {
-                date,
-                Diesel: 0,
-                Electricity: 0,
-                Water: 0,
-                LPG: 0,
-                Petrol: 0,
-                Waste: 0,
-                Kerosene: 0
-            };
+            // Initialise row with zeroes for all configured resources
+            result[date] = { date };
+            resourceNames.forEach(name => { result[date][name] = 0; });
         }
 
-        result[date][type] = Math.round(item.total * 100) / 100;
+        if (result[date][type] !== undefined) {
+            result[date][type] = Math.round((result[date][type] + item.total) * 100) / 100;
+        } else {
+            result[date][type] = Math.round(item.total * 100) / 100;
+        }
     });
 
     return Object.values(result).sort((a, b) => a.date.localeCompare(b.date));

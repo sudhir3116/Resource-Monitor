@@ -59,6 +59,10 @@ export default function AnalyticsPage() {
         try {
             const blockIdForQuery = user?.block?._id || user?.block || null;
 
+            // Convert UI range string to number of days
+            const rangeToDays = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 };
+            const days = rangeToDays[timeRange] || 30;
+
             const [resourcesRes, summaryRes, trendsRes, comparisonRes] = await Promise.all([
                 api.get("/api/resources"),
                 api.get(`/api/usage/summary`, { params: { blockId: blockIdForQuery } }),
@@ -75,16 +79,12 @@ export default function AnalyticsPage() {
             setBlockComparison(comparisonRaw);
             setBlockRanking(comparisonRaw);
 
-            // FIX DATA MAPPING (Requirement Step 1 & 5)
-            console.log("Dashboard Data (Summary):", summaryRes.data);
-            console.log("TREND DATA:", trendsRes.data);
-
-            // Handle both object-based summary and array-based summaryArray
+            // Map summary — support both array and object shapes
             const rawItems = Array.isArray(summaryRaw.summaryArray) ? summaryRaw.summaryArray
                 : (Array.isArray(summaryRaw.summary) ? summaryRaw.summary
                     : Object.values(summaryRaw.summary || {}));
 
-            let summary = rawItems.map(item => ({
+            const summary = rawItems.map(item => ({
                 name: item.resource_type || item._id || item.name,
                 value: item.total || item.value || 0,
                 total: item.total || item.value || 0,
@@ -92,35 +92,16 @@ export default function AnalyticsPage() {
                 ...item
             }));
 
-            // 6. OPTIONAL FALLBACK (IMPORTANT): Seed sample data (SAFE MODE)
-            const hasRealData = summary.some(s => s.value > 0 || s.total > 0);
-            let trends = trendsRaw || [];
-            
-            if (!hasRealData) {
-                console.log("[Analytics] No non-zero data found. Using fallback safe data.");
-                summary = [
-                    { name: "Electricity", value: 120, total: 120, unit: "kWh", _id: "Electricity", resource_type: "Electricity", type: "Electricity" },
-                    { name: "Water", value: 88, total: 88, unit: "Litres", _id: "Water", resource_type: "Water", type: "Water" },
-                    { name: "Diesel", value: 60, total: 60, unit: "Litres", _id: "Diesel", resource_type: "Diesel", type: "Diesel" }
-                ];
-                
-                // Fallback for trends as well so the tooltip doesn't show 0
-                const today = new Date().toISOString().split('T')[0];
-                const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-                trends = [
-                    { date: yesterday, Electricity: 90, Water: 70, Diesel: 50 },
-                    { date: today, Electricity: 120, Water: 88, Diesel: 60 }
-                ];
-            }
+            // Map trends: accept both array directly or { trends: [] } shape
+            let trends = Array.isArray(trendsRaw)
+                ? trendsRaw
+                : (Array.isArray(trendsRaw.trends) ? trendsRaw.trends : []);
 
-            // Create keyed object for card lookups
             const statsMap = {};
-            summary.forEach(item => {
-                statsMap[item.name] = item;
-            });
+            summary.forEach(item => { statsMap[item.name] = item; });
 
             setSummaryData(summary);
-            setStats(statsMap); // Set card data
+            setStats(statsMap);
             setTrendData(trends);
 
         } catch (err) {

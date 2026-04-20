@@ -174,7 +174,7 @@ export default function Resources() {
             Unit: u.unit || 'units',
             Location: u.blockId?.name || 'N/A',
             Date: new Date(u.usage_date).toLocaleString(),
-            LoggedBy: u.createdBy?.name || 'N/A',
+            LoggedBy: u.createdBy?.name || u.userId?.name || 'System',
             Notes: u.notes || ''
         }));
         exportToCSV(dataToExport, `usage_records_${new Date().toISOString().split('T')[0]}.csv`);
@@ -382,6 +382,7 @@ export default function Resources() {
                                                 <th onClick={() => handleSort('usage_date')} className="cursor-pointer">
                                                     Recorded <SortIcon field="usage_date" sortField={sortField} sortDirection={sortDirection} />
                                                 </th>
+                                                <th>Logged By</th>
                                                 {showActions && <th>Action</th>}
                                             </tr>
                                         </thead>
@@ -394,6 +395,9 @@ export default function Resources() {
                                                         {u.usage_value.toLocaleString()} <span className="text-[10px] text-slate-400">{u.unit}</span>
                                                     </td>
                                                     <td className="text-sm">{timeAgo(u.usage_date)}</td>
+                                                    <td className="text-sm text-[var(--text-secondary)]">
+                                                        {u.createdBy?.name || u.userId?.name || <span className="italic opacity-50">System</span>}
+                                                    </td>
                                                     {showActions && (
                                                         <td className="text-right">
                                                             <div className="flex justify-end gap-1">

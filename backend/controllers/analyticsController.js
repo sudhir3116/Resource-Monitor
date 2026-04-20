@@ -99,12 +99,15 @@ const getAnalyticsSummary = async (req, res) => {
         if (ranges) {
             matchStage.usage_date = { $gte: ranges.current.start, $lte: ranges.current.end };
         } else {
-            // Default to 30 days if range failed
-            const days = parseInt(req.query.range) || 30;
-            const startDate = new Date();
-            startDate.setDate(startDate.getDate() - days);
-            matchStage.usage_date = { $gte: startDate };
+            // Custom date range from query params
+            const startDate = req.query.startDate
+                ? new Date(req.query.startDate)
+                : (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d; })();
+            const endDate = req.query.endDate ? new Date(req.query.endDate) : new Date();
+            matchStage.usage_date = { $gte: startDate, $lte: endDate };
         }
+
+        console.log(`[Analytics] Date range: ${JSON.stringify(matchStage.usage_date)}`);
 
         // 3. Aggregate by Resource Type
         const results = await Usage.aggregate([
@@ -121,17 +124,8 @@ const getAnalyticsSummary = async (req, res) => {
         const Resource = require('../models/ResourceConfig');
         const configs = await Resource.find({ isActive: true }).lean();
 
-        // 5. Map results to requested format
-        let activeResults = results;
-        // 6. OPTIONAL FALLBACK: If no data exists, Seed sample data (SAFE MODE)
-        if (!activeResults || activeResults.length === 0) {
-            console.log("[Analytics] No DB data found, seeding safe fallback data.");
-            activeResults = [
-                { _id: 'Water', total: 88 },
-                { _id: 'Electricity', total: 120 },
-                { _id: 'Diesel', total: 60 }
-            ];
-        }
+        // 5. Map results — no hardcoded fallback so zero is surfaced honestly
+        const activeResults = results;
 
         const summary = configs.map(cfg => {
             const key = (cfg.name || '').trim().toLowerCase();
@@ -200,67 +194,57 @@ const getResourceTrends = async (req, res) => {
 
         console.log(`[Trends] Role: ${role}, Filter:`, JSON.stringify(filter));
 
-        // STEP 2 — REMOVE ALL DATE FILTERS & Fetch ALL data
-        const raw = await Usage.find(filter);
+        // STEP 2 — Apply sensible default date window (last 30 days or custom)
+        const days = parseInt(req.query.days) || 30;
+        const trendEnd   = req.query.endDate   ? new Date(req.query.endDate)   : new Date();
+        const trendStart = req.query.startDate ? new Date(req.query.startDate) : new Date(trendEnd.getTime() - days * 24 * 60 * 60 * 1000);
 
-        // STEP 3 — SAFE AGGREGATION
+        filter.usage_date = { $gte: trendStart, $lte: trendEnd };
+        filter.deleted    = { $ne: true };
+
+        console.log(`[Trends] Date window: ${trendStart.toISOString()} → ${trendEnd.toISOString()}`);
+
+        // STEP 3 — Fetch all matching records
+        const raw = await Usage.find(filter).lean();
+        console.log(`[Trends] Raw records fetched: ${raw.length}`);
+
+        // STEP 4 — Aggregate into date-keyed map
+        // Fetch all active resource names for dynamic column building
+        const ResourceConfig = require('../models/ResourceConfig');
+        const activeResources = await ResourceConfig.find({ isActive: true, isDeleted: { $ne: true } }).lean();
+        const resourceNames = activeResources.map(r => r.name);
+
         const result = {};
 
         raw.forEach(item => {
-            const rawDate = item.usage_date || item.timestamp || item.createdAt || item.date;
+            const rawDate = item.usage_date || item.createdAt;
             if (!rawDate) return;
 
-            const date = new Date(rawDate).toISOString().split("T")[0];
+            const date  = new Date(rawDate).toISOString().split('T')[0];
+            const type  = (item.resource_type || '').trim();
+            const value = Number(item.usage_value || 0);
 
-            let type = item.resource_type || item.type || item.resourceType || item.name || '';
-            const value = Number(item.usage_value || item.value || item.amount || item.usage || 0);
-
-            if (type) {
-                type = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
-            }
+            if (!type) return;
 
             if (!result[date]) {
-                result[date] = {
-                    date,
-                    Diesel: 0,
-                    Electricity: 0,
-                    Water: 0,
-                    LPG: 0,
-                    Petrol: 0,
-                    Waste: 0,
-                    Kerosene: 0
-                };
+                result[date] = { date };
+                resourceNames.forEach(name => { result[date][name] = 0; });
             }
 
             if (result[date][type] !== undefined) {
-                result[date][type] += value;
+                result[date][type] = +(result[date][type] + value).toFixed(2);
+            } else {
+                // Resource exists in data but not in config (edge case)
+                result[date][type] = +value.toFixed(2);
             }
         });
 
-        let finalData = Object.values(result);
-
-        // Sort by date sequentially
-        finalData.sort((a, b) => a.date.localeCompare(b.date));
-
-        // STEP 4 — FAIL-SAFE (FALLBACK)
-        if (!finalData || finalData.length === 0) {
-             finalData = [
-                {
-                    date: "2026-04-15",
-                    Diesel: 50,
-                    Electricity: 30,
-                    Water: 20,
-                    LPG: 10,
-                    Petrol: 5,
-                    Waste: 15,
-                    Kerosene: 0
-                }
-            ];
-        }
+        const finalData = Object.values(result).sort((a, b) => a.date.localeCompare(b.date));
 
         res.json({
             success: true,
-            trends: finalData
+            trends: finalData,
+            meta: { records: raw.length, from: trendStart, to: trendEnd }
         });
     } catch (error) {
         console.error('Resource trends error:', error);
