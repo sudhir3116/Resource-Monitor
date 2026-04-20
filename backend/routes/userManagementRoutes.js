@@ -33,21 +33,21 @@ router.use(auth);
 // Get all users (Admin or GM)
 router.get(
   '/',
-  authorizeRoles(ROLES.ADMIN, ROLES.GM),
+  authorizeRoles(ROLES.ADMIN),
   getUsers
 );
 
 // Get user stats dashboard
 router.get(
   '/stats',
-  authorizeRoles(ROLES.ADMIN, ROLES.GM),
+  authorizeRoles(ROLES.ADMIN),
   getUserStats
 );
 
 // Get pending users approval list
 router.get(
   '/pending-users',
-  authorizeRoles(ROLES.ADMIN, ROLES.GM),
+  authorizeRoles(ROLES.ADMIN),
   getPendingUsers
 );
 
@@ -63,7 +63,7 @@ router.get(
 // Create new user (Admin or GM)
 router.post(
   '/',
-  authorizeRoles(ROLES.ADMIN, ROLES.GM),
+  authorizeRoles(ROLES.ADMIN),
   [
     body('name').notEmpty().withMessage('Name is required'),
     body('email').isEmail().withMessage('Valid email is required'),
@@ -80,7 +80,7 @@ router.post(
 // Toggle suspend/activate status (Admin or GM, not self)
 router.patch(
   '/:id/status',
-  authorizeRoles(ROLES.ADMIN, ROLES.GM),
+  authorizeRoles(ROLES.ADMIN),
   [param('id').isMongoId().withMessage('Invalid id')],
   runValidations,
   auditMiddleware('UPDATE', 'User'),
@@ -104,7 +104,7 @@ router.patch(
 // Approve User Registration
 router.patch(
   '/approve/:id',
-  authorizeRoles(ROLES.ADMIN, ROLES.GM),
+  authorizeRoles(ROLES.ADMIN),
   [param('id').isMongoId().withMessage('Invalid id')],
   runValidations,
   auditMiddleware('UPDATE', 'User'),
@@ -114,7 +114,7 @@ router.patch(
 // Reject User Registration
 router.patch(
   '/reject/:id',
-  authorizeRoles(ROLES.ADMIN, ROLES.GM),
+  authorizeRoles(ROLES.ADMIN),
   [param('id').isMongoId().withMessage('Invalid id')],
   runValidations,
   auditMiddleware('UPDATE', 'User'),
@@ -136,7 +136,7 @@ router.delete(
 // Assign user to block
 router.put(
   '/:id/assign-block',
-  authorizeRoles(ROLES.ADMIN, ROLES.GM),
+  authorizeRoles(ROLES.ADMIN),
   [
     param('id').isMongoId().withMessage('Invalid user id'),
     body('blockId').isMongoId().withMessage('Invalid block id')

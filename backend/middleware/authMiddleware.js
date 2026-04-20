@@ -40,28 +40,31 @@ module.exports = async function (req, res, next) {
     // Fetch full user object from DB for fresh role 
     try {
       const userObj = await User.findById(decoded.id).select('-password').populate('block', 'name location')
-      if (userObj) {
-        // Enforce account suspension
-        if (userObj.status === 'suspended') {
-          return res.status(403).json({ success: false, message: 'Your account has been suspended. Please contact the administrator.' });
-        }
+      if (!userObj) {
+         return res.status(401).json({ success: false, message: 'User no longer exists. Token invalid.' });
+      }
 
-        req.userObj = userObj
-        req.user.role = userObj.role  // Guarantee role is fresh from DB
-        req.user.block = userObj.block // Attach block (ObjectId or populated doc)
-        req.user.name = userObj.name
+      // Enforce account suspension
+      if (userObj.status === 'suspended') {
+        return res.status(403).json({ success: false, message: 'Your account has been suspended. Please contact the administrator.' });
+      }
 
-        // Invalidate tokens issued before user's last logout
-        if (userObj.lastLogoutAt && decoded.iat) {
-          const tokenIssuedAt = decoded.iat; // seconds since epoch
-          const lastLogoutAtSec = Math.floor(new Date(userObj.lastLogoutAt).getTime() / 1000);
-          if (tokenIssuedAt <= lastLogoutAtSec) {
-            return res.status(401).json({ success: false, message: 'Token invalid (user logged out)' });
-          }
+      req.userObj = userObj
+      req.user.role = userObj.role  // Guarantee role is fresh from DB
+      req.user.block = userObj.block // Attach block (ObjectId or populated doc)
+      req.user.name = userObj.name
+
+      // Invalidate tokens issued before user's last logout
+      if (userObj.lastLogoutAt && decoded.iat) {
+        const tokenIssuedAt = decoded.iat; // seconds since epoch
+        const lastLogoutAtSec = Math.floor(new Date(userObj.lastLogoutAt).getTime() / 1000);
+        if (tokenIssuedAt <= lastLogoutAtSec) {
+          return res.status(401).json({ success: false, message: 'Token invalid (user logged out)' });
         }
       }
     } catch (e) {
-      // ignore user attach errors, continue with req.userId
+      // Database error during fetch, return 500 or let fail gracefully? Let's fail secure.
+      return res.status(401).json({ success: false, message: 'Token validation failed' });
     }
 
     // ── Area 1: Token Blacklist Check ──────────────────────────────────────

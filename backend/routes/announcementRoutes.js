@@ -25,7 +25,7 @@ router.get(
 // Create announcement (Admin and GM only)
 router.post(
   '/',
-  authorizeRoles(ROLES.ADMIN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL),
+  authorizeRoles(ROLES.ADMIN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.WARDEN),
   [
     body('title').trim().notEmpty().withMessage('Title is required').isLength({ max: 100 }).withMessage('Title cannot exceed 100 characters'),
     body('content').trim().notEmpty().withMessage('Content is required').isLength({ max: 2000 }).withMessage('Content cannot exceed 2000 characters'),
@@ -39,14 +39,14 @@ router.post(
 // Update announcement (creator or admin)
 router.put(
   '/:id',
-  authorizeRoles(ROLES.ADMIN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL),
+  authorizeRoles(ROLES.ADMIN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL, ROLES.WARDEN),
   announcementController.updateAnnouncement
 );
 
 // Delete announcement
 router.delete(
   '/:id',
-  authorizeRoles(ROLES.ADMIN, ROLES.GM, ROLES.DEAN, ROLES.PRINCIPAL),
+  authorizeRoles(ROLES.ADMIN, ROLES.GM, ROLES.WARDEN),
   announcementController.deleteAnnouncement
 );
 

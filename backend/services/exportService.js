@@ -41,19 +41,29 @@ function dataToCSV(headers, rows) {
  * @returns {string} CSV content
  */
 function generateUsageCSV(usageRecords = []) {
-  const headers = ['Date', 'Resource', 'Category', 'Value', 'Unit', 'Block', 'User', 'Status', 'Notes'];
+  const headers = ['Date', 'Resource', 'Category', 'Value', 'Unit', 'Cost', 'Block', 'User', 'Status', 'Notes'];
   
-  const rows = usageRecords.map(record => [
-    new Date(record.usage_date).toISOString().split('T')[0],
-    record.resource_type || '',
-    record.category || '',
-    record.usage_value || 0,
-    record.unit || '',
-    record.blockId?.name || '',
-    record.userId?.name || '',
-    record.deleted ? 'Deleted' : 'Active',
-    record.notes || ''
-  ]);
+  const rows = usageRecords.map(record => {
+    // Dynamic cost fallback calculation if not already calculated in controller
+    let cost = record.cost;
+    if (record.resourceId && (record.resourceId.costPerUnit || record.resourceId.rate)) {
+      const price = record.resourceId.costPerUnit || record.resourceId.rate || 0;
+      cost = Math.round((record.usage_value * price) * 100) / 100;
+    }
+
+    return [
+      new Date(record.usage_date).toISOString().split('T')[0],
+      record.resource_type || '',
+      record.category || '',
+      record.usage_value || 0,
+      record.unit || '',
+      cost || 0,
+      record.blockId?.name || '',
+      record.userId?.name || '',
+      record.deleted ? 'Deleted' : 'Active',
+      record.notes || ''
+    ];
+  });
 
   return dataToCSV(headers, rows);
 }
@@ -183,14 +193,15 @@ function generateUsagePDF(options = {}) {
   doc.fontSize(12).font('Helvetica-Bold').fillColor('#000').text('Detailed Consumption Log', { underline: true });
   doc.moveDown();
 
-  // Table header
-  const colX = { date: 50, resource: 120, value: 200, unit: 260, block: 320, user: 420 };
+  // Table header - Adjusted for Cost column
+  const colX = { date: 45, resource: 100, value: 170, unit: 210, cost: 260, block: 320, user: 430 };
   const drawTableHeader = (y) => {
-    doc.fontSize(9).font('Helvetica-Bold').fillColor('#334155');
+    doc.fontSize(8).font('Helvetica-Bold').fillColor('#334155');
     doc.text('Date', colX.date, y);
-    doc.text('Resource', colX.resource, y, { width: 80 });
-    doc.text('Value', colX.value, y, { width: 60 });
-    doc.text('Unit', colX.unit, y, { width: 60 });
+    doc.text('Resource', colX.resource, y, { width: 70 });
+    doc.text('Value', colX.value, y, { width: 40 });
+    doc.text('Unit', colX.unit, y, { width: 40 });
+    doc.text('Cost', colX.cost, y, { width: 50 });
     doc.text('Block', colX.block, y, { width: 100 });
     doc.text('User', colX.user, y);
     doc.moveTo(40, y + 12).lineTo(555, y + 12).stroke('#e2e8f0');
@@ -200,35 +211,37 @@ function generateUsagePDF(options = {}) {
   let rowY = drawTableHeader(doc.y);
 
   // Table rows
-  doc.fontSize(8).font('Helvetica').fillColor('#475569');
+  doc.fontSize(7).font('Helvetica').fillColor('#475569');
   data.forEach((record, index) => {
     // Page break check
     if (rowY > 700) {
       doc.addPage();
       rowY = drawTableHeader(40);
-      doc.fontSize(8).font('Helvetica').fillColor('#475569');
+      doc.fontSize(7).font('Helvetica').fillColor('#475569');
     }
 
     const y = rowY;
     const dateStr = record.usage_date ? new Date(record.usage_date).toISOString().split('T')[0] : 'N/A';
-    doc.text(dateStr, colX.date, y);
-    doc.text(record.resource_type || '', colX.resource, y, { width: 80 });
-    doc.text(String(record.usage_value || 0), colX.value, y, { width: 60 });
-    doc.text(record.unit || '', colX.unit, y, { width: 60 });
-    doc.text(record.blockId?.name || '-', colX.block, y, { width: 100 });
-    doc.text(record.userId?.name || 'System', colX.user, y);
     
+    // Dynamic cost logic
+    let costVal = record.cost;
+    if (record.resourceId && (record.resourceId.costPerUnit || record.resourceId.rate)) {
+      const price = record.resourceId.costPerUnit || record.resourceId.rate || 0;
+      costVal = Math.round((record.usage_value * price) * 100) / 100;
+    }
+
     // Zebra striping
     if (index % 2 === 0) {
       doc.save().rect(40, y - 2, 515, 12).fillColor('#f8fafc').fillOpacity(0.5).fill().restore();
-      // Re-draw text on top of striping
-      doc.text(dateStr, colX.date, y);
-      doc.text(record.resource_type || '', colX.resource, y, { width: 80 });
-      doc.text(String(record.usage_value || 0), colX.value, y, { width: 60 });
-      doc.text(record.unit || '', colX.unit, y, { width: 60 });
-      doc.text(record.blockId?.name || '-', colX.block, y, { width: 100 });
-      doc.text(record.userId?.name || 'System', colX.user, y);
     }
+
+    doc.text(dateStr, colX.date, y);
+    doc.text(record.resource_type || '', colX.resource, y, { width: 70 });
+    doc.text(String(record.usage_value || 0), colX.value, y, { width: 40 });
+    doc.text(record.unit || '', colX.unit, y, { width: 40 });
+    doc.text(`${(costVal || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0 })}`, colX.cost, y, { width: 55 });
+    doc.text(record.blockId?.name || '-', colX.block, y, { width: 100 });
+    doc.text(record.userId?.name || 'System', colX.user, y);
     
     rowY += 14;
   });

@@ -101,7 +101,7 @@ exports.getUsageSummary = async (options = {}) => {
             monthlyLimit: cfg.monthlyLimit || 1000,
             icon: cfg.icon || '📊',
             color: cfg.color || '#64748b',
-            totalCost: usage ? Math.round(usage.totalCost * 100) / 100 : 0
+            totalCost: usage ? Math.round((usage.total * (cfg.costPerUnit || 0)) * 100) / 100 : 0
         };
 
         summary[cfg.name] = metrics;

@@ -118,8 +118,9 @@ export default function UsageList() {
             Resource: u.resource_type,
             Consumption: u.usage_value,
             Unit: u.unit || 'units',
+            Cost: u.cost || 0,
             Location: u.blockId?.name || 'N/A',
-            Date: new Date(u.usage_date).toLocaleString(),
+            Date: u.usage_date ? new Date(u.usage_date).toLocaleString() : 'N/A',
             LoggedBy: u.createdBy?.name || u.userId?.name || 'System',
             Notes: u.notes || ''
         }));
@@ -296,6 +297,9 @@ export default function UsageList() {
                                     <th onClick={() => handleSort('usage_date')} className="cursor-pointer group">
                                         Recorded <SortIcon field="usage_date" sortField={sortField} sortDirection={sortDirection} />
                                     </th>
+                                    <th onClick={() => handleSort('cost')} className="cursor-pointer group">
+                                        Cost <SortIcon field="cost" sortField={sortField} sortDirection={sortDirection} />
+                                    </th>
                                     <th onClick={() => handleSort('userId.name')} className="cursor-pointer group">
                                         Logged By <SortIcon field="userId.name" sortField={sortField} sortDirection={sortDirection} />
                                     </th>
@@ -322,6 +326,9 @@ export default function UsageList() {
                                         <td className="text-sm font-medium text-secondary">
                                             {new Date(u.usage_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                                             <span className="ml-2 opacity-50 text-[10px]">{new Date(u.usage_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                        </td>
+                                        <td className="font-black text-rose-600 dark:text-rose-400 tabular-nums">
+                                            ₹{(u.cost || 0).toLocaleString()}
                                         </td>
                                         <td>
                                             <div className="text-sm font-semibold truncate max-w-[140px]" title={u.createdBy?.name || u.userId?.name || 'System'}>

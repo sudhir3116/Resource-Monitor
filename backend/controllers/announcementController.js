@@ -12,31 +12,69 @@ exports.getAnnouncements = async (req, res) => {
     const { type, priority, limit = 20, page = 1 } = req.query;
     const user = req.user;
 
-    // Build filter - announcements visible to this user
-    // Check: targetRole contains 'all' OR contains user's role
-    // Check: targetBlock is null (for all blocks) OR matches user's block
-    const filter = {
-      $and: [
-        {
-          $or: [
-            { targetRole: { $in: ['all'] } },      // 'all' is an element in the array
-            { targetRole: { $in: [user.role] } }  // user.role is an element in the array
-          ]
-        },
-        {
-          $or: [
-            { targetBlock: null },              // Announcement for all blocks
-            { targetBlock: user.block }         // Announcement for user's specific block
-          ]
-        },
-        {
-          $or: [
-            { expiresAt: null },                // No expiration date
-            { expiresAt: { $gt: new Date() } } // Expiration date in the future
-          ]
-        }
+    const roleMatch = (user.role || '').toLowerCase();
+    
+    // Default base conditions (not expired)
+    const activeCondition = {
+      $or: [
+        { expiresAt: null },
+        { expiresAt: { $gt: new Date() } }
       ]
     };
+
+    let filter = {};
+    if (roleMatch === 'admin') {
+      filter = activeCondition; // Admin sees all
+    } else if (roleMatch === 'gm') {
+      if (user.block) {
+        filter = {
+          $and: [
+            activeCondition,
+            {
+              $or: [
+                { targetBlock: null },
+                { targetBlock: user.block },
+                { createdBy: user.id }
+              ]
+            }
+          ]
+        };
+      } else {
+        filter = activeCondition;
+      }
+    } else if (roleMatch === 'warden') {
+      filter = {
+        $and: [
+          activeCondition,
+          {
+            $or: [
+              { targetBlock: null },
+              { targetBlock: user.block },
+              { createdBy: user.id }
+            ]
+          }
+        ]
+      };
+    } else {
+      // Student or others
+      filter = {
+        $and: [
+          activeCondition,
+          {
+            $or: [
+              { targetBlock: null },
+              { targetBlock: user.block }
+            ]
+          },
+          {
+            $or: [
+              { targetRole: { $in: ['all'] } },
+              { targetRole: { $in: [roleMatch] } }
+            ]
+          }
+        ]
+      };
+    }
 
     // Apply optional filters
     if (type && type !== 'All') {
@@ -44,6 +82,9 @@ exports.getAnnouncements = async (req, res) => {
     }
     if (priority && priority !== 'All') {
       filter.priority = priority;
+    }
+    if (req.query.blockId && req.query.blockId !== 'All') {
+       filter.targetBlock = req.query.blockId;
     }
 
     // Query announcements
@@ -115,19 +156,31 @@ exports.createAnnouncement = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Title and content are required' });
     }
 
-    // Validate role (admin, gm, dean, and principal)
+    // Validate role (admin, gm, dean, principal, warden)
     const normalizedRole = (user.role || '').toLowerCase();
-    const canPost = ['admin', 'gm', 'dean', 'principal'].includes(normalizedRole);
+    const canPost = ['admin', 'gm', 'dean', 'principal', 'warden'].includes(normalizedRole);
     if (!canPost) {
       return res.status(403).json({ success: false, message: 'Not authorized to create announcements' });
     }
 
-    // Validate targetBlock if provided
-    if (targetBlock && targetBlock !== 'null' && targetBlock !== null) {
-      if (!mongoose.Types.ObjectId.isValid(targetBlock)) {
+    // Warden enforcement for block
+    let finalTargetBlock = targetBlock && targetBlock !== 'null' ? targetBlock : null;
+    if (normalizedRole === 'warden') {
+      finalTargetBlock = user.block; // Force warden's block
+    } else if (normalizedRole === 'gm' && user.block && !finalTargetBlock) {
+      finalTargetBlock = user.block; // Default to GM's block if not set, or let them set null if admin allows? GMs manage assigned blocks. 
+      // Actually strictly:
+      // if (targetBlock && targetBlock !== user.block) return 403? 
+      // Let's just trust GM inputs unless they are bound to a single block, but the user spec says "GM: Can create and manage notices for assigned blocks." So:
+      // If GM has a user.block, enforce it for creation if they don't have access to all. Let's just enforce user.block if it exists.
+      finalTargetBlock = user.block;
+    }
+
+    if (finalTargetBlock && finalTargetBlock !== 'null' && finalTargetBlock !== null) {
+      if (!mongoose.Types.ObjectId.isValid(finalTargetBlock)) {
         return res.status(400).json({ success: false, message: 'Invalid target block ID' });
       }
-      const block = await Block.findById(targetBlock);
+      const block = await Block.findById(finalTargetBlock);
       if (!block) {
         return res.status(404).json({ success: false, message: 'Target block not found' });
       }
@@ -140,8 +193,9 @@ exports.createAnnouncement = async (req, res) => {
       type: type || 'GENERAL',
       priority: priority || 'MEDIUM',
       targetRole: targetRole || ['all'],
-      targetBlock: targetBlock && targetBlock !== 'null' ? targetBlock : null,
+      targetBlock: finalTargetBlock,
       createdBy: user.id,
+      createdByRole: normalizedRole,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
       pinned: pinned || false,
       attachmentUrl: attachmentUrl || null
@@ -190,16 +244,33 @@ exports.updateAnnouncement = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Announcement not found' });
     }
 
-    // Check permissions - admin, gm, dean, and principal
+    // Check permissions - admin, gm, dean, principal, warden
     const roleMatch = (user.role || '').toLowerCase();
-    if (!['admin', 'gm', 'dean', 'principal'].includes(roleMatch)) {
+    if (!['admin', 'gm', 'dean', 'principal', 'warden'].includes(roleMatch)) {
       return res.status(403).json({ success: false, message: 'Not authorized to edit announcements' });
     }
 
-    // Dean and Principal can only edit their own announcements
-    if (['dean', 'principal'].includes(roleMatch) && announcement.createdBy.toString() !== user.id) {
-      return res.status(403).json({ success: false, message: `${user.role}s can only edit their own announcements` });
-    }
+    if (roleMatch !== 'admin') {
+      if (roleMatch === 'gm') {
+         if (user.block && announcement.targetBlock?.toString() !== user.block.toString() && announcement.createdBy.toString() !== user.id) {
+             return res.status(403).json({ success: false, message: 'GMs can only manage notices for their assigned blocks' });
+         }
+         if (targetBlock && user.block && targetBlock !== user.block.toString()) {
+             return res.status(403).json({ success: false, message: 'GMs cannot move notices to other blocks' });
+         }
+      } else if (roleMatch === 'warden') {
+         if (announcement.targetBlock?.toString() !== user.block.toString() && announcement.createdBy.toString() !== user.id) {
+            return res.status(403).json({ success: false, message: 'Wardens can only manage notices for their assigned blocks' });
+         }
+         if (targetBlock && targetBlock !== 'null' && targetBlock !== null && targetBlock !== user.block.toString()) {
+            return res.status(403).json({ success: false, message: 'Wardens cannot assign notices to other blocks' });
+         }
+      } else {
+         if (announcement.createdBy.toString() !== user.id) {
+            return res.status(403).json({ success: false, message: `${user.role}s can only edit their own announcements` });
+         }
+      }
+   }
 
     // Update fields
     if (title) announcement.title = title;
@@ -207,11 +278,15 @@ exports.updateAnnouncement = async (req, res) => {
     if (type) announcement.type = type;
     if (priority) announcement.priority = priority;
     if (targetRole) announcement.targetRole = targetRole;
-    if (targetBlock) {
-      if (targetBlock === 'null' || targetBlock === null) {
-        announcement.targetBlock = null;
+    if (targetBlock !== undefined) {
+      if (roleMatch === 'warden' || (roleMatch === 'gm' && user.block)) {
+         announcement.targetBlock = user.block;
       } else {
-        announcement.targetBlock = targetBlock;
+        if (targetBlock === 'null' || targetBlock === null) {
+          announcement.targetBlock = null;
+        } else {
+          announcement.targetBlock = targetBlock;
+        }
       }
     }
     if (expiresAt !== undefined) {
@@ -249,7 +324,7 @@ exports.deleteAnnouncement = async (req, res) => {
 
     // Permissions check
     const currentRole = (user.role || '').toLowerCase();
-    if (!['admin', 'gm', 'dean', 'principal'].includes(currentRole)) {
+    if (!['admin', 'gm', 'warden'].includes(currentRole)) {
       return res.status(403).json({ success: false, message: 'Not authorized to delete announcements' });
     }
 
@@ -258,9 +333,16 @@ exports.deleteAnnouncement = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Announcement not found' });
     }
 
-    // Dean and Principal can only delete their own
-    if (['dean', 'principal'].includes(currentRole) && announcement.createdBy.toString() !== user.id) {
-      return res.status(403).json({ success: false, message: `${user.role}s can only delete their own announcements` });
+    if (currentRole !== 'admin') {
+      if (currentRole === 'gm') {
+         if (user.block && announcement.targetBlock?.toString() !== user.block.toString() && announcement.createdBy.toString() !== user.id) {
+             return res.status(403).json({ success: false, message: 'GMs can only delete notices for their assigned blocks' });
+         }
+      } else if (currentRole === 'warden') {
+         if (announcement.targetBlock?.toString() !== user.block.toString() && announcement.createdBy.toString() !== user.id) {
+            return res.status(403).json({ success: false, message: 'Wardens can only delete notices for their assigned blocks' });
+         }
+      }
     }
 
     await Announcement.findByIdAndDelete(id);

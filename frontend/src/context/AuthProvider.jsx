@@ -42,9 +42,6 @@ const AuthProvider = ({ children }) => {
         setUser(userData)
         setToken(storedToken)
 
-        // Sync stored user data
-        localStorage.setItem('user', JSON.stringify(userData))
-
         // Connect socket once
         if (!socketConnected.current) {
           connectSocket(storedToken)
@@ -72,24 +69,13 @@ const AuthProvider = ({ children }) => {
         if (isTokenDead) {
           // Token is genuinely dead — clear session
           localStorage.removeItem('token')
-          localStorage.removeItem('user')
           setUser(null)
           setToken(null)
           disconnectSocket()
           socketConnected.current = false;
         } else if (!err.response) {
-          // Network error / Render cold start — keep user logged in from cache
-          const cachedUser = localStorage.getItem('user');
-          if (cachedUser) {
-            try {
-              const parsed = JSON.parse(cachedUser);
-              setUser(parsed)
-              setToken(storedToken)
-              console.warn('[Auth] Backend unreachable — session restored from cache.');
-            } catch (_) {
-              localStorage.removeItem('user')
-            }
-          }
+          // Network error 
+          console.warn('[Auth] Backend unreachable.');
         }
         // Other errors (403, 5xx) — keep user logged in, API calls will surface errors
       } finally {
@@ -116,7 +102,6 @@ const AuthProvider = ({ children }) => {
       setUser(null)
       setToken(null)
       localStorage.removeItem('token')
-      localStorage.removeItem('user')
       disconnectSocket()
       socketConnected.current = false;
       navigate('/login', { replace: true })
@@ -125,8 +110,15 @@ const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const handleAuthError = () => logout()
-    
     window.addEventListener('auth:unauthorized', handleAuthError)
+
+    const handleStorageChange = (e) => {
+      if (e.key === 'token') {
+        if (!e.newValue) logout()
+        else window.location.reload()
+      }
+    }
+    window.addEventListener('storage', handleStorageChange)
 
     // Socket listener for real-time suspension/deletion logout
     const s = getSocket()
@@ -146,14 +138,16 @@ const AuthProvider = ({ children }) => {
 
     return () => {
       window.removeEventListener('auth:unauthorized', handleAuthError)
+      window.removeEventListener('storage', handleStorageChange)
       s.off('user:suspended', handleSuspended)
     }
   }, [user, logout])
 
   const login = async (email, password) => {
     try {
+      setUser(null); // Step 5: Reset state on login
+
       const response = await api.post('/api/auth/login', { email, password })
-      const rawUserData = response.data.data || response.data.user
       const authToken = response.data.token
 
       // Guard: if no token returned, treat as failed login
@@ -161,21 +155,35 @@ const AuthProvider = ({ children }) => {
         throw new Error('Authentication failed: no token received from server.')
       }
 
+      // Step 1: Store ONLY token in localStorage
+      localStorage.setItem('token', authToken)
+      setToken(authToken)
+
+      // Step 2: Immediately call /me
+      const meResponse = await api.get('/api/auth/me')
+      const rawUserData = meResponse.data.user || meResponse.data.data || meResponse.data
       const userData = { ...rawUserData, role: (rawUserData?.role || '').toLowerCase() }
 
-      // Write to localStorage BEFORE state update so ProtectedRoute sees it immediately
-      localStorage.setItem('token', authToken)
-      localStorage.setItem('user', JSON.stringify(userData))
-
+      // Step 1 & 5: Store returned user in React state
       setUser(userData)
-      setToken(authToken)
       if (!socketConnected.current) {
         connectSocket(authToken)
         socketConnected.current = true;
       }
 
-      // Always go to dashboard after login as per new requirement
-      navigate('/dashboard', { replace: true })
+      // Step 3: Redirect logic ONLY based on user.role from /me
+      const roleMap = {
+        admin: '/admin/dashboard',
+        gm: '/gm/dashboard',
+        warden: '/warden/dashboard',
+        student: '/student/dashboard',
+        dean: '/dean/dashboard',
+        principal: '/principal/dashboard'
+      };
+      
+      const targetDashboard = roleMap[userData.role] || '/dashboard';
+      navigate(targetDashboard, { replace: true })
+      
       return { success: true }
     } catch (error) {
       let errorMessage = 'Login failed. Please try again.'
@@ -203,7 +211,6 @@ const AuthProvider = ({ children }) => {
         const userData = { ...rawUserData, role: (rawUserData?.role || '').toLowerCase() }
         
         localStorage.setItem('token', authToken)
-        localStorage.setItem('user', JSON.stringify(userData))
         setUser(userData)
         setToken(authToken)
         connectSocket(authToken)
@@ -234,7 +241,6 @@ const AuthProvider = ({ children }) => {
   const setUserData = (userData) => {
     const normalizedData = { ...userData, role: (userData?.role || '').toLowerCase() };
     setUser(normalizedData);
-    localStorage.setItem('user', JSON.stringify(normalizedData));
   }
 
   return (

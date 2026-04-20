@@ -204,6 +204,9 @@ const reviewComplaint = async (req, res) => {
 
         const complaint = await Complaint.findById(id);
         if (!complaint) return res.status(404).json({ success: false, error: 'Complaint not found' });
+        if (req.user.role === 'warden' && complaint.blockId?.toString() !== req.user.block?.toString()) {
+            return res.status(403).json({ success: false, error: 'Access denied. You can only manage complaints within your assigned block.' });
+        }
         if (complaint.status === 'resolved') return res.status(400).json({ success: false, error: 'Cannot review an already resolved complaint' });
 
         const userId = req.user.id || req.userId;
@@ -266,6 +269,9 @@ const resolveComplaint = async (req, res) => {
 
         const complaint = await Complaint.findById(id);
         if (!complaint) return res.status(404).json({ success: false, error: 'Complaint not found' });
+        if (req.user.role === 'warden' && complaint.blockId?.toString() !== req.user.block?.toString()) {
+            return res.status(403).json({ success: false, error: 'Access denied. You can only resolve complaints within your assigned block.' });
+        }
         if (complaint.status === 'resolved') return res.status(400).json({ success: false, error: 'Complaint is already resolved' });
 
         const resolverId = req.user.id || req.userId;
@@ -402,6 +408,9 @@ const updateComplaintStatus = async (req, res) => {
 
         const complaint = await Complaint.findById(id);
         if (!complaint) return res.status(404).json({ success: false, error: 'Complaint not found' });
+        if (req.user.role === 'warden' && complaint.blockId?.toString() !== req.user.block?.toString()) {
+            return res.status(403).json({ success: false, error: 'Access denied. You can only manage complaints within your assigned block.' });
+        }
 
         // Validate status transition (state machine)
         const validTransitions = VALID_TRANSITIONS[complaint.status] || [];

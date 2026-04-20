@@ -47,6 +47,7 @@ const DeanDashboard = ExecutiveDashboard;
 const DeanAnalytics = React.lazy(() => import('./pages/dean/DeanAnalytics'));
 const DeanReports = React.lazy(() => import('./pages/dean/DeanReports'));
 const DeanAnnouncements = React.lazy(() => import('./pages/dean/DeanAnnouncements'));
+const Unauthorized = React.lazy(() => import('./pages/Unauthorized'));
 
 // Redirects /dashboard to role-specific URL
 const RoleDashboard = () => {
@@ -490,6 +491,7 @@ function App() {
             {/* ════════════════════════════════════════════════════════════════ */}
             {/* 404 FALLBACK — Must be last                                     */}
             {/* ════════════════════════════════════════════════════════════════ */}
+            <Route path="/unauthorized" element={<Unauthorized />} />
             <Route path="*" element={<NotFound />} />
 
           </Route>

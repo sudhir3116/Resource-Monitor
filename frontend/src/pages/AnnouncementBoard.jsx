@@ -37,10 +37,22 @@ const AnnouncementBoard = () => {
   });
 
   const role = (user?.role || '').toLowerCase();
-  const canCreate = ['admin', 'gm', 'dean', 'principal'].includes(role);
+  const canCreate = ['admin', 'gm', 'dean', 'principal', 'warden'].includes(role);
   const canManageNotice = (notice) => {
-    if (['admin', 'gm'].includes(role)) return true;
-    if (role === 'dean' && notice.createdBy?._id === user?._id) return true;
+    if (role === 'admin') return true;
+    if (role === 'gm') {
+      const noticeBlock = notice.targetBlock?._id || notice.targetBlock;
+      const userBlock = user.block?._id || user.block;
+      if (userBlock && noticeBlock !== userBlock && notice.createdBy?._id !== user?._id) return false;
+      return true;
+    }
+    if (role === 'warden') {
+      const noticeBlock = notice.targetBlock?._id || notice.targetBlock;
+      const userBlock = user.block?._id || user.block;
+      if ((noticeBlock && noticeBlock === userBlock) || notice.createdBy?._id === user?._id) return true;
+      return false;
+    }
+    if (['dean', 'principal'].includes(role) && notice.createdBy?._id === user?._id) return true;
     return false;
   };
 
@@ -251,6 +263,25 @@ const AnnouncementBoard = () => {
                   </select>
                 </div>
               </div>
+
+              {['admin', 'gm'].includes(role) && (
+                <div>
+                  <label className="label mb-1.5 flex items-center gap-2">
+                    <MapPin size={14} className="text-slate-400" />
+                    Target Block (Optional)
+                  </label>
+                  <select 
+                    className="input w-full"
+                    value={formData.targetBlock || 'null'}
+                    onChange={e => setFormData({ ...formData, targetBlock: e.target.value === 'null' ? null : e.target.value })}
+                  >
+                    <option value="null">All Blocks (Global Notice)</option>
+                    {blocks.map(b => (
+                      <option key={b._id} value={b._id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-4">
                 <div>

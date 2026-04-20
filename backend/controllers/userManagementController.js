@@ -358,8 +358,8 @@ exports.deleteUser = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Cannot delete your own account' });
     }
 
-    // Soft delete - mark as suspended
-    await User.findByIdAndUpdate(req.params.id, { status: 'suspended' }, { new: true });
+    // Hard delete - physically remove from DB to prevent ghosting
+    await User.findByIdAndDelete(req.params.id);
 
     // Audit log
     await AuditLog.create({
@@ -367,7 +367,7 @@ exports.deleteUser = async (req, res) => {
       resourceType: 'User',
       resourceId: user._id,
       userId: req.user.id,
-      description: `Suspended/deleted user: ${user.name}`
+      description: `Physically deleted user: ${user.name}`
     });
 
     try {

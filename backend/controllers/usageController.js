@@ -420,14 +420,36 @@ exports.getUsages = async (req, res) => {
       .populate('userId', 'name email role block')
       .populate('createdBy', 'name email role')
       .populate('blockId', 'name location')
-      .populate('resourceId', 'resource unit costPerUnit category'); // Corrected field name: resourceId
+      .populate('resourceId', 'name resource unit costPerUnit category');
 
     const total = await Usage.countDocuments(filter);
+
+    // Dynamic cost calculation based on latest ResourceConfig price
+    // Fetch all configs for robust fallback (if resourceId is missing on older records)
+    const allConfigs = await Resource.find({ isDeleted: { $ne: true } }).lean();
+    const configMap = {};
+    allConfigs.forEach(c => { configMap[(c.name || '').toLowerCase()] = c; });
+
+    const usagesWithCost = usages.map(u => {
+      const doc = u.toObject();
+      
+      // Priority 1: Populated resourceId (New records)
+      // Priority 2: Fallback to resource_type name match (Old records)
+      const cfg = u.resourceId || configMap[(u.resource_type || '').toLowerCase()];
+      const price = cfg?.costPerUnit || cfg?.rate || 0;
+      
+      doc.cost = Math.round((u.usage_value * price) * 100) / 100;
+      
+      // Ensure unit is also up to date if missing
+      if (!doc.unit && cfg?.unit) doc.unit = cfg.unit;
+      
+      return doc;
+    });
 
     // 5. Build response
     res.json({
       success: true,
-      data: usages,
+      data: usagesWithCost,
       total,
       page: Number(page),
       pages: Math.ceil(total / pageLimit)
@@ -446,7 +468,7 @@ exports.getUsage = async (req, res) => {
     const filter = { _id: id, deleted: { $ne: true } }
 
     // Strict IDOR Check
-    const usage = await Usage.findOne(filter);
+    const usage = await Usage.findOne(filter).populate('resourceId', 'name unit costPerUnit category');
 
     if (!usage) return res.status(404).json({ success: false, message: 'Record not found' })
 
@@ -458,7 +480,23 @@ exports.getUsage = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
-    res.json({ success: true, data: usage })
+    const doc = usage.toObject();
+    let cfg = usage.resourceId;
+    
+    // Fallback if resourceId is missing or doesn't have config info
+    if (!cfg || (!cfg.costPerUnit && !cfg.rate)) {
+      const Resource = require('../models/ResourceConfig');
+      cfg = await Resource.findOne({ 
+        name: { $regex: new RegExp(`^${usage.resource_type}$`, 'i') },
+        isDeleted: { $ne: true }
+      }).lean();
+    }
+
+    const price = cfg?.costPerUnit || cfg?.rate || 0;
+    doc.cost = Math.round((usage.usage_value * price) * 100) / 100;
+    if (!doc.unit && cfg?.unit) doc.unit = cfg.unit;
+
+    res.json({ success: true, data: doc })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
   }
@@ -776,6 +814,7 @@ exports.exportUsageCSV = async (req, res) => {
       .limit(10000)
       .populate('userId', 'name email')
       .populate('blockId', 'name')
+      .populate('resourceId', 'name costPerUnit unit rate')
       .lean();
 
     const csv = exportService.generateUsageCSV(usages);

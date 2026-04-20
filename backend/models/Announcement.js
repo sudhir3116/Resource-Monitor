@@ -46,6 +46,11 @@ const announcementSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  createdByRole: {
+    type: String,
+    required: true,
+    default: 'admin' // fallback
+  },
   expiresAt: {
     type: Date,
     default: null // null means no expiration

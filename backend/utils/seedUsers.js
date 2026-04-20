@@ -3,6 +3,12 @@ const User = require("../models/User");
 
 const seedUsers = async () => {
     try {
+        const count = await User.countDocuments();
+        if (count > 0) {
+            console.log("ℹ️ Users collection not empty, skipping auto-seed to prevent ghost insertions.");
+            return;
+        }
+
         const users = [
             { email: "admin@college.com", password: "Admin@123", role: "admin", name: "Admin" },
             { email: "gm@college.com", password: "gm@123", role: "gm", name: "GM" },
